@@ -71,6 +71,12 @@ add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api)
 
+add_library(ravenemudsk_session_store STATIC src/achievements/session_store.cpp)
+target_include_directories(ravenemudsk_session_store PUBLIC include)
+if(WIN32)
+  target_link_libraries(ravenemudsk_session_store PRIVATE advapi32)
+endif()
+
 add_executable(RavenEmuDSK
   src/desktop.cpp
   src/achievements/client.cpp src/achievements/progress.cpp
@@ -84,7 +90,7 @@ target_compile_definitions(RavenEmuDSK PRIVATE
 target_include_directories(RavenEmuDSK PRIVATE include "${stb_SOURCE_DIR}")
 target_link_libraries(RavenEmuDSK PRIVATE
   ravenemudsk_ui_library ravenemudsk_imgui ravenemudsk_game_input ravenemu_c_api
-  ravenemudsk_rcheevos ${RAVENEMUDSK_SDL} CURL::libcurl)
+  ravenemudsk_rcheevos ravenemudsk_session_store ${RAVENEMUDSK_SDL} CURL::libcurl)
 if(WIN32)
   target_compile_definitions(RavenEmuDSK PRIVATE SDL_MAIN_HANDLED)
   set_target_properties(RavenEmuDSK PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -148,12 +154,24 @@ if(BUILD_TESTING)
   target_include_directories(ravenemudsk_home_grid_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_home_grid_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
   target_link_libraries(ravenemudsk_home_grid_test PRIVATE ravenemudsk_ui_library
-    ravenemudsk_imgui ravenemu_c_api ravenemudsk_rcheevos ${RAVENEMUDSK_SDL} CURL::libcurl)
+    ravenemudsk_imgui ravenemu_c_api ravenemudsk_rcheevos ravenemudsk_session_store ${RAVENEMUDSK_SDL} CURL::libcurl)
   if(WIN32)
     target_link_libraries(ravenemudsk_home_grid_test PRIVATE comdlg32 shell32 ole32 winhttp)
   endif()
   add_test(NAME home_grid COMMAND ravenemudsk_home_grid_test)
-  set_tests_properties(home_grid PROPERTIES TIMEOUT 30)
+  set_tests_properties(home_grid PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
+  add_executable(ravenemudsk_session_test tests/session_test.cpp src/achievements/client.cpp)
+  target_include_directories(ravenemudsk_session_test PRIVATE include)
+  target_link_libraries(ravenemudsk_session_test PRIVATE ravenemudsk_session_store
+    ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
+  add_test(NAME retro_session COMMAND ravenemudsk_session_test)
+  set_tests_properties(retro_session PROPERTIES TIMEOUT 30)
+  if(WIN32)
+    add_executable(ravenemudsk_windows_session_test tests/windows_session_test.cpp)
+    target_link_libraries(ravenemudsk_windows_session_test PRIVATE ravenemudsk_session_store)
+    add_test(NAME windows_session_store COMMAND ravenemudsk_windows_session_test)
+    set_tests_properties(windows_session_store PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+  endif()
   add_test(NAME help COMMAND RavenEmuDSK --help)
   add_test(NAME launcher_smoke COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1

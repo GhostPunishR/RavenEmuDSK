@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 #include <cstdint>
+#include <functional>
+#include <ravenemudsk/achievements/session_store.hpp>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,6 +26,7 @@ struct Snapshot {
     int unlocked_count = 0, total_count = 0;
     unsigned int unlocked_points = 0, total_points = 0;
     bool logged_in = false, hardcore = false;
+    bool login_pending = false, can_retry = false, session_saved = false;
     std::vector<Achievement> achievements;
 };
 struct Event {
@@ -31,9 +34,17 @@ struct Event {
     std::string id, badge_url;
     int points = 0;
 };
+struct ServerReply {
+    std::string body;
+    int status = -1;
+};
+using ServerTransport = std::function<ServerReply(const std::string&, const std::string&, const std::string&)>;
 class Client {
 public:
     Client();
+    // Injectable storage/transport let tests exercise the real SDK login flow
+    // without contacting RetroAchievements or touching the user's credentials.
+    Client(std::shared_ptr<SessionStore> storage, ServerTransport transport);
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;

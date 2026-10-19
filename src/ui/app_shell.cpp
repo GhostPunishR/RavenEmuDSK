@@ -815,6 +815,7 @@ void achievements_view(State& s, Library&) {
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::accent),
                            "Softcore : %u points  |  Hardcore : %u points",
                            snap.softcore_points, snap.hardcore_points);
+        if (snap.session_saved) muted("Connexion mémorisée pour les prochains lancements.");
         ImGui::Dummy({0.f, 4.f});
         if (!snap.game_title.empty()) {
             ImGui::Separator();
@@ -948,6 +949,8 @@ void achievements_view(State& s, Library&) {
     }
 }
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
+    const auto snap = ra.snapshot();
+    ImGui::BeginDisabled(snap.login_pending);
     ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
     ImGui::InputTextWithHint("##ra-user", "Identifiant RetroAchievements", s.ra_user, sizeof(s.ra_user));
     ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
@@ -957,7 +960,16 @@ void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
         ra.login(s.ra_user, s.ra_password);
         std::fill(std::begin(s.ra_password), std::end(s.ra_password), '\0');
     }
+    ImGui::EndDisabled();
+    if (snap.can_retry) {
+        if (!snap.login_pending && button("Réessayer", Icon::Reset, ButtonStyle::Secondary)) ra.retry();
+        if (button("Oublier la session", Icon::Exit, ButtonStyle::Ghost)) ra.disconnect();
+    }
+#ifdef _WIN32
+    muted("Votre connexion est mémorisée dans le Gestionnaire d'identifiants Windows. Le mot de passe n'est jamais enregistré.");
+#else
     muted("Connexion HTTPS officielle. Aucun mot de passe n'est conservé sur le PC.");
+#endif
 }
 // ---------------------------------------------------------------- profile
 struct Stats {

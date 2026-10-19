@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <future>
 #include <stdexcept>
@@ -14,7 +15,7 @@
 #include <vector>
 namespace ravenemudsk_ra {
 namespace {
-struct Reply { std::string body; int status = -1; };
+using Reply = ServerReply;
 size_t write_body(char* bytes, size_t size, size_t count, void* ptr) {
     auto& body = *static_cast<std::string*>(ptr);
     const size_t n = size * count;
@@ -83,6 +84,9 @@ struct Client::Impl {
     std::vector<Event> events;
     Snapshot state;
     std::string retry_user, retry_token;
+    std::shared_ptr<SessionStore> storage;
+    ServerTransport transport;
+    bool token_login = false;
 
     static Impl& self(rc_client_t* c) {
         return *static_cast<Impl*>(rc_client_get_userdata(c));
@@ -101,10 +105,11 @@ struct Client::Impl {
         const std::string post = req->post_data ? req->post_data : "";
         const std::string type = req->content_type ? req->content_type : "application/x-www-form-urlencoded";
         impl.pending.push_back(Pending{callback, userdata, std::async(std::launch::async,
-            [url, post, type] { return https_request(url, post, type); })});
+            [send = impl.transport, url, post, type] { return send(url, post, type); })});
     }
     static void logged(int result, const char*, rc_client_t* c, void*) {
         auto& impl = self(c);
+        impl.state.login_pending = false;
         if (result == RC_OK) {
             impl.state.status = "Connecté à RetroAchievements";
             impl.state.logged_in = true;
@@ -112,6 +117,12 @@ struct Client::Impl {
             if (user && user->username && user->token) {
                 impl.retry_user = user->username;
                 impl.retry_token = user->token;
+                impl.state.can_retry = true;
+                if (impl.storage) {
+                    impl.state.session_saved = impl.storage->save({impl.retry_user, impl.retry_token});
+                    if (!impl.state.session_saved)
+                        impl.state.status = "Connecté, mais la session n'a pas pu être mémorisée dans Windows";
+                }
             }
             impl.events.push_back({"login", "RetroAchievements connecté", ""});
             // When the ROM was opened before authentication, identify it now.
@@ -122,7 +133,20 @@ struct Client::Impl {
                     impl.rom.data(), impl.rom.size(), loaded, nullptr);
             }
         } else {
-            impl.state.status = "Connexion impossible : vérifiez votre compte et le réseau";
+            if (impl.token_login && (result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN)) {
+                const bool forgotten = !impl.storage || impl.storage->clear();
+                impl.retry_user.clear();
+                impl.retry_token.clear();
+                impl.state.can_retry = false;
+                impl.state.session_saved = false;
+                impl.state.status = forgotten ? "Session expirée : reconnectez votre compte" :
+                    "Session expirée : la session enregistrée n'a pas pu être effacée dans Windows";
+            } else {
+                // Keep a saved token on transient network errors so Retry (or
+                // the next launch) can reconnect without asking for a password.
+                impl.state.status = impl.token_login ? "Reconnexion impossible : réessayez lorsque le réseau est disponible" :
+                    "Connexion impossible : vérifiez votre compte et le réseau";
+            }
             impl.events.push_back({"error", "Connexion RetroAchievements impossible", ""});
         }
     }
@@ -186,9 +210,7 @@ struct Client::Impl {
         }
     }
 
-    Impl() {
-        if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK)
-            throw std::runtime_error("Initialisation HTTPS impossible");
+    void create_handle() {
         handle = rc_client_create(read, request);
         if (!handle) throw std::runtime_error("Initialisation rcheevos impossible");
         rc_client_set_userdata(handle, this);
@@ -197,10 +219,48 @@ struct Client::Impl {
         rc_client_set_allow_background_memory_reads(handle, 0);
         rc_client_set_event_handler(handle, event);
     }
+    Impl(std::shared_ptr<SessionStore> session_storage, ServerTransport send)
+        : storage(std::move(session_storage)), transport(send ? std::move(send) : ServerTransport(https_request)) {
+        if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK)
+            throw std::runtime_error("Initialisation HTTPS impossible");
+        try {
+            create_handle();
+            if (const auto saved = storage ? storage->load() : std::nullopt;
+                saved && !saved->username.empty() && !saved->token.empty()) {
+                retry_user = saved->username;
+                retry_token = saved->token;
+                state.session_saved = true;
+                begin_token_login("Reconnexion automatique en cours...");
+            }
+        } catch (...) {
+            if (handle) rc_client_destroy(handle);
+            curl_global_cleanup();
+            throw;
+        }
+    }
     ~Impl() {
-        for (auto& job : pending) job.future.wait();
+        // Mark callbacks as cancelled before draining their transport jobs.
+        // They may free SDK bookkeeping, but must never restore a signed-out user.
         if (handle) rc_client_destroy(handle);
+        for (auto& job : pending) complete(job);
         curl_global_cleanup();
+    }
+    static void complete(Pending& job) {
+        Reply reply;
+        try { reply = job.future.get(); } catch (...) { /* treated as a network failure */ }
+        const rc_api_server_response_t response{reply.body.c_str(), reply.body.size(), reply.status};
+        job.callback(&response, job.userdata);
+    }
+    void begin_token_login(const char* status) {
+        const bool saved = state.session_saved;
+        rc_client_logout(handle);
+        state = Snapshot{};
+        state.status = status;
+        state.login_pending = true;
+        state.can_retry = true;
+        state.session_saved = saved;
+        token_login = true;
+        rc_client_begin_login_with_token(handle, retry_user.c_str(), retry_token.c_str(), logged, nullptr);
     }
     void refresh() {
         const auto* user = rc_client_get_user_info(handle);
@@ -257,9 +317,7 @@ struct Client::Impl {
             if (pending[i].future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
                 Pending job = std::move(pending[i]);
                 pending.erase(pending.begin() + static_cast<std::ptrdiff_t>(i));
-                Reply reply = job.future.get();
-                const rc_api_server_response_t response{reply.body.c_str(), reply.body.size(), reply.status};
-                job.callback(&response, job.userdata);
+                complete(job);
             } else ++i;
         }
         if (frame && memory) rc_client_do_frame(handle);
@@ -267,27 +325,36 @@ struct Client::Impl {
         refresh();
     }
 };
-Client::Client() : impl_(std::make_unique<Impl>()) {}
+// UI smoke tests must not load a real user's saved account or make login requests.
+Client::Client() : Client(std::getenv("RAVENEMUDSK_UI_SMOKE") ? nullptr : make_session_store(), {}) {}
+Client::Client(std::shared_ptr<SessionStore> storage, ServerTransport transport)
+    : impl_(std::make_unique<Impl>(std::move(storage), std::move(transport))) {}
 Client::~Client() = default;
 void Client::login(const std::string& user, const std::string& password) {
-    if (user.empty() || password.empty()) return;
+    if (user.empty() || password.empty() || impl_->state.login_pending) return;
+    rc_client_logout(impl_->handle);
+    impl_->state.logged_in = false;
+    impl_->state.login_pending = true;
+    impl_->token_login = false;
     impl_->state.status = "Connexion en cours…";
     rc_client_begin_login_with_password(impl_->handle, user.c_str(), password.c_str(), Impl::logged, nullptr);
 }
 void Client::retry() {
-    if (impl_->retry_user.empty() || impl_->retry_token.empty()) return;
-    const std::string username = impl_->retry_user;
-    const std::string token = impl_->retry_token;
-    rc_client_logout(impl_->handle);
-    impl_->state = Snapshot{};
-    impl_->state.status = "Reconnexion en cours...";
-    rc_client_begin_login_with_token(impl_->handle, username.c_str(), token.c_str(), Impl::logged, nullptr);
+    if (impl_->state.login_pending || impl_->retry_user.empty() || impl_->retry_token.empty()) return;
+    impl_->begin_token_login("Reconnexion en cours...");
 }
 void Client::disconnect() {
-    rc_client_logout(impl_->handle);
+    // Destroying the old SDK client also invalidates callbacks still in flight.
+    // A late automatic login response cannot reconnect after explicit logout.
+    rc_client_destroy(impl_->handle);
+    impl_->handle = nullptr;
+    impl_->create_handle();
+    const bool forgotten = !impl_->storage || impl_->storage->clear();
     impl_->retry_user.clear();
     impl_->retry_token.clear();
     impl_->state = Snapshot{};
+    if (!forgotten)
+        impl_->state.status = "Déconnecté, mais Windows n'a pas pu effacer la session enregistrée";
     impl_->events.clear();
 }
 void Client::start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core) {
@@ -300,7 +367,7 @@ void Client::start_game(int console, const std::vector<std::uint8_t>& rom, raven
     if (rc_client_get_user_info(impl_->handle))
         rc_client_begin_identify_and_load_game(impl_->handle, ra_console, nullptr,
             impl_->rom.data(), impl_->rom.size(), Impl::loaded, nullptr);
-    else impl_->state.status = "Connectez votre compte pour activer les succès";
+    else if (!impl_->state.login_pending) impl_->state.status = "Connectez votre compte pour activer les succès";
 }
 void Client::end_game() {
     impl_->memory = nullptr;

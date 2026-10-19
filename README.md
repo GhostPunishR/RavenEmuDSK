@@ -107,7 +107,8 @@ L'intégration repose sur le SDK [rcheevos](https://github.com/RetroAchievements
 
 - Une connexion Internet et une ROM reconnue par RetroAchievements sont nécessaires pour les fonctions en ligne.
 - Le mode proposé est **Softcore**. Le mode Hardcore n'est pas proposé dans cette version.
-- Le mot de passe n'est pas sauvegardé et le jeton de session n'est pas conservé sur disque.
+- Le mot de passe n'est jamais sauvegardé. Sous Windows, le jeton de session est conservé dans le Gestionnaire d'identifiants de votre compte Windows pour vous reconnecter automatiquement au démarrage. **Déconnexion** ou **Oublier la session** efface cette connexion mémorisée.
+- Si le réseau est indisponible, utilisez **Réessayer** une fois la connexion rétablie. Un jeton expiré demande une nouvelle connexion. Sous Linux et macOS, la session reste limitée à la durée d'exécution de l'application pour le moment.
 
 ## Développement et tests
 
