@@ -24,7 +24,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "${{ env.VCPKG_ROOT }}/vcpkg.exe" install sdl2:x64-windows curl:x64-windows
+          $root = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { "C:\\vcpkg" }
+          if (-not (Test-Path "$root/vcpkg.exe")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            & "$root/bootstrap-vcpkg.bat" -disableMetrics
+          }
+          & "$root/vcpkg.exe" install sdl2:x64-windows curl:x64-windows
+          "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
