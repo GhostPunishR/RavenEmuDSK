@@ -1,78 +1,137 @@
-# RavenEmu - version PC
+# RavenEmu
 
-Émulateur PC open source **Game Boy, Game Boy Color et Game Boy Advance**, en **C++20**, pour **Windows, Linux et macOS**.
+**La version PC de RavenEmu pour Game Boy, Game Boy Color et Game Boy Advance.**
 
-- **RavenCore** : moteurs C++ natifs GB/GBC/GBA, API publique C.
-- **Interface** : interface C++ SDL2 / Dear ImGui avec le thème de RavenEmu (`#0B0C12`, `#191B28`, `#A78BFA`).
-- **RetroAchievements** : intégration officielle `rcheevos`, identification des ROM et lecture mémoire de RavenCore, authentification HTTPS, notifications et état du compte. Pas de moteur de succès local ni de règles JSON de succès.
-- **Logo** : asset officiel de RavenEmu copié au build depuis une révision immuable de [RavenEmu](https://github.com/GhostPunishR/RavenEmu). Pour un build hors ligne, préremplir `build/branding/ravenemu-logo.png` avec le logo fourni.
+RavenEmu est un émulateur open source écrit en C++20, avec une interface SDL2 / Dear ImGui et les moteurs d'émulation [RavenCore](https://github.com/GhostPunishR/RavenCore). Ce dépôt contient l'application de bureau destinée à Windows, Linux et macOS.
 
-## Compilation
+Le projet est en développement. La compatibilité des jeux et le comportement sur chaque plateforme peuvent encore évoluer.
 
-Nécessite CMake 3.22+, Git, un compilateur C++20, SDL2 et libcurl de développement. CMake récupère des révisions épinglées de RavenCore, Dear ImGui, stb et du SDK rcheevos. Première configuration : connexion Internet requise.
+## Fonctionnalités
 
-### Linux (Ubuntu / Debian)
+- Bibliothèque de jeux avec import de fichiers ou de dossiers, glisser-déposer et jeux récents.
+- Jaquettes locales et mode TV avec navigation au clavier ou à la manette.
+- Audio, commandes clavier/manette et plein écran pendant le jeu.
+- Sauvegardes de progression et sauvegarde/chargement rapide d'un état.
+- Profil RetroAchievements, consultation des succès et notifications en jeu.
+- Vérification des nouvelles versions depuis l'application.
+
+## Compiler
+
+### Prérequis
+
+- CMake 3.22 ou plus récent, Git et un compilateur compatible C++20.
+- Les bibliothèques de développement SDL2 et libcurl.
+- Une connexion Internet pour récupérer les dépendances à la première configuration.
+
+RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu est téléchargé depuis une révision fixée du [projet RavenEmu](https://github.com/GhostPunishR/RavenEmu).
+
+Récupérez les sources :
+
 ```sh
-sudo apt install cmake g++ git libsdl2-dev libcurl4-openssl-dev
+git clone https://github.com/GhostPunishR/RavenEmuDSK.git
+cd RavenEmuDSK
+```
+
+### Linux (Debian / Ubuntu)
+
+```sh
+sudo apt-get update
+sudo apt-get install -y cmake g++ git pkg-config libsdl2-dev libcurl4-openssl-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 2
-ctest --test-dir build --output-on-failure
 ./build/RavenEmuDSK
 ```
 
-### macOS (Homebrew)
+### macOS
+
+Installez les outils de compilation Xcode et les dépendances avec Homebrew :
+
 ```sh
+xcode-select --install
 brew install cmake sdl2 curl
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 2
-ctest --test-dir build --output-on-failure
 ./build/RavenEmuDSK
 ```
 
-### Windows (Visual Studio / vcpkg)
+### Windows
+
+Utilisez Visual Studio 2022 avec les outils de développement C++, CMake et [vcpkg](https://github.com/microsoft/vcpkg). La variable `VCPKG_ROOT` doit désigner votre installation de vcpkg. Depuis PowerShell, dans le dossier du dépôt :
+
 ```powershell
-vcpkg install sdl2:x64-windows curl:x64-windows
+& "$env:VCPKG_ROOT/vcpkg.exe" install sdl2:x64-windows curl:x64-windows
 cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 cmake --build build --config Release --parallel 2
-ctest --test-dir build -C Release --output-on-failure
 .\build\Release\RavenEmuDSK.exe
 ```
 
-Les builds et tests des trois systèmes sont automatisés dans **Actions**. Les artefacts ne sont pas des releases officiellement validées.
+L'application s'affiche sous le nom **RavenEmu**. Le dépôt et le fichier exécutable conservent le nom technique `RavenEmuDSK`.
 
-## Fonctions
+## Utilisation
 
-RavenEmu propose une bibliothèque de jeux, des jaquettes locales, des imports, un mode TV/manette et des commandes clavier/manette. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
+1. Lancez l'application, puis ajoutez vos fichiers `.gb`, `.gbc` ou `.gba` à la bibliothèque. Vous pouvez aussi déposer un fichier ou un dossier dans la fenêtre.
+2. Sélectionnez un jeu pour le lancer. Les ROM restent à leur emplacement d'origine.
+3. Ouvrez **Réglages** pour consulter les dossiers de sauvegardes et de jaquettes, les commandes ou activer le mode TV.
+4. Ouvrez **Profil** pour vous connecter à RetroAchievements si vous souhaitez utiliser les succès.
 
-Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mot de passe n'est pas sauvegardé. Les succès sont identifiés pour les ROM reconnues et évalués par le SDK officiel ; aucun succès local inventé n'est soumis. **Seul le mode Softcore est proposé à ce stade**, le mode Hardcore nécessitant une vérification de conformité.
+Aucune ROM commerciale n'est fournie. L'émulation ne nécessite pas de compte RetroAchievements.
 
-> **État : premier portage**. La compilation, les plateformes, le comportement réseau et la conformité du mode Hardcore restent à valider en CI et sur de vrais appareils. Le mode Hardcore n'est pas annoncé conforme avant contrôle de toutes les règles de RetroAchievements. Pas de ROM commerciales incluses.
+### Commandes clavier en jeu
 
-## Crédits et licence
+| Action | Touche |
+| --- | --- |
+| Déplacement | Flèches |
+| Boutons A / B | Z / X |
+| Start / Select | Entrée / Retour arrière |
+| Gâchettes L / R (GBA) | A / S |
+| Menu de pause | Échap |
+| Pause rapide | P |
+| Sauvegarder un état | F5 |
+| Charger un état | F9 |
+| Réinitialiser le jeu | F4 |
+| Plein écran | F11 |
 
-© 2026 GhostPunishR. Interface et intégration C++ par GhostPunishR, moteurs [RavenCore](https://github.com/GhostPunishR/RavenCore). Les bibliothèques tierces conservent leurs licences. Logiciel sous **AGPL-3.0-only**. Aucun lien officiel avec Nintendo ou RetroAchievements.
+Les commandes à la manette sont indiquées dans **Réglages**.
 
-## Convention typographique
+### Sauvegardes et jaquettes
 
-Utiliser uniquement le tiret simple `-` dans les textes du depot. Les tirets typographiques longs sont interdits. Cette regle est verifiee par la CI.
+L'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. Les chemins utilisés sont affichés dans **Réglages**.
 
-## Popups RetroAchievements
+La bibliothèque et les réglages sont enregistrés séparément dans le dossier de données utilisateur. Copier une ROM ne transfère donc pas automatiquement sa progression : conservez également vos sauvegardes.
 
-Les notifications en jeu reproduisent les composants RavenEmu :
+### RetroAchievements
 
-- Succès débloqué en haut au centre : badge officiel de 40 px, fond sombre, bordure violette et texte blanc.
-- Progression mesurée dans une seconde carte sous le succès : valeur fournie directement par le SDK.
-- Fondu de 300 ms, durée de 4,8 s pour chaque succès et de 2 s pour chaque progression.
-- Déblocages simultanés en file d'attente, sans remplacement prématuré.
-- Défis actifs et indicateurs des classements en bas jusqu'à l'événement de fin.
-- Images récupérées uniquement sur les hôtes HTTPS de RetroAchievements, avec une étoile violette si le badge n'est pas disponible.
+L'intégration repose sur le SDK [rcheevos](https://github.com/RetroAchievements/rcheevos). Depuis **Profil**, vous pouvez vous connecter, consulter vos points et les succès du jeu reconnu. En jeu, les déblocages et la progression des succès sont affichés sous forme de notifications.
 
-Le premier relevé des valeurs de progression sert de base : il ne déclenche pas une fausse notification.
+- Une connexion Internet et une ROM reconnue par RetroAchievements sont nécessaires pour les fonctions en ligne.
+- Le mode proposé est **Softcore**. Le mode Hardcore n'est pas proposé dans cette version.
+- Le mot de passe n'est pas sauvegardé et le jeton de session n'est pas conservé sur disque.
 
-## Profil RetroAchievements
+## Développement et tests
 
-La page Profil est l'unique tableau de bord RetroAchievements. L'entrée Succès n'apparaît plus dans la barre latérale. Elle affiche le statut de connexion, l'avatar du compte, le pseudo, les points Softcore et Hardcore, puis les informations du dernier jeu reconnu. Les boutons Réessayer et Déconnexion fonctionnent pendant la session.
+Les tests CTest sont activés par défaut. Après compilation :
 
-Les succès du jeu peuvent être filtrés par Tous, À obtenir et Obtenus, consultés par groupes de 10 puis 15, avec badge officiel et fiche détaillée. Les liens des succès ouvrent RetroAchievements dans le navigateur.
+```sh
+ctest --test-dir build --output-on-failure
+```
 
-Sur l'accueil et dans la barre latérale, l'état déconnecté utilise le PNG RA bleu et or fourni dans `assets/ra-logo.png`, intégré aux builds (aucun téléchargement requis). Dès la connexion, la même zone montre l'avatar officiel du compte chargé en HTTPS, avec les initiales comme solution provisoire si l'image n'est pas encore disponible. Le jeton de session ne persiste pas sur disque dans cette version.
+Avec Visual Studio, ajoutez `-C Release` pour tester la configuration compilée. Pour développer et exécuter les tests avec les assertions actives, utilisez une compilation **Debug**.
+
+Deux vérifications Python complètent les tests :
+
+```sh
+python3 tools/check_text_style.py
+python3 tools/check_ra_navigation.py
+```
+
+Sous Windows, utilisez `python` si c'est le nom de votre commande Python. Les textes du dépôt utilisent le tiret simple `-`, conformément au contrôle de typographie.
+
+Le [workflow de compilation](.github/workflows/build.yml) prévoit des builds et tests sur Ubuntu, Windows et macOS. Les résultats et artefacts sont consultables dans [GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions).
+
+## Licence et crédits
+
+© 2026 GhostPunishR. RavenEmu est distribué sous licence [AGPL-3.0-only](LICENSE).
+
+Le projet utilise RavenCore, SDL2, Dear ImGui, stb_image, libcurl et rcheevos. Ces dépendances conservent leurs licences respectives ; consultez [NOTICE.md](NOTICE.md) et leurs dépôts pour les détails.
+
+RavenEmu est un projet indépendant, sans affiliation officielle avec Nintendo ou RetroAchievements.
