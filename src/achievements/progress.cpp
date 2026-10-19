@@ -30,16 +30,19 @@ void ProgressNotifications::update(const std::vector<Achievement>& entries,std::
         const float previous=it==best_.end()?0.f:it->second.percent;
         const std::string old_text=it==best_.end()?std::string{}:it->second.text;
         if(it==best_.end()||percent>previous)best_[a.id]={percent,a.progress};
+        if(percent<previous) {
+            pending_.erase(std::remove_if(pending_.begin(),pending_.end(),
+                [&](const Progress& p){return p.id==a.id;}),pending_.end());
+            best_[a.id]={percent,a.progress};
+            if(current_ && current_->id==a.id) { current_.reset(); transition_at_=0; }
+            continue;
+        }
         if(!eligible(a))continue;
         Progress next{a.id,a.title,a.progress,a.badge_url,now_ms};
         if(current_ && current_->id==a.id && now_ms<transition_at_) {
             current_->title=next.title;
             current_->detail=next.detail;
             current_->badge_url=next.badge_url;
-        } else if(percent<previous) {
-            pending_.erase(std::remove_if(pending_.begin(),pending_.end(),
-                [&](const Progress& p){return p.id==a.id;}),pending_.end());
-            best_[a.id]={percent,a.progress};
         } else if(!baseline && percent>previous && a.progress!=old_text) {
             auto existing=std::find_if(pending_.begin(),pending_.end(),
                 [&](const Progress& p){return p.id==a.id;});

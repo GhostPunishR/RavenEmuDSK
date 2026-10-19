@@ -87,6 +87,7 @@ GameOverlay::~GameOverlay() {
 void GameOverlay::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
 bool GameOverlay::wants_mouse() const { return menu_open_ || ImGui::GetIO().WantCaptureMouse; }
 void GameOverlay::open_menu() {
+    notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), true);
     menu_open_ = true;
     focus_first_ = true;
 }
@@ -135,68 +136,30 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache,
 }
 double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 }
-void GameOverlay::retro_event(const ravenemudsk_ra::Event& event) {
-    if(event.kind=="challenge_show"||event.kind=="tracker_show"||
-       event.kind=="challenge_hide"||event.kind=="tracker_hide") {
-        const auto prefix=event.kind.substr(0,event.kind.find('_'));
-        const std::string key=prefix+":"+event.id;
-        auto existing=std::find_if(indicators_.begin(),indicators_.end(),
-            [&](const auto& item){return item.first==key;});
-        if(event.kind.ends_with("_hide")) {
-            if(existing!=indicators_.end())indicators_.erase(existing);
-        } else {
-            const std::string value=event.title+
-                (event.detail.empty()?std::string{}:std::string(" \xC2\xB7 ")+event.detail);
-            if(existing!=indicators_.end())existing->second=value;
-            else if(indicators_.size()<16)indicators_.emplace_back(key,value);
-        }
-        return;
-    }
-    std::string label;
-    std::string badge;
-    if(event.kind=="achievement") {
-        label="Succès débloqué \xC2\xB7 "+event.title+
-            " ("+std::to_string(event.points)+" pts)";
-        badge=event.badge_url;
-    } else if(event.kind=="leaderboard_started")label="Classement commencé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_failed")label="Classement annulé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_submitted")label="Classement envoyé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_scoreboard")label="Classement terminé \xC2\xB7 "+event.title;
-    else if(event.kind=="notice"||event.kind=="offline"||event.kind=="online"||
-            event.kind=="hardcore_reset")label=event.title;
-    if(label.empty())return;
-    if(queue_.size()<20) queue_.push_back({label,
-        event.kind=="achievement"||event.kind.starts_with("leaderboard_")?std::string{}:event.detail,
-        badge});
+void GameOverlay::close_menu() {
+    notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), false);
+    menu_open_ = false;
 }
+void GameOverlay::retro_event(const ravenemudsk_ra::Event& event) { notifications_.event(event); }
 void GameOverlay::update_retro_progress(const std::vector<ravenemudsk_ra::Achievement>& entries) {
-    progress_.update(entries,static_cast<std::int64_t>(SDL_GetTicks64()));
+    notifications_.update(entries, static_cast<std::int64_t>(SDL_GetTicks64()));
 }
 void GameOverlay::clear_retro() {
-    progress_.clear();
+    notifications_.clear();
     last_progress_.reset();
     progress_visible_=false;
     progress_hidden_at_=0.0;
-    indicators_.clear();
-    queue_.clear();
-    notice_.reset();
-    waiting_since_=-1.0;
 }
-void GameOverlay::draw_retro(double now,const ImVec2 screen) {
-    progress_.advance(static_cast<std::int64_t>(now*1000.0));
-    if(!notice_ && !queue_.empty()) {
-        const auto& next=queue_.front();
-        if(waiting_since_<0)waiting_since_=now;
-        SDL_Texture* image=badges_.image(next.badge);
-        if(next.badge.empty()||image||now-waiting_since_>=2.0) {
-            notice_=std::move(queue_.front());
-            queue_.pop_front();
-            notice_since_=now;
-            waiting_since_=-1.0;
-        }
-    }
-    if(notice_ && now-notice_since_>=5.2)notice_.reset();
-    const auto& current=progress_.current();
+void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
+    notifications_.advance(static_cast<std::int64_t>(wall*1000), [&](const std::string& url) {
+        return badges_.image(url) != nullptr;
+    });
+    if(menu_open_)return;
+    const double now = notifications_.time();
+    const auto& notice_ = notifications_.notice();
+    const auto& indicators_ = notifications_.indicators();
+    const auto notice_since_ = notifications_.notice_since();
+    const auto& current=notifications_.progress();
     if(current) {
         if(!progress_visible_ || !last_progress_ || last_progress_->id!=current->id) {
             progress_started_=now;
@@ -207,10 +170,7 @@ void GameOverlay::draw_retro(double now,const ImVec2 screen) {
         progress_visible_=false;
         progress_hidden_at_=now;
     }
-    if(menu_open_)return;
     auto* d=ImGui::GetForegroundDrawList();
-    const float slide=std::clamp(screen.x-24.f,200.f,520.f);
-    (void)slide;
     float top=10.f;
     if(notice_) {
         const double elapsed=now-notice_since_;
@@ -244,6 +204,7 @@ void GameOverlay::draw_retro(double now,const ImVec2 screen) {
 }
 
 OverlayAction GameOverlay::draw(const OverlayInfo& info) {
+    badges_.begin_frame();
     ImGui_ImplSDLRenderer2_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
@@ -263,7 +224,7 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     if (time < 6.f && !menu_open_) {
         // Short reminder of the essential keys when a game starts.
         const float alpha = std::clamp(6.f - time, 0.f, 1.f) * std::clamp(time * 2.f, 0.f, 1.f);
-        const char* hint = "Échap : menu   \xC2\xB7   F11 : plein écran   \xC2\xB7   F5 / F9 : états";
+        const char* hint = info.hardcore ? "Hardcore actif - chargement des états désactivé" : "Échap : menu   \xC2\xB7   F11 : plein écran   \xC2\xB7   F5 / F9 : états";
         const float w = text_width(fonts_.caption, hint) + 32.f;
         const ImVec2 a{(screen.x - w) * .5f, screen.y - 52.f};
         bg->AddRectFilled(a, {a.x + w, a.y + 32.f}, with_alpha(color::elevated, .92f * alpha), 16.f);
@@ -297,8 +258,8 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             focus_first_ = false;
         }
         if (menu_item(fonts_, "Reprendre la partie", Icon::Play, "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, "F5")) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, "Charger l'état", Icon::Load, "F9", info.has_state))
+        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, "F5", !info.hardcore)) action = OverlayAction::SaveState;
+        if (menu_item(fonts_, "Charger l'état", Icon::Load, "F9", info.has_state && !info.hardcore))
             action = OverlayAction::LoadState;
         if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, "F4")) action = OverlayAction::Reset;
         if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, "F11"))

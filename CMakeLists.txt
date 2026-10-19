@@ -37,7 +37,9 @@ file(GLOB RC_SOURCES CONFIGURE_DEPENDS
   "${rcheevos_SOURCE_DIR}/src/rapi/*.c"
   "${rcheevos_SOURCE_DIR}/src/rhash/*.c")
 list(FILTER RC_SOURCES EXCLUDE REGEX "/rc_(libretro|client_external)\\.c$")
+include(cmake/rcheevos_safety.cmake)
 add_library(ravenemudsk_rcheevos STATIC ${RC_SOURCES})
+target_include_directories(ravenemudsk_rcheevos PRIVATE "${rcheevos_SOURCE_DIR}/src")
 target_include_directories(ravenemudsk_rcheevos PUBLIC "${rcheevos_SOURCE_DIR}/include")
 target_compile_definitions(ravenemudsk_rcheevos PUBLIC RC_DISABLE_LUA RC_CLIENT_SUPPORTS_HASH)
 
@@ -71,15 +73,29 @@ add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api)
 
-add_library(ravenemudsk_session_store STATIC src/achievements/session_store.cpp)
+add_library(ravenemudsk_session_store STATIC src/achievements/session_store.cpp src/achievements/profile_store.cpp)
 target_include_directories(ravenemudsk_session_store PUBLIC include)
+target_link_libraries(ravenemudsk_session_store PRIVATE ravenemu_common)
 if(WIN32)
   target_link_libraries(ravenemudsk_session_store PRIVATE advapi32)
+elseif(APPLE)
+  target_link_libraries(ravenemudsk_session_store PRIVATE "-framework Security" "-framework CoreFoundation")
+elseif(UNIX)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(LIBSECRET QUIET IMPORTED_TARGET libsecret-1)
+  endif()
+  if(TARGET PkgConfig::LIBSECRET)
+    target_compile_definitions(ravenemudsk_session_store PRIVATE RAVENEMUDSK_HAVE_LIBSECRET)
+    target_link_libraries(ravenemudsk_session_store PRIVATE PkgConfig::LIBSECRET)
+  else()
+    message(STATUS "libsecret absent: RetroAchievements sessions will not persist on Linux")
+  endif()
 endif()
 
 add_executable(RavenEmuDSK
   src/desktop.cpp
-  src/achievements/client.cpp src/achievements/progress.cpp
+  src/achievements/client.cpp src/achievements/progress.cpp src/achievements/notifications.cpp
   src/ui/badge_cache.cpp
   src/ui/app_shell.cpp src/ui/game_overlay.cpp
   src/ui/image_loader.cpp src/ui/theme.cpp
@@ -134,6 +150,17 @@ add_custom_command(TARGET RavenEmuDSK POST_BUILD
   VERBATIM)
 
 if(BUILD_TESTING)
+  add_executable(ravenemudsk_notifications_test tests/notifications_test.cpp src/achievements/notifications.cpp src/achievements/progress.cpp)
+  target_include_directories(ravenemudsk_notifications_test PRIVATE include)
+  add_test(NAME retro_notifications COMMAND ravenemudsk_notifications_test)
+  add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
+  target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
+  add_test(NAME retro_profile_store COMMAND ravenemudsk_profile_store_test)
+  add_executable(ravenemudsk_badge_cache_test tests/badge_cache_test.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp)
+  target_compile_definitions(ravenemudsk_badge_cache_test PRIVATE SDL_MAIN_HANDLED)
+  target_include_directories(ravenemudsk_badge_cache_test PRIVATE include "${stb_SOURCE_DIR}")
+  target_link_libraries(ravenemudsk_badge_cache_test PRIVATE ${RAVENEMUDSK_SDL} CURL::libcurl)
+  add_test(NAME retro_badge_cache COMMAND ravenemudsk_badge_cache_test "${RAVENEMUDSK_RA_LOGO}")
   add_executable(ravenemudsk_progress_test
     tests/progress_test.cpp src/achievements/progress.cpp)
   target_include_directories(ravenemudsk_progress_test PRIVATE include)
@@ -160,6 +187,11 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME home_grid COMMAND ravenemudsk_home_grid_test)
   set_tests_properties(home_grid PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
+  add_executable(ravenemudsk_ra_game_test tests/ra_game_test.cpp src/achievements/client.cpp)
+  target_include_directories(ravenemudsk_ra_game_test PRIVATE include)
+  target_link_libraries(ravenemudsk_ra_game_test PRIVATE ravenemudsk_session_store ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
+  add_test(NAME retro_game_integration COMMAND ravenemudsk_ra_game_test)
+  set_tests_properties(retro_game_integration PROPERTIES TIMEOUT 30)
   add_executable(ravenemudsk_session_test tests/session_test.cpp src/achievements/client.cpp)
   target_include_directories(ravenemudsk_session_test PRIVATE include)
   target_link_libraries(ravenemudsk_session_test PRIVATE ravenemudsk_session_store
@@ -171,6 +203,16 @@ if(BUILD_TESTING)
     target_link_libraries(ravenemudsk_windows_session_test PRIVATE ravenemudsk_session_store)
     add_test(NAME windows_session_store COMMAND ravenemudsk_windows_session_test)
     set_tests_properties(windows_session_store PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+  endif()
+  if(APPLE OR TARGET PkgConfig::LIBSECRET)
+    add_executable(ravenemudsk_native_session_test tests/native_session_test.cpp)
+    target_link_libraries(ravenemudsk_native_session_test PRIVATE ravenemudsk_session_store)
+    # Opt in only with an isolated/unlocked OS vault (CI creates one explicitly).
+    option(RAVENEMUDSK_TEST_NATIVE_VAULT "Test native session storage in an isolated OS vault" OFF)
+    if(RAVENEMUDSK_TEST_NATIVE_VAULT)
+      add_test(NAME native_session_store COMMAND ravenemudsk_native_session_test)
+      set_tests_properties(native_session_store PROPERTIES TIMEOUT 30)
+    endif()
   endif()
   add_test(NAME help COMMAND RavenEmuDSK --help)
   add_test(NAME launcher_smoke COMMAND ${CMAKE_COMMAND} -E env

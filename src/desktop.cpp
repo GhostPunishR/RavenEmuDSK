@@ -183,9 +183,13 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                         else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())
                             overlay.open_menu();
                         break;
-                    case SDLK_p:paused=!paused;break;
+                    case SDLK_p:
+                        if(paused || !ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()) {
+                            paused=!paused;input.release_all();
+                        }
+                        break;
                     case SDLK_F4:
-                        verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
+                        input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
                     case SDLK_F5:
                         if(ravenemudsk_ra::client().hardcore()) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","États désactivés");
                         else {save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");}
@@ -202,7 +206,8 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             }
             if(pad && e.type==SDL_CONTROLLERBUTTONDOWN &&
                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cbutton.which &&
-               e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE)
+               e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE &&
+               (!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()))
                 overlay.open_menu();
             input.set_menu_open(overlay.menu_open());
             input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
@@ -224,7 +229,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         auto& retro=ravenemudsk_ra::client();
         for(const auto& event:retro.drain_events()) {
             if(event.kind=="hardcore_reset"){
-                ravenemu_reset(core.get());
+                input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");
                 overlay.clear_retro();
             }
             if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
@@ -244,6 +249,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         const auto factor=std::min(double(out_w)/w,double(out_h)/h);
         const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
         SDL_RenderCopy(renderer.get(),texture.get(),nullptr,&rect);
+        info.hardcore=retro.hardcore();
         info.paused=paused;
         info.fullscreen=(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
         switch(overlay.draw(info)) {
@@ -257,7 +263,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                     load_state(core.get(),state_path);ravenemudsk_ra::client().reset();overlay.clear_retro();}
                 overlay.close_menu();break;
             case Action::Reset:
-                ravenemu_reset(core.get());ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
+                input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
             case Action::ToggleFullscreen:
                 SDL_SetWindowFullscreen(win.get(),info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
             case Action::Quit:running=false;break;

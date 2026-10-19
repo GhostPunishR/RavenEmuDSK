@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 #include <cstdint>
+#include <ravenemudsk/achievements/profile_store.hpp>
 #include <functional>
 #include <ravenemudsk/achievements/session_store.hpp>
 #include <memory>
@@ -19,6 +20,7 @@ struct Achievement {
     float measured_percent = 0.f;
     bool unlocked = false;
 };
+enum class GameStatus { None, Loading, Ready, NoAchievements, UnknownRom, Offline, Error };
 struct Snapshot {
     std::string status = "Non connecté";
     std::string username, display_name, game_title, avatar_url;
@@ -27,6 +29,8 @@ struct Snapshot {
     unsigned int unlocked_points = 0, total_points = 0;
     bool logged_in = false, hardcore = false;
     bool login_pending = false, can_retry = false, session_saved = false;
+    bool cached_profile = false, reconnect_scheduled = false, online = false;
+    GameStatus game_status = GameStatus::None;
     std::vector<Achievement> achievements;
 };
 struct Event {
@@ -36,7 +40,7 @@ struct Event {
 };
 struct ServerReply {
     std::string body;
-    int status = -1;
+    int status = -2; // SDK retryable transport failure (HTTP codes remain positive).
 };
 using ServerTransport = std::function<ServerReply(const std::string&, const std::string&, const std::string&)>;
 class Client {
@@ -44,7 +48,9 @@ public:
     Client();
     // Injectable storage/transport let tests exercise the real SDK login flow
     // without contacting RetroAchievements or touching the user's credentials.
-    Client(std::shared_ptr<SessionStore> storage, ServerTransport transport);
+    using Clock = std::function<std::int64_t()>;
+    Client(std::shared_ptr<SessionStore> storage, ServerTransport transport,
+           std::shared_ptr<ProfileStore> profiles = {}, Clock clock = {});
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;

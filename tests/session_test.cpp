@@ -109,6 +109,34 @@ void network_failure_and_retry() {
     finish_login(client);
     require(client.snapshot().logged_in, "Retry should reconnect with the retained token");
 }
+void automatic_backoff_and_cached_profile() {
+    auto store = std::make_shared<MemoryStore>();
+    store->session = SessionCredentials{"SessionUser", "FakeSessionToken"};
+    const auto root = std::filesystem::temp_directory_path() / ("raven-client-profile-" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    struct Cleanup { std::filesystem::path path; ~Cleanup(){std::error_code ec;std::filesystem::remove_all(path,ec);} } cleanup{root};
+    auto profiles = make_profile_store(root);
+    Snapshot cached; cached.username="SessionUser";cached.display_name="Old name";cached.game_title="Last recognized game";
+    cached.softcore_points=1;
+    require(profiles->save(cached), "Could not prepare the public profile fixture");
+    Server server; server.reply({"", -1});
+    std::int64_t now=0;
+    Client c(store,server.transport(),profiles,[&]{return now;});
+    require(c.snapshot().cached_profile && c.snapshot().game_title==cached.game_title && !c.snapshot().logged_in,
+        "Cached public data must be visible before authentication without granting login");
+    finish_login(c);
+    require(c.snapshot().reconnect_scheduled, "A transient token login failure must schedule automatic retry");
+    now=4999;c.pump(false);require(server.requests()==1,"First retry must wait five seconds");
+    now=5000;c.pump(false);finish_login(c);require(server.requests()==2,"First automatic retry missing");
+    now=14999;c.pump(false);require(server.requests()==2,"Second retry must wait ten seconds");
+    server.reply(success());now=15000;c.pump(false);finish_login(c);
+    require(c.snapshot().logged_in && !c.snapshot().reconnect_scheduled && server.requests()==3,"Recovery must stop the backoff");
+    require(c.snapshot().softcore_points==3 && c.snapshot().game_title==cached.game_title && c.snapshot().cached_profile,
+        "Authentication must refresh account points while preserving the last recognized game");
+    c.disconnect();Snapshot cleared;
+    require(!profiles->load("SessionUser",cleared),"Logout must clear the cached profile too");
+    now+=60000;c.pump(false);require(server.requests()==3,"Logout must cancel scheduled reconnection");
+}
 void expired_session() {
     for (const char* code : {"expired_token", "invalid_credentials"}) {
         auto store = std::make_shared<MemoryStore>();
@@ -132,8 +160,8 @@ void logout_during_automatic_login() {
         ready.wait();
         return success();
     });
-    client.disconnect();
     release.set_value();
+    client.disconnect();
     for (int i = 0; i < 20; ++i) {
         client.pump(false);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -160,6 +188,7 @@ int main() {
     saved_session_lifecycle();
     network_failure_and_retry();
     expired_session();
+    automatic_backoff_and_cached_profile();
     logout_during_automatic_login();
     storage_failure_is_visible();
     std::cout << "Session restart, retry, expiry and logout checks passed\n";

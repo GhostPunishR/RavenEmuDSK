@@ -3,7 +3,7 @@
 #include <ravenemudsk/ui/theme.hpp>
 #include <ravenemudsk/ui/widgets.hpp>
 #include <ravenemudsk/ui/badge_cache.hpp>
-#include <ravenemudsk/achievements/progress.hpp>
+#include <ravenemudsk/achievements/notifications.hpp>
 #include <deque>
 #include <optional>
 #include <utility>
@@ -14,6 +14,7 @@ namespace ravenemudsk_ui {
 struct OverlayInfo {
     std::string game_title;
     std::string system;
+    bool hardcore = false;
     bool paused = false;          // quick pause with P
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
@@ -39,7 +40,7 @@ public:
     bool wants_mouse() const;
     bool menu_open() const { return menu_open_; }
     void open_menu();
-    void close_menu() { menu_open_ = false; }
+    void close_menu();
     void notify(Toast toast) { toasts_.push_back(std::move(toast)); }
     bool has_toast(Toast::Kind kind) const;
     // Reproduces RavenEmu top-center unlock and measured progress cards.
@@ -55,20 +56,12 @@ private:
     std::vector<Toast> toasts_;
     bool menu_open_ = false;
     bool focus_first_ = false;
-    struct RetroPopup {
-        std::string text, detail, badge;
-    };
     BadgeCache badges_;
-    ravenemudsk_ra::ProgressNotifications progress_;
-    std::deque<RetroPopup> queue_;
-    std::optional<RetroPopup> notice_;
-    double waiting_since_ = -1.0;
-    double notice_since_ = 0.0;
+    ravenemudsk_ra::Notifications notifications_;
     std::optional<ravenemudsk_ra::Progress> last_progress_;
     bool progress_visible_ = false;
     double progress_started_ = 0.0;
     double progress_hidden_at_ = 0.0;
-    std::vector<std::pair<std::string,std::string>> indicators_;
     void draw_retro(double now_seconds, ImVec2 screen);
 };
 } // namespace ravenemudsk_ui

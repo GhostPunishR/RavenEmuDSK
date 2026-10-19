@@ -24,7 +24,7 @@ jobs:
         run: python tools/check_ra_navigation.py
       - name: Linux prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev libsecret-1-dev gnome-keyring dbus-x11
       - name: macOS prerequisites
         if: runner.os == 'macOS'
         run: brew install sdl2 curl
@@ -51,6 +51,30 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Linux native credential vault test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          export XDG_DATA_HOME="$(mktemp -d)"
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          chmod 700 "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"
+          trap 'rm -rf "$XDG_DATA_HOME" "$XDG_RUNTIME_DIR"' EXIT
+          dbus-run-session -- bash -e -c '
+            printf "%s" "SyntheticTestKeyringPassword" | gnome-keyring-daemon --unlock --components=secrets
+            ./build/ravenemudsk_native_session_test
+          '
+      - name: macOS native credential vault test
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          vault="$RUNNER_TEMP/ravenemu-test.keychain-db"
+          previous_default=$(security default-keychain -d user | tr -d '"' | xargs)
+          security create-keychain -p SyntheticTestKeyringPassword "$vault"
+          security unlock-keychain -p SyntheticTestKeyringPassword "$vault"
+          security default-keychain -d user -s "$vault"
+          security list-keychains -d user -s "$vault" "$previous_default"
+          trap 'security default-keychain -d user -s "$previous_default"; security list-keychains -d user -s "$previous_default"; security delete-keychain "$vault"' EXIT
+          ./build/ravenemudsk_native_session_test
       - name: Package
         shell: bash
         run: |

@@ -17,8 +17,8 @@ public:
     virtual bool save(const SessionCredentials& session) = 0;
     virtual bool clear() = 0;
 };
-// Windows Credential Manager, scoped to the current OS user. Other systems
-// return nullptr rather than writing credentials to an unprotected file.
+// Windows Credential Manager, macOS Keychain, or Linux Secret Service (libsecret).
+// Unavailable backends return nullptr; credentials are never written to a file.
 // A separate target can be supplied by native integration tests.
 std::shared_ptr<SessionStore> make_session_store(
     const std::string& target = "RavenEmu/RetroAchievements");

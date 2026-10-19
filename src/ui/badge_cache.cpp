@@ -3,6 +3,7 @@
 #include <curl/curl.h>
 #include <stb_image.h>
 #include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <future>
 #include <string>
@@ -72,7 +73,7 @@ std::vector<std::uint8_t> download_image(const std::string& url) {
     return bytes;
 }
 SDL_Texture* decode(SDL_Renderer* renderer,const std::vector<std::uint8_t>& data) {
-    if(data.empty())return nullptr;
+    if(data.empty() || data.size()>MAX_BYTES)return nullptr;
     int width=0,height=0,channels=0;
     if(!stbi_info_from_memory(data.data(),static_cast<int>(data.size()),
                               &width,&height,&channels))return nullptr;
@@ -90,32 +91,54 @@ SDL_Texture* decode(SDL_Renderer* renderer,const std::vector<std::uint8_t>& data
     return texture;
 }
 }
+BadgeCache::BadgeCache(SDL_Renderer* renderer, Download download, Clock clock, std::size_t capacity)
+    : renderer_(renderer), download_(download ? std::move(download) : Download(download_image)),
+      clock_(clock ? std::move(clock) : Clock([] { return SDL_GetTicks64(); })),
+      capacity_(std::clamp<std::size_t>(capacity, 2, 128)) {}
 BadgeCache::~BadgeCache() {
-    // Each future may block until its short HTTPS timeout; never free a live
-    // SDL texture or renderer while an image upload is in progress.
     for(auto& pair:images_)if(pair.second.download.valid())pair.second.download.wait();
     for(auto& pair:images_)if(pair.second.texture)SDL_DestroyTexture(pair.second.texture);
 }
+void BadgeCache::complete(Entry& e) {
+    if (!e.download.valid() || e.download.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    std::vector<std::uint8_t> bytes;
+    try { bytes = e.download.get(); } catch (...) { /* Retry transport failures too. */ }
+    e.texture = decode(renderer_, bytes);
+    if (!e.texture) {
+        e.retry_at = clock_() + (2000ULL << std::min(e.failures++, 5u));
+    } else e.failures = 0;
+}
+void BadgeCache::begin_frame() {
+    ++frame_;
+    for (auto& [url, e] : images_) complete(e);
+}
 SDL_Texture* BadgeCache::image(const std::string& url) {
     if(url.empty()||!valid_url(url))return nullptr;
-    const auto found=images_.find(url);
-    if(found==images_.end() && images_.size()>=128)return nullptr;
-    auto& e=images_[url];
-    if(e.finished)return e.texture;
-    if(!e.started) {
+    auto found=images_.find(url);
+    if(found==images_.end()) {
+        if (images_.size()>=capacity_) {
+            auto oldest=images_.end();
+            for (auto i=images_.begin();i!=images_.end();++i) {
+                if(i->second.frame==frame_ || i->second.download.valid())continue;
+                if(oldest==images_.end() || i->second.last_used<oldest->second.last_used)oldest=i;
+            }
+            if(oldest==images_.end())return nullptr;
+            if(oldest->second.texture)SDL_DestroyTexture(oldest->second.texture);
+            images_.erase(oldest);
+        }
+        found=images_.try_emplace(url).first;
+    }
+    auto& e=found->second;
+    e.frame=frame_;e.last_used=++access_;
+    complete(e);
+    if(e.texture)return e.texture;
+    if(!e.download.valid() && clock_()>=e.retry_at) {
         size_t downloading=0;
-        for(const auto& item:images_)
-            if(item.second.started&&!item.second.finished)++downloading;
-        if(downloading>=2)return nullptr;
-        e.download=std::async(std::launch::async,[url]{return download_image(url);});
-        e.started=true;
+        for(const auto& item:images_)if(item.second.download.valid())++downloading;
+        if(downloading<2) {
+            e.download=std::async(std::launch::async,[send=download_,url]{return send(url);});
+        }
     }
-    if(e.download.valid() &&
-       e.download.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
-        const auto bytes=e.download.get();
-        e.texture=decode(renderer_,bytes);
-        e.finished=true;
-    }
-    return e.texture;
+    return nullptr;
 }
 } // namespace ravenemudsk_ui

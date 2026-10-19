@@ -36,7 +36,7 @@ cd RavenEmuDSK
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y cmake g++ git pkg-config libsdl2-dev libcurl4-openssl-dev
+sudo apt-get install -y cmake g++ git pkg-config libsdl2-dev libcurl4-openssl-dev libsecret-1-dev
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel 2
 ./build/RavenEmuDSK
@@ -108,7 +108,13 @@ L'intégration repose sur le SDK [rcheevos](https://github.com/RetroAchievements
 - Une connexion Internet et une ROM reconnue par RetroAchievements sont nécessaires pour les fonctions en ligne.
 - Le mode proposé est **Softcore**. Le mode Hardcore n'est pas proposé dans cette version.
 - Le mot de passe n'est jamais sauvegardé. Sous Windows, le jeton de session est conservé dans le Gestionnaire d'identifiants de votre compte Windows pour vous reconnecter automatiquement au démarrage. **Déconnexion** ou **Oublier la session** efface cette connexion mémorisée.
-- Si le réseau est indisponible, utilisez **Réessayer** une fois la connexion rétablie. Un jeton expiré demande une nouvelle connexion. Sous Linux et macOS, la session reste limitée à la durée d'exécution de l'application pour le moment.
+- Sous macOS, le jeton est conservé dans le Trousseau. Sous Linux, la mémorisation utilise Secret Service via `libsecret` et nécessite un trousseau disponible et déverrouillé (GNOME Keyring, par exemple). Sans coffre disponible, la connexion reste utilisable pour la session en cours.
+- En cas de panne réseau, la reconnexion par jeton et la recherche du jeu sont réessayées après 5, 10, 20, 40 puis 60 secondes au maximum. **Réessayer** permet une tentative immédiate. Un jeton expiré demande une nouvelle connexion.
+- Les messages distinguent une ROM inconnue, un jeu reconnu sans succès et un serveur indisponible. Les envois de succès en attente restent gérés par le SDK pendant l'exécution ; ils ne sont pas conservés après fermeture de l'application.
+- Le profil public et le dernier jeu reconnu sont mémorisés par compte et indiqués comme données mémorisées. Ils ne permettent ni de se connecter ni de débloquer un succès hors connexion. **Déconnexion** efface aussi ce cache.
+- Les badges verrouillés et débloqués utilisent leurs images respectives. Les téléchargements échoués sont réessayés et le cache évince les anciennes images. Les notifications de succès s'affichent successivement ; leur durée est suspendue pendant le menu de pause.
+
+La [validation RetroAchievements](docs/retroachievements-validation.md) précise les tests automatiques, les vérifications manuelles restantes et les prérequis avant toute ouverture du mode Hardcore.
 
 ## Développement et tests
 

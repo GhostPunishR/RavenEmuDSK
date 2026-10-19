@@ -795,8 +795,11 @@ void achievements_view(State& s, Library&) {
     ImGui::PopFont();
     ImGui::Dummy({0.f, 4.f});
     muted(snap.status.c_str());
+    if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu’à une minute.");
     ImGui::Dummy({0.f, 8.f});
+    if (snap.cached_profile) muted("Profil et dernier jeu mémorisés : données à actualiser lors d'une connexion et d'une partie.");
     if (!snap.logged_in) {
+        if (snap.cached_profile) ImGui::Text("@%s : %u points Softcore, %u points Hardcore", snap.username.c_str(), snap.softcore_points, snap.hardcore_points);
         muted("Connectez votre compte pour obtenir les succès officiels pendant vos parties Game Boy, Game Boy Color et Game Boy Advance.");
         ra_login_controls(s, ra);
     } else {
@@ -833,9 +836,10 @@ void achievements_view(State& s, Library&) {
     end_card();
 
     if (snap.logged_in) {
-        if (button("Réessayer", Icon::Reset, ButtonStyle::Secondary, {152.f, 40.f}))
-            ra.retry();
-        ImGui::SameLine(0.f, 12.f);
+        if (!snap.online || snap.game_status == ravenemudsk_ra::GameStatus::Offline) {
+            if (button("Réessayer", Icon::Reset, ButtonStyle::Secondary, {152.f, 40.f})) ra.retry();
+            ImGui::SameLine(0.f, 12.f);
+        }
         if (button("Déconnexion", Icon::Exit, ButtonStyle::Secondary, {160.f, 40.f})) {
             ra.disconnect();
             s.ra_selected_achievement.clear();
@@ -965,11 +969,7 @@ void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
         if (!snap.login_pending && button("Réessayer", Icon::Reset, ButtonStyle::Secondary)) ra.retry();
         if (button("Oublier la session", Icon::Exit, ButtonStyle::Ghost)) ra.disconnect();
     }
-#ifdef _WIN32
-    muted("Votre connexion est mémorisée dans le Gestionnaire d'identifiants Windows. Le mot de passe n'est jamais enregistré.");
-#else
-    muted("Connexion HTTPS officielle. Aucun mot de passe n'est conservé sur le PC.");
-#endif
+    muted("Le mot de passe n'est jamais enregistré. La session peut être mémorisée dans le coffre de votre système.");
 }
 // ---------------------------------------------------------------- profile
 struct Stats {
@@ -1851,10 +1851,16 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
                 }
             }
         }
+        if (state.ra_images) state.ra_images->begin_frame();
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
         ravenemudsk_ra::client().pump(false);
+        for (const auto& event : ravenemudsk_ra::client().drain_events()) {
+            if (event.kind == "login" || event.kind == "info" || event.kind == "notice" ||
+                event.kind == "offline" || event.kind == "online" || event.kind == "error")
+                notify(state, event.kind == "error" ? Toast::Kind::Error : Toast::Kind::Info, event.title, event.detail);
+        }
         render(state, lib);
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 11, 12, 18, 255);
