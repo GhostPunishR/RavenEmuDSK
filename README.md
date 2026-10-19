@@ -44,7 +44,7 @@ Les builds et tests des trois systèmes sont automatisés dans **Actions**. Les 
 
 La bibliothèque, les jaquettes locales, les imports, le mode TV/manette et les commandes proviennent de Retrophora et ont été rebrandés pour RavenEmuDSK. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
 
-Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mot de passe n'est pas sauvegardé. Les succès sont identifiés pour les ROM reconnues et évalués par le SDK officiel ; aucun succès local inventé n'est soumis.
+Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mot de passe n'est pas sauvegardé. Les succès sont identifiés pour les ROM reconnues et évalués par le SDK officiel ; aucun succès local inventé n'est soumis. **Seul le mode Softcore est proposé à ce stade**, le mode Hardcore nécessitant une vérification de conformité.
 
 > **État : premier portage**. La compilation, les plateformes, le comportement réseau et la conformité du mode Hardcore restent à valider en CI et sur de vrais appareils. Le mode Hardcore n'est pas annoncé conforme avant contrôle de toutes les règles de RetroAchievements. Pas de ROM commerciales incluses.
 
