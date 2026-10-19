@@ -410,7 +410,10 @@ void game_card(State& s, const Game& game, int index, float w) {
     ImGui::PopID();
     if (play) launch(s, game);
 }
-void game_grid(State& s, const Library& lib, const std::vector<int>& ids, int max_rows = 0) {
+void game_grid(const char* id, State& s, const Library& lib, const std::vector<int>& ids, int max_rows = 0) {
+    // A game can appear in multiple grids on the same page. Scope the grid
+    // as well as each card so those copies have distinct interaction IDs.
+    ImGui::PushID(id);
     const float avail = ImGui::GetContentRegionAvail().x;
     const int cols = std::max(1, static_cast<int>((avail + card_gap) / (card_min_w + card_gap)));
     const float w = std::floor((avail - card_gap * static_cast<float>(cols - 1)) / static_cast<float>(cols));
@@ -423,6 +426,7 @@ void game_grid(State& s, const Library& lib, const std::vector<int>& ids, int ma
         ++n;
     }
     ImGui::PopStyleVar();
+    ImGui::PopID();
 }
 void empty_state(State& s, Library& lib, Icon icon, const char* title, const char* text, bool actions) {
     const float w = ImGui::GetContentRegionAvail().x;
@@ -651,11 +655,11 @@ void home_view(State& s, Library& lib) {
     const auto recent = recent_order(lib);
     if (recent.size() > 1) {
         if (section_header(s, "Joués récemment", "Tout voir")) s.page = Page::Recent;
-        game_grid(s, lib, recent, 1);
+        game_grid("home-recent", s, lib, recent, 1);
         ImGui::Dummy({0.f, space::sm});
     }
     if (section_header(s, "Votre bibliothèque", "Tout voir")) s.page = Page::Library;
-    game_grid(s, lib, library_order(lib, 0), 1);
+    game_grid("home-library", s, lib, library_order(lib, 0), 1);
 }
 void library_view(State& s, Library& lib) {
     static const char* filters[] = {"Tous", "Game Boy", "Game Boy Color", "Game Boy Advance"};
@@ -703,7 +707,7 @@ void library_view(State& s, Library& lib) {
         empty_state(s, lib, Icon::Search, "Aucun résultat", text.c_str(), false);
         return;
     }
-    game_grid(s, lib, ids);
+    game_grid("library", s, lib, ids);
 }
 void recent_view(State& s, Library& lib) {
     const auto ids = recent_order(lib);

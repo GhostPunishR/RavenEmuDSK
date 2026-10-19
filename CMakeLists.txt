@@ -142,6 +142,18 @@ if(BUILD_TESTING)
   target_compile_definitions(ravenemudsk_game_input_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_game_input_test PRIVATE ravenemudsk_game_input)
   add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
+  add_executable(ravenemudsk_home_grid_test tests/home_grid_test.cpp
+    src/achievements/client.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
+    src/ui/theme.cpp src/ui/widgets.cpp src/ui/update_check.cpp)
+  target_include_directories(ravenemudsk_home_grid_test PRIVATE include "${stb_SOURCE_DIR}")
+  target_compile_definitions(ravenemudsk_home_grid_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
+  target_link_libraries(ravenemudsk_home_grid_test PRIVATE ravenemudsk_ui_library
+    ravenemudsk_imgui ravenemu_c_api ravenemudsk_rcheevos ${RAVENEMUDSK_SDL} CURL::libcurl)
+  if(WIN32)
+    target_link_libraries(ravenemudsk_home_grid_test PRIVATE comdlg32 shell32 ole32 winhttp)
+  endif()
+  add_test(NAME home_grid COMMAND ravenemudsk_home_grid_test)
+  set_tests_properties(home_grid PROPERTIES TIMEOUT 30)
   add_test(NAME help COMMAND RavenEmuDSK --help)
   add_test(NAME launcher_smoke COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
