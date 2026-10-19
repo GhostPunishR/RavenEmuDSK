@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // HTTPS request behind UpdateCheck: WinHTTP on Windows, libcurl elsewhere
-// when available. Only GET /repos/RavenEmuDSK/RavenEmuDSK-Emulateur/releases/latest.
+// when available. Only GET /repos/GhostPunishR/RavenEmuDSK/releases/latest.
 #include <ravenemudsk/ui/updates.hpp>
 #include <cstddef>
 #include <string>
@@ -31,13 +31,13 @@ struct Handle {
 };
 Response fetch_latest() {
     Response r;
-    Handle session{WinHttpOpen(L"RavenEmuDSK-Emulateur", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    Handle session{WinHttpOpen(L"RavenEmuDSK", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0)};
     if (!session.h) { r.error = "WinHTTP indisponible"; return r; }
     WinHttpSetTimeouts(session.h, 5000, 5000, 5000, 8000);
     Handle connection{WinHttpConnect(session.h, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0)};
     Handle request{connection.h ? WinHttpOpenRequest(connection.h, L"GET",
-        L"/repos/RavenEmuDSK/RavenEmuDSK-Emulateur/releases/latest", nullptr, WINHTTP_NO_REFERER,
+        L"/repos/GhostPunishR/RavenEmuDSK/releases/latest", nullptr, WINHTTP_NO_REFERER,
         WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr};
     if (!request.h ||
         !WinHttpSendRequest(request.h, L"Accept: application/vnd.github+json\r\n", static_cast<DWORD>(-1L),
@@ -74,8 +74,8 @@ Response fetch_latest() {
     if (!curl) { r.error = "libcurl indisponible"; return r; }
     curl_slist* headers = curl_slist_append(nullptr, "Accept: application/vnd.github+json");
     curl_easy_setopt(curl, CURLOPT_URL,
-                     "https://api.github.com/repos/GhostPunishR/RavenEmuDSK-Emulateur/releases/latest");
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "RavenEmuDSK-Emulateur");
+                     "https://api.github.com/repos/GhostPunishR/RavenEmuDSK/releases/latest");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "RavenEmuDSK");
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
