@@ -59,10 +59,12 @@ constexpr float card_gap = 20.f;
 constexpr float content_pad = 32.f;
 
 enum class Page { Home, Library, Recent, Settings, Profile };
+enum class SettingsCategory { Library, Display, Controls, Updates, About };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
 struct State {
     Page page = Page::Home;
+    SettingsCategory settings_category = SettingsCategory::Library;
     int chosen = -1;
     int system_filter = 0;
     int sort = 0;
@@ -1380,9 +1382,27 @@ void folder_row(State& s, const char* label, const char* detail, const fs::path&
     ImGui::SetCursorScreenPos({p.x, p.y + 64.f + space::sm});
     ImGui::Dummy({0.f, 0.f});
 }
-void settings_view(State& s, Library& lib) {
+void settings_library(State& s, Library& lib) {
+    begin_card("##library");
+    card_title(s, Icon::Library, "Bibliothèque");
+    muted("RavenEmu mémorise seulement l'emplacement de vos jeux : les ROMs restent dans leur dossier, "
+          "sur ce PC.");
+    ImGui::Dummy({0.f, space::xs});
+    ImGui::PushFont(s.fonts.caption);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::text_faint));
+    ImGui::TextWrapped("Fichier de bibliothèque : %s", utf8(data_file()).c_str());
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::xs});
+    if (button("Ajouter un jeu", Icon::Plus, ButtonStyle::Primary)) add_game(s, lib);
+    ImGui::SameLine(0.f, space::sm);
+    if (button("Importer un dossier", Icon::Folder)) pick_and_import_folder(s, lib);
+    if (ImGui::GetContentRegionAvail().x >= 720.f) ImGui::SameLine(0.f, space::sm);
+    if (button("Saisir un chemin", Icon::Keyboard, ButtonStyle::Ghost)) s.open_manual = true;
+    end_card();
+
     begin_card("##folders");
-    card_title(s, Icon::Folder, "Dossiers");
+    card_title(s, Icon::Folder, "Sauvegardes et jaquettes");
     muted("RavenEmu range automatiquement vos fichiers dans deux dossiers à côté du programme. "
           "Copiez-les pour sauvegarder ou transférer votre progression.");
     ImGui::Dummy({0.f, space::xs});
@@ -1390,26 +1410,9 @@ void settings_view(State& s, Library& lib) {
                s.folders.saves);
     folder_row(s, "Jaquettes", "nommez l'image comme la ROM, par exemple MonJeu.png", s.folders.covers);
     end_card();
+}
 
-    begin_card("##library");
-    card_title(s, Icon::Library, "Bibliothèque");
-    muted("RavenEmu mémorise seulement l'emplacement de vos jeux : les ROMs restent dans leur dossier, "
-          "sur ce PC.");
-    ImGui::Dummy({0.f, space::xs});
-    ImGui::PushFont(s.fonts.caption);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text_faint), "Fichier de bibliothèque : %s",
-                       utf8(data_file()).c_str());
-    ImGui::PopFont();
-    ImGui::Dummy({0.f, space::xs});
-    if (button("Ajouter un jeu", Icon::Plus, ButtonStyle::Primary)) add_game(s, lib);
-    ImGui::SameLine(0.f, space::sm);
-    if (button("Importer un dossier", Icon::Folder)) pick_and_import_folder(s, lib);
-    ImGui::SameLine(0.f, space::sm);
-    if (button("Saisir un chemin", Icon::Keyboard, ButtonStyle::Ghost)) s.open_manual = true;
-    end_card();
-
-    updates_card(s);
-
+void settings_display(State& s) {
     begin_card("##tv");
     card_title(s, Icon::Gamepad, "Mode TV / manette");
     muted("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé. "
@@ -1417,7 +1420,9 @@ void settings_view(State& s, Library& lib) {
     ImGui::Dummy({0.f, space::xs});
     if (button("Passer en mode TV", Icon::Fullscreen, ButtonStyle::Primary)) set_tv(s, true);
     end_card();
+}
 
+void settings_controls(State& s) {
     begin_card("##controls");
     card_title(s, Icon::Gamepad, "Commandes en jeu");
     if (ImGui::BeginTable("##keys", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX |
@@ -1449,22 +1454,79 @@ void settings_view(State& s, Library& lib) {
             for (int i = 0; i < 3; ++i) {
                 ImGui::TableNextColumn();
                 ImGui::AlignTextToFramePadding();
-                if (i) ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text_muted), "%s", r[i]);
-                else ImGui::TextUnformatted(r[i]);
+                if (i) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::text_muted));
+                ImGui::TextWrapped("%s", r[i]);
+                if (i) ImGui::PopStyleColor();
             }
         }
         ImGui::PopStyleColor(2);
         ImGui::EndTable();
     }
     end_card();
+}
 
+void settings_about(State& s) {
     begin_card("##about");
     card_title(s, Icon::Info, "À propos");
-    ImGui::TextUnformatted("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
+    ImGui::TextWrapped("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
           "succès RetroAchievements via rcheevos (MIT), interface Dear ImGui (MIT) "
           "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire et aucune donnée n'est envoyée.");
     end_card();
+}
+void settings_view(State& s, Library& lib) {
+    struct Category {
+        SettingsCategory id;
+        Icon icon;
+        const char* label;
+        const char* description;
+    };
+    const Category categories[] = {
+        {SettingsCategory::Library, Icon::Library, "Bibliothèque",
+         "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
+        {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
+         "Choisissez comment utiliser RavenEmu sur votre écran."},
+        {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
+         "Retrouvez les commandes au clavier et à la manette."},
+        {SettingsCategory::Updates, Icon::Reset, "Mises à jour",
+         "Vérifiez les nouvelles versions et gérez la recherche au démarrage."},
+        {SettingsCategory::About, Icon::Info, "À propos",
+         "Informations sur l’application et ses composants."}};
+    const float height = std::max(1.f, ImGui::GetContentRegionAvail().y - content_pad -
+                                     ImGui::GetStyle().ItemSpacing.y);
+    ImGui::BeginChild("##settings-navigation", {208.f, height});
+    ImGui::PushFont(s.fonts.caption);
+    ImGui::TextDisabled("Catégories");
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::xs});
+    for (const auto& category : categories) {
+        if (button(category.label, category.icon,
+                   s.settings_category == category.id ? ButtonStyle::Primary : ButtonStyle::Ghost,
+                   {ImGui::GetContentRegionAvail().x, 48.f}))
+            s.settings_category = category.id;
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.f, space::xl);
+    // Each category keeps its own scroll position, independent of the menu.
+    ImGui::PushID(static_cast<int>(s.settings_category));
+    ImGui::BeginChild("##settings-category", {0.f, height});
+    for (const auto& category : categories) {
+        if (category.id != s.settings_category) continue;
+        ImGui::PushFont(s.fonts.display);
+        ImGui::TextUnformatted(category.label);
+        ImGui::PopFont();
+        muted(category.description);
+    }
+    ImGui::Dummy({0.f, space::sm});
+    switch (s.settings_category) {
+    case SettingsCategory::Library: settings_library(s, lib); break;
+    case SettingsCategory::Display: settings_display(s); break;
+    case SettingsCategory::Controls: settings_controls(s); break;
+    case SettingsCategory::Updates: updates_card(s); break;
+    case SettingsCategory::About: settings_about(s); break;
+    }
+    ImGui::EndChild();
+    ImGui::PopID();
 }
 void detail_achievements(State& s, const Game& game) {
     const auto info = game_achievements(s, game);
