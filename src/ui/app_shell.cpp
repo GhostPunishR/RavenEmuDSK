@@ -766,9 +766,7 @@ void achievements_view(State& s, Library&) {
         ImGui::Text("Compte : %s", snap.display_name.c_str());
         ImGui::Text("Hardcore : %u points  |  Softcore : %u points",
                     snap.hardcore_points, snap.softcore_points);
-        bool hardcore = snap.hardcore;
-        if (ImGui::Checkbox("Mode Hardcore", &hardcore)) ra.set_hardcore(hardcore);
-        muted("Le mode Hardcore désactive les sauvegardes et chargements d'états instantanés.");
+        muted("Mode normal (Softcore) : Hardcore sera proposé après validation de conformité.");
     }
     end_card();
     if (!snap.game_title.empty()) {
