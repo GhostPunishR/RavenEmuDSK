@@ -24,10 +24,10 @@ jobs:
         run: python tools/check_ra_navigation.py
       - name: Linux prerequisites
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev libsecret-1-dev gnome-keyring dbus-x11
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev libsecret-1-dev gnome-keyring dbus-x11 patchelf
       - name: macOS prerequisites
         if: runner.os == 'macOS'
-        run: brew install sdl2 curl
+        run: brew install sdl2
       - name: Windows prerequisites
         if: runner.os == 'Windows'
         shell: pwsh
@@ -46,7 +46,18 @@ jobs:
           cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake"
       - name: Configure (Unix)
         if: runner.os != 'Windows'
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # Use Apple's HTTPS library and certificate trust. SDL2 is bundled
+            # from Homebrew; the downloaded app never requires Homebrew.
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+              "-DCURL_LIBRARY=$(xcrun --show-sdk-path)/usr/lib/libcurl.tbd" \
+              "-DCURL_INCLUDE_DIR=$(xcrun --show-sdk-path)/usr/include"
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
       - name: Build
         run: cmake --build build --config Release --parallel 2
       - name: Test
@@ -83,13 +94,24 @@ jobs:
             cp build/Release/RavenEmuDSK.exe dist/
             cp build/Release/*.dll dist/ || true
             cp -r build/Release/assets dist/ || true
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp build/RavenEmuDSK dist/
-            cp -r build/assets dist/ || true
           else
-            cp build/RavenEmuDSK dist/
-            cp -r build/assets dist/ || true
+            python tools/package_unix.py --build build --output dist
           fi
+      - name: Test Linux archive without installed dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          runtime_dir="$RUNNER_TEMP/RavenEmu portable"
+          mkdir -p "$runtime_dir"
+          tar -xzf dist/RavenEmu-Linux-*.tar.gz -C "$runtime_dir"
+          runtime=(docker run --rm --network none --read-only
+            --tmpfs /tmp:rw,mode=1777 --user 1000:1000
+            --mount "type=bind,source=$runtime_dir/RavenEmu,target=/opt/RavenEmu,readonly"
+            --env HOME=/tmp --env XDG_DATA_HOME=/tmp/data
+            --env SDL_VIDEODRIVER=dummy --env SDL_AUDIODRIVER=dummy
+            --env RAVENEMUDSK_UI_SMOKE=1 ubuntu:24.04)
+          "${runtime[@]}" /opt/RavenEmu/RavenEmuDSK --help
+          "${runtime[@]}" /opt/RavenEmu/RavenEmuDSK
       - uses: actions/upload-artifact@v4
         with:
           name: RavenEmuDSK-${{ runner.os }}

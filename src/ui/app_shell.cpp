@@ -1994,7 +1994,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
 Folders app_folders() {
     std::vector<fs::path> roots;
     if (char* base = SDL_GetBasePath()) {
-        roots.push_back(from_utf8(base));
+        const auto path = from_utf8(base);
+#ifdef __APPLE__
+        // Keep raw executable builds portable, but never write into a signed app.
+        if (utf8(path).find(".app/Contents/") == std::string::npos)
+#endif
+            roots.push_back(path);
         SDL_free(base);
     }
     if (char* pref = SDL_GetPrefPath("RavenEmu", "RavenEmuDSK")) {

@@ -15,6 +15,18 @@ Le projet est en développement. La compatibilité des jeux et le comportement s
 - Profil RetroAchievements, consultation des succès et notifications en jeu.
 - Vérification des nouvelles versions depuis l'application.
 
+## Télécharger et lancer
+
+Les [artefacts GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions) contiennent les paquets de chaque compilation réussie. Aucune ROM n'est fournie.
+
+- **Windows x64** : extrayez l'archive et lancez `RavenEmuDSK.exe`, en conservant les DLL et le dossier `assets` à côté.
+- **Linux x86_64** : extrayez `RavenEmu-Linux-x86_64.tar.gz`, puis lancez `RavenEmu/RavenEmuDSK`. Les bibliothèques SDL2, libcurl, libsecret et leurs dépendances sont incluses dans `lib`, sans installation par apt. Conservez l'ensemble du dossier. La compilation CI nécessite glibc 2.39 ou plus récente, par exemple Ubuntu 24.04+ ou Debian 13.
+- **macOS 15+** : extrayez l'archive `RavenEmu-macOS-<architecture>.zip` et déplacez `RavenEmu.app` dans Applications. SDL2 et ses dépendances sont intégrées à l'application ; libcurl et les frameworks Apple sont fournis par macOS. Homebrew n'est pas nécessaire pour utiliser ce paquet. L'architecture du Mac de compilation est indiquée dans le nom de l'archive. L'application possède une signature locale de validation, sans notarisation Apple ; macOS peut demander de l'autoriser dans Confidentialité et sécurité.
+
+Sous Linux, le bureau fournit les pilotes graphiques, les services audio et le magasin de certificats HTTPS. La mémorisation de la session RetroAchievements nécessite un trousseau Secret Service disponible et déverrouillé, par exemple GNOME Keyring ou KWallet compatible. Les bibliothèques fournies ne créent pas ce service à la place de votre session de bureau.
+
+Les paquets Unix contiennent les licences de leurs bibliothèques et un fichier `dependencies.json` avec leurs versions et la provenance de leurs sources.
+
 ## Compiler
 
 ### Prérequis
@@ -48,8 +60,11 @@ Installez les outils de compilation Xcode et les dépendances avec Homebrew :
 
 ```sh
 xcode-select --install
-brew install cmake sdl2 curl
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+brew install cmake sdl2
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+  "-DCURL_LIBRARY=$(xcrun --show-sdk-path)/usr/lib/libcurl.tbd" \
+  "-DCURL_INCLUDE_DIR=$(xcrun --show-sdk-path)/usr/include"
 cmake --build build --parallel 2
 ./build/RavenEmuDSK
 ```
@@ -95,7 +110,7 @@ Les commandes à la manette sont indiquées dans **Réglages**.
 
 ### Sauvegardes et jaquettes
 
-L'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. Les chemins utilisés sont affichés dans **Réglages**.
+Sous Windows et Linux, l'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**.
 
 La bibliothèque et les réglages sont enregistrés séparément dans le dossier de données utilisateur. Copier une ROM ne transfère donc pas automatiquement sa progression : conservez également vos sauvegardes.
 
@@ -136,6 +151,14 @@ python3 tools/check_ra_navigation.py
 Sous Windows, utilisez `python` si c'est le nom de votre commande Python. Les textes du dépôt utilisent le tiret simple `-`, conformément au contrôle de typographie.
 
 Le [workflow de compilation](.github/workflows/build.yml) prévoit des builds et tests sur Ubuntu, Windows et macOS. Les résultats et artefacts sont consultables dans [GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions).
+
+Pour générer les mêmes paquets Unix après compilation :
+
+```sh
+python3 tools/package_unix.py --build build --output dist
+```
+
+L'outil nécessite `patchelf` et les métadonnées des paquets Debian/Ubuntu sous Linux ; sous macOS, il utilise CMake, les outils Xcode et les licences des formules Homebrew de compilation. Il rassemble les bibliothèques, corrige leurs chemins et vérifie les pages principales depuis un emplacement contenant des espaces. La CI Linux relance aussi le paquet dans une image Ubuntu minimale, sans installation des bibliothèques de l'application. Les services graphiques et audio réels restent à vérifier sur un poste de bureau.
 
 ## Licence et crédits
 
