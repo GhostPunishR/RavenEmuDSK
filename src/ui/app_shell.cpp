@@ -1527,9 +1527,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN);
     if (!window) { SDL_Quit(); return std::nullopt; }
     if (char* base = SDL_GetBasePath()) {
-        const auto path = from_utf8(base) / "assets" / "ravenemu-logo.bmp";
+        const auto path = from_utf8(base) / "assets" / "ravenemu-logo.png";
         SDL_free(base);
-        (void)path; // Icon PNG is loaded into the sidebar; OS icon can use the same asset.
+        if (SDL_Surface* icon = load_local_surface(path)) {
+            SDL_SetWindowIcon(window, icon);
+            SDL_FreeSurface(icon);
+        }
     }
     SDL_SetWindowMinimumSize(window, 1024, 680);
     (void)SDL_SetWindowHitTest(window, &hit_test, &state);

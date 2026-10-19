@@ -4,6 +4,7 @@
 #include <filesystem>
 namespace ravenemudsk_ui {
 // Local, user-provided PNG/JPEG/BMP only. No cover fetching or ROM upload.
+SDL_Surface* load_local_surface(const std::filesystem::path& path);
 SDL_Texture* load_local_image(SDL_Renderer* renderer,
                               const std::filesystem::path& path);
 } // namespace ravenemudsk_ui

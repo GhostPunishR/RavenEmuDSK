@@ -5,6 +5,7 @@
 #include <ravenemudsk/ui/app_shell.hpp>
 #include <ravenemudsk/ui/game_overlay.hpp>
 #include <ravenemudsk/ui/library.hpp>
+#include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <algorithm>
 #include <array>
@@ -146,6 +147,14 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
         SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE),SDL_DestroyWindow);
     if(!win)throw std::runtime_error(SDL_GetError());
+    if(char* base=SDL_GetBasePath()) {
+        const auto path=ravenemudsk_ui::from_utf8(base)/"assets"/"ravenemu-logo.png";
+        SDL_free(base);
+        if(SDL_Surface* icon=ravenemudsk_ui::load_local_surface(path)) {
+            SDL_SetWindowIcon(win.get(),icon);
+            SDL_FreeSurface(icon);
+        }
+    }
     SDL_Renderer* sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
     if(!sr)sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_SOFTWARE);
     Ptr<SDL_Renderer,SDL_DestroyRenderer> renderer(sr,SDL_DestroyRenderer);
