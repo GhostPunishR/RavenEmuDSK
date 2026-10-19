@@ -22,6 +22,7 @@ struct Snapshot {
     std::string username, display_name, game_title, avatar_url;
     unsigned int softcore_points = 0, hardcore_points = 0;
     int unlocked_count = 0, total_count = 0;
+    unsigned int unlocked_points = 0, total_points = 0;
     bool logged_in = false, hardcore = false;
     std::vector<Achievement> achievements;
 };
@@ -37,6 +38,8 @@ public:
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
     void login(const std::string& username, const std::string& password);
+    void retry();
+    void disconnect();
     void start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core);
     void end_game();
     void pump(bool frame);

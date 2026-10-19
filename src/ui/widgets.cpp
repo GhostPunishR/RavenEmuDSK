@@ -76,6 +76,15 @@ void draw_icon(ImDrawList* d, Icon icon, ImVec2 c, float size, ImU32 col) {
         d->AddCircle(c, .82f * s, col, 0, t);
         line(0, 0, 0, -.5f); line(0, 0, .38f, .25f);
         break;
+    case Icon::RetroAchievements:
+        // Angular RA monogram with the same stroke, tint and sizing as all menu icons.
+        // R: upright, top bowl and descending leg. A: rising diagonals and crossbar.
+        poly({{-.93f, .82f}, {-.93f, -.82f}, {-.24f, -.82f},
+              {-.12f, -.6f}, {-.12f, -.21f}, {-.33f, -.07f}, {-.93f, -.07f}});
+        line(-.49f, -.07f, -.06f, .82f);
+        poly({{.00f, .82f}, {.42f, -.82f}, {.92f, .82f}});
+        line(.19f, .18f, .73f, .18f);
+        break;
     case Icon::Trophy:
         d->PathLineTo({c.x - .55f * s, c.y - .78f * s});
         d->PathArcTo({c.x, c.y - .22f * s}, .55f * s, pi, 0.f, 16);

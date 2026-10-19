@@ -82,6 +82,7 @@ struct Client::Impl {
     std::vector<Pending> pending;
     std::vector<Event> events;
     Snapshot state;
+    std::string retry_user, retry_token;
 
     static Impl& self(rc_client_t* c) {
         return *static_cast<Impl*>(rc_client_get_userdata(c));
@@ -107,6 +108,11 @@ struct Client::Impl {
         if (result == RC_OK) {
             impl.state.status = "Connecté à RetroAchievements";
             impl.state.logged_in = true;
+            const auto* user = rc_client_get_user_info(c);
+            if (user && user->username && user->token) {
+                impl.retry_user = user->username;
+                impl.retry_token = user->token;
+            }
             impl.events.push_back({"login", "RetroAchievements connecté", ""});
             // When the ROM was opened before authentication, identify it now.
             if (impl.memory && !impl.rom.empty()) {
@@ -213,15 +219,19 @@ struct Client::Impl {
             state.hardcore_points = user->score;
         }
         state.hardcore = rc_client_get_hardcore_enabled(handle) != 0;
-        state.game_title = game && game->title && memory ? game->title : "";
+        state.game_title = game && game->title ? game->title : "";
         state.achievements.clear();
         state.unlocked_count = 0;
         state.total_count = 0;
-        if (!game || !memory) return;
+        state.unlocked_points = 0;
+        state.total_points = 0;
+        if (!game) return;
         rc_client_user_game_summary_t total{};
         rc_client_get_user_game_summary(handle, &total);
         state.unlocked_count = static_cast<int>(total.num_unlocked_achievements);
         state.total_count = static_cast<int>(total.num_core_achievements);
+        state.unlocked_points = total.points_unlocked;
+        state.total_points = total.points_core;
         auto* list = rc_client_create_achievement_list(
             handle, RC_CLIENT_ACHIEVEMENT_CATEGORY_CORE, RC_CLIENT_ACHIEVEMENT_LIST_GROUPING_PROGRESS);
         if (list) {
@@ -264,6 +274,22 @@ void Client::login(const std::string& user, const std::string& password) {
     impl_->state.status = "Connexion en cours…";
     rc_client_begin_login_with_password(impl_->handle, user.c_str(), password.c_str(), Impl::logged, nullptr);
 }
+void Client::retry() {
+    if (impl_->retry_user.empty() || impl_->retry_token.empty()) return;
+    const std::string username = impl_->retry_user;
+    const std::string token = impl_->retry_token;
+    rc_client_logout(impl_->handle);
+    impl_->state = Snapshot{};
+    impl_->state.status = "Reconnexion en cours...";
+    rc_client_begin_login_with_token(impl_->handle, username.c_str(), token.c_str(), Impl::logged, nullptr);
+}
+void Client::disconnect() {
+    rc_client_logout(impl_->handle);
+    impl_->retry_user.clear();
+    impl_->retry_token.clear();
+    impl_->state = Snapshot{};
+    impl_->events.clear();
+}
 void Client::start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core) {
     impl_->memory = core;
     impl_->console = console;
@@ -279,7 +305,8 @@ void Client::start_game(int console, const std::vector<std::uint8_t>& rom, raven
 void Client::end_game() {
     impl_->memory = nullptr;
     impl_->rom.clear();
-    impl_->state.game_title.clear();
+    // Keep the last recognized game's summary visible in the launcher.
+    // Memory access is disconnected immediately when emulation stops.
 }
 void Client::pump(bool frame) { impl_->pump(frame); }
 void Client::reset() { rc_client_reset(impl_->handle); }

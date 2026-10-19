@@ -71,8 +71,8 @@ Le premier relevé des valeurs de progression sert de base : il ne déclenche pa
 
 ## Profil RetroAchievements
 
-La page **Profil** affiche une carte de compte complète avec le logo officiel de RetroAchievements, le pseudo, l'avatar du compte fourni par rcheevos et un lien vers la page du joueur sur RetroAchievements. Les points Hardcore et Softcore sont distincts. Les statistiques de jeux joués et de temps de jeu sont clairement signalées comme locales.
+La page Succès, aussi accessible depuis Profil, reprend le tableau de bord du compte connecté de RavenEmu. Elle affiche le statut de connexion, l'avatar du compte, le pseudo, les points Softcore et Hardcore, puis les informations du dernier jeu reconnu. Les boutons Réessayer et Déconnexion fonctionnent pendant la session.
 
-Le suivi d'un jeu et ses succès sont affichés uniquement lorsque le SDK fournit des données pour ce jeu. L'absence de jeu actif ne signifie pas que le compte a perdu ses succès.
+Les succès du jeu peuvent être filtrés par Tous, À obtenir et Obtenus, consultés par groupes de 10 puis 15, avec badge officiel et fiche détaillée. Les liens des succès ouvrent RetroAchievements dans le navigateur.
 
-Logo RetroAchievements chargé depuis la documentation officielle à une révision Git fixée. Les logos et marques appartiennent à leurs titulaires respectifs. En cas d'indisponibilité du logo, l'interface affiche un monogramme RA.
+Le pictogramme RA du menu Succès est dessiné avec ImDrawList, aux couleurs RavenEmu, sans logo photo ni téléchargement d'asset RA supplémentaire. Le jeton de session ne persiste pas sur disque dans cette version.
