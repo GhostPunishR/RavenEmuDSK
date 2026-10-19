@@ -29,10 +29,16 @@ def run(*args: str | Path, env: dict[str, str] | None = None, timeout: int = 120
         except subprocess.TimeoutExpired:
             diagnostic = ""
             if platform.system() == "Darwin":
-                sample = subprocess.run(["sample", str(process.pid), "1", "1"], text=True,
-                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
-                diagnostic = sample.stdout[:9000]
-            os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    sample = subprocess.run(["sample", str(process.pid), "1", "1"], text=True,
+                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+                    diagnostic = sample.stdout[:9000]
+                except (subprocess.TimeoutExpired, OSError) as error:
+                    diagnostic = f"Could not sample process: {error}"
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             output = process.communicate(timeout=10)[0]
             raise RuntimeError(f"Command timed out after {timeout}s: {args}\n{output[-4000:]}\n{diagnostic}")
         if process.returncode:
@@ -182,11 +188,24 @@ def macos(build: Path, stage: Path) -> tuple[Path, Path]:
                       "CFBundlePackageType": "APPL", "CFBundleVersion": version,
                       "CFBundleShortVersionString": version, "LSMinimumSystemVersion": "15.0",
                       "NSHighResolutionCapable": True, "SDL_FILESYSTEM_BASE_DIR": "resource"}, stream)
+    # Homebrew's SDL2 may be sdl2-compat. It loads SDL3 with dlopen in a
+    # constructor, so otool/BundleUtilities cannot discover this dependency.
+    # Its macOS loader explicitly supports libSDL3.dylib beside the executable.
+    brew_prefix = Path(run("brew", "--prefix").strip())
+    sdl3 = brew_prefix / "opt/sdl3/lib/libSDL3.dylib"
+    extra_libraries = []
+    extra_sources = []
+    if sdl3.is_file():
+        bundled_sdl3 = app / "Contents/MacOS/libSDL3.dylib"
+        copy(sdl3, bundled_sdl3)
+        extra_libraries.append(str(bundled_sdl3))
+        extra_sources.append(str(sdl3.resolve(strict=True)))
     print("Bundling macOS libraries", flush=True)
-    run("cmake", f"-DAPP={app}", "-P", ROOT / "cmake/bundle_macos.cmake", timeout=180)
+    run("cmake", f"-DAPP={app}", f"-DEXTRA_LIBS={';'.join(extra_libraries)}",
+        "-P", ROOT / "cmake/bundle_macos.cmake", timeout=180)
     paths_file = resources / "dependency-paths.txt"
     print("Collecting macOS dependency licenses", flush=True)
-    brew_licenses(paths_file.read_text().splitlines(), resources)
+    brew_licenses(paths_file.read_text().splitlines() + extra_sources, resources)
     paths_file.unlink()
     # Sign only after every binary and resource has reached its final location.
     # This is an ad-hoc signature, not Developer ID notarization.
