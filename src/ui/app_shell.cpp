@@ -513,22 +513,26 @@ void sidebar(State& s) {
     d->AddRectFilled({0, 0}, {sidebar_w, height}, color::sidebar);
     d->AddLine({sidebar_w - .5f, 0}, {sidebar_w - .5f, height}, color::border);
     if (s.logo) d->AddImage(reinterpret_cast<ImTextureID>(s.logo), {20, 16}, {68, 64});
-    struct Item { Page page; Icon icon; const char* label; };
+    struct Item { Page page; Icon icon; const char* label; bool tv_mode = false; };
     const Item items[] = {{Page::Home, Icon::Home, "Accueil"}, {Page::Library, Icon::Library, "Jeux"},
                           {Page::Recent, Icon::Recent, "Récents"},
+                          {Page::Home, Icon::Gamepad, "Mode TV", true},
                           {Page::Profile, Icon::Home, "Profil"},
                           {Page::Settings, Icon::Settings, "Réglages"}};
-    for (int i = 0; i < 5; ++i) {
-        const float y = i < 3 ? 96.f + i * 72.f : height - 84.f - (4 - i) * 72.f;
+    for (int i = 0; i < 6; ++i) {
+        const float y = i < 4 ? 96.f + i * 72.f : height - 84.f - (5 - i) * 72.f;
         const ImVec2 a{12.f, y}, b{sidebar_w - 12.f, y + 64.f};
         ImGui::SetCursorScreenPos(a);
         ImGui::PushID(i);
         if (ImGui::InvisibleButton("##nav", {b.x - a.x, b.y - a.y})) {
-            s.page = items[i].page;
-            if (s.page == Page::Profile) s.ra_game_path.clear();
+            if (items[i].tv_mode) set_tv(s, true);
+            else {
+                s.page = items[i].page;
+                if (s.page == Page::Profile) s.ra_game_path.clear();
+            }
         }
         const bool hovered = ImGui::IsItemHovered();
-        const bool active = s.page == items[i].page;
+        const bool active = !items[i].tv_mode && s.page == items[i].page;
         if (active) {
             d->AddRectFilled(a, b, color::accent_soft, radius::md);
             d->AddRectFilled({0, y + 16.f}, {3.f, y + 48.f}, color::accent, 2.f);
@@ -545,6 +549,8 @@ void sidebar(State& s) {
         const float lw = text_width(s.fonts.caption, items[i].label);
         text_at(d, s.fonts.caption, {(sidebar_w - lw) * .5f, y + 41.f}, fg, items[i].label);
         focus_ring(d, a, b, radius::md);
+        if (items[i].tv_mode && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            ImGui::SetTooltip("Mode TV / manette (Start)");
         ImGui::PopID();
     }
 }
@@ -578,11 +584,16 @@ void header(State& s) {
     const float width = ImGui::GetIO().DisplaySize.x;
     auto* d = ImGui::GetWindowDrawList();
     const char* titles[] = {"Accueil", "Bibliothèque", "Joués récemment", "Réglages", "Profil"};
-    text_at(d, s.fonts.display, {sidebar_w + content_pad, 26.f}, color::text,
-            titles[static_cast<int>(s.page)]);
-    // Search, right-aligned before the window controls.
-    const float sw = std::clamp(width * .26f, 240.f, 380.f);
-    const ImVec2 a{width - sw - 46.f * 3.f - space::xl, 24.f}, b{a.x + sw, a.y + 40.f};
+    const char* title = titles[static_cast<int>(s.page)];
+    text_at(d, s.fonts.display, {sidebar_w + content_pad, 26.f}, color::text, title);
+    // Center search in the content area, leaving room for the page title
+    // and the window controls when the window is narrow.
+    const float left = sidebar_w + content_pad + text_width(s.fonts.display, title) + space::xl;
+    const float right = width - 46.f * 3.f - space::xl;
+    const float sw = std::min(std::clamp(width * .26f, 240.f, 380.f), std::max(1.f, right - left));
+    const float centered = sidebar_w + (width - sidebar_w - sw) * .5f;
+    const ImVec2 a{std::clamp(centered, left, std::max(left, right - sw)), 24.f};
+    const ImVec2 b{a.x + sw, a.y + 40.f};
     d->AddRectFilled(a, b, color::surface, radius::md);
     draw_icon(d, Icon::Search, {a.x + 20.f, a.y + 20.f}, 15.f, color::text_muted);
     ImGui::SetCursorScreenPos({a.x + 36.f, a.y + (40.f - ImGui::GetFrameHeight()) * .5f});
@@ -598,9 +609,6 @@ void header(State& s) {
     const bool active = ImGui::IsItemActive();
     ImGui::PopStyleColor(3);
     d->AddRect(a, b, active ? color::accent : color::border_strong, radius::md, 0, active ? 1.5f : 1.f);
-    ImGui::SetCursorScreenPos({a.x - 52.f, a.y + 2.f});
-    if (icon_button("##tv", Icon::Gamepad, "Mode TV / manette (Start)")) set_tv(s, true);
-    s.interactive.push_back({a.x - 52.f, a.y, a.x - 16.f, b.y});
     if (!active && !s.search[0]) {
         const float kw = text_width(s.fonts.caption, "Ctrl+F");
         text_at(d, s.fonts.caption, {b.x - kw - space::md, a.y + 12.f}, color::text_faint, "Ctrl+F");
