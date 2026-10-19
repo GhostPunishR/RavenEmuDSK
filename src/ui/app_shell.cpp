@@ -94,9 +94,6 @@ struct State {
     int ra_filter = 0;
     int ra_visible_count = 10;
     std::string ra_selected_achievement;
-    int ra_filter = 0;
-    int ra_visible_count = 10;
-    std::string ra_selected_achievement;
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = nullptr;
     std::unordered_map<std::string, SDL_Texture*> images;
