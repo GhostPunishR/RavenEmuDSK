@@ -366,12 +366,26 @@ bool section_header(State& s, const char* title, const char* action = nullptr) {
     return clicked;
 }
 float card_height(float width) { return width + 60.f; }
+void game_title_tooltip(const std::string& title, bool play_action = false) {
+    if (!ImGui::BeginTooltip()) return;
+    const float wrap_width = std::max(1.f, std::min(480.f, ImGui::GetIO().DisplaySize.x - 32.f));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap_width);
+    ImGui::TextUnformatted(title.c_str());
+    if (play_action) {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Jouer");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
 void game_card(State& s, const Game& game, int index, float w) {
     ImGui::PushID(index);
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float h = card_height(w);
     ImGui::InvisibleButton("##card", {w, h});
     const bool hovered = ImGui::IsItemHovered();
+    // Read the card's hover state before submitting any tooltip content.
+    const bool show_title = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && !ImGui::IsItemClicked();
     const bool focused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
     if (ImGui::IsItemClicked() || focused) s.chosen = index;
     bool play = (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) ||
@@ -386,15 +400,15 @@ void game_card(State& s, const Game& game, int index, float w) {
     if (hovered) d->AddRectFilled({ca.x + 4, ca.y + 8}, {cb.x - 4, cb.y + 8}, color::shadow, radius::md);
     draw_cover(d, ca, cb, display_title(game), game.system, cover_for(s, game), s.fonts);
     if (selected) d->AddRect({ca.x - 1, ca.y - 1}, {cb.x + 1, cb.y + 1}, color::accent, radius::md + 1, 0, 2.f);
+    bool on_play = false;
     if (hovered) {
         const ImVec2 c{cb.x - 28.f, cb.y - 28.f};
         const auto mouse = ImGui::GetMousePos();
-        const bool on_play = (mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y) < 22.f * 22.f;
+        on_play = (mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y) < 22.f * 22.f;
         d->AddCircleFilled({c.x, c.y + 3}, 22.f, color::shadow, 32);
         d->AddCircleFilled(c, 22.f, on_play ? color::accent_hover : color::accent, 32);
         draw_icon(d, Icon::Play, {c.x + 2.f, c.y}, 16.f, IM_COL32_WHITE);
         if (on_play && ImGui::IsItemClicked()) play = true;
-        if (on_play) ImGui::SetTooltip("Jouer");
     }
     const auto title = display_title(game);
     text_at(d, s.fonts.strong, {p.x + 2.f, cb.y + 10.f}, color::text, ellipsize(s.fonts.strong, title, w - 4.f));
@@ -404,9 +418,7 @@ void game_card(State& s, const Game& game, int index, float w) {
     text_at(d, s.fonts.caption, {tx, cb.y + 37.f}, color::text_faint,
             ellipsize(s.fonts.caption, game.last_played ? ago(game.last_played) : "Nouveau", p.x + w - tx));
     focus_ring(d, {p.x - 8, p.y - 8}, {p.x + w + 8, p.y + h + 2}, radius::lg + 4.f);
-    if (hovered && !ImGui::IsItemClicked() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) &&
-        ellipsize(s.fonts.strong, title, w - 4.f) != title)
-        ImGui::SetTooltip("%s", title.c_str());
+    if (show_title) game_title_tooltip(title, on_play);
     ImGui::PopID();
     if (play) launch(s, game);
 }
@@ -725,6 +737,7 @@ void recent_view(State& s, Library& lib) {
         constexpr float h = 80.f;
         ImGui::InvisibleButton("##row", {w, h});
         const bool hovered = ImGui::IsItemHovered();
+        const bool show_title = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && !ImGui::IsItemClicked();
         if (ImGui::IsItemClicked() || (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)) s.chosen = index;
         bool play = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
         if (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) play = true;
@@ -751,6 +764,7 @@ void recent_view(State& s, Library& lib) {
             ImGui::SetCursorScreenPos({p.x + w - 124.f, p.y + 20.f});
             if (button("Jouer", Icon::Play, ButtonStyle::Primary, {108.f, 40.f})) play = true;
         }
+        if (show_title) game_title_tooltip(display_title(game));
         ImGui::SetCursorScreenPos({p.x, p.y + h + space::xs});
         ImGui::Dummy({0.f, 0.f});
         ImGui::PopID();
