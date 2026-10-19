@@ -13,6 +13,9 @@ enum class Icon {
     Fullscreen, Exit, Clock, Check, Lock, Gamepad, Keyboard, Info, Trash
 };
 void draw_icon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
+// Reference-inspired RA emblem drawn directly with ImDrawList in blue and gold.
+// The width is independent of the avatar diameter: no bitmap is loaded.
+void draw_ra_mark(ImDrawList* draw, ImVec2 center, float width);
 
 enum class ButtonStyle { Primary, Secondary, Ghost, Danger };
 // Rounded button with an optional leading icon. Width 0 fits the label.

@@ -56,7 +56,7 @@ constexpr float card_min_w = 164.f;
 constexpr float card_gap = 20.f;
 constexpr float content_pad = 32.f;
 
-enum class Page { Home, Library, Recent, Achievements, Settings, Profile };
+enum class Page { Home, Library, Recent, Settings, Profile };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
 struct AchievementInfo {
@@ -105,6 +105,7 @@ struct State {
 
 // Defined with the profile page, used by the sidebar and the home page.
 void draw_player_avatar(State& s, ImDrawList* d, ImVec2 center, float r);
+void draw_ra_identity(State& s, ImDrawList* draw, ImVec2 center, float radius);
 void profile_banner(State& s, Library& lib);
 void set_tv(State& s, bool on, bool remember = true);
 void text_at(ImDrawList* d, ImFont* font, ImVec2 pos, ImU32 col, const std::string& value);
@@ -485,10 +486,11 @@ void sidebar(State& s) {
     if (s.logo) d->AddImage(reinterpret_cast<ImTextureID>(s.logo), {20, 16}, {68, 64});
     struct Item { Page page; Icon icon; const char* label; };
     const Item items[] = {{Page::Home, Icon::Home, "Accueil"}, {Page::Library, Icon::Library, "Jeux"},
-                          {Page::Recent, Icon::Recent, "Récents"}, {Page::Achievements, Icon::RetroAchievements, "Succès"},
-                          {Page::Profile, Icon::Home, "Profil"}, {Page::Settings, Icon::Settings, "Réglages"}};
-    for (int i = 0; i < 6; ++i) {
-        const float y = i < 4 ? 96.f + i * 72.f : height - 84.f - (5 - i) * 72.f;
+                          {Page::Recent, Icon::Recent, "Récents"},
+                          {Page::Profile, Icon::RetroAchievements, "Profil"},
+                          {Page::Settings, Icon::Settings, "Réglages"}};
+    for (int i = 0; i < 5; ++i) {
+        const float y = i < 3 ? 96.f + i * 72.f : height - 84.f - (4 - i) * 72.f;
         const ImVec2 a{12.f, y}, b{sidebar_w - 12.f, y + 64.f};
         ImGui::SetCursorScreenPos(a);
         ImGui::PushID(i);
@@ -503,7 +505,7 @@ void sidebar(State& s) {
         }
         const ImU32 fg = active ? color::text : hovered ? color::text : color::text_muted;
         if (items[i].page == Page::Profile) {
-            draw_player_avatar(s, d, {sidebar_w * .5f, y + 22.f}, 14.f);
+            draw_ra_identity(s, d, {sidebar_w * .5f, y + 22.f}, 14.f);
             if (active) d->AddCircle({sidebar_w * .5f, y + 22.f}, 16.f, color::accent_hover, 0, 1.5f);
         } else {
             draw_icon(d, items[i].icon, {sidebar_w * .5f, y + 24.f}, 22.f, active ? color::accent_hover : fg);
@@ -543,7 +545,7 @@ void window_controls(State& s) {
 void header(State& s) {
     const float width = ImGui::GetIO().DisplaySize.x;
     auto* d = ImGui::GetWindowDrawList();
-    const char* titles[] = {"Accueil", "Bibliothèque", "Joués récemment", "Succès", "Réglages", "Profil"};
+    const char* titles[] = {"Accueil", "Bibliothèque", "Joués récemment", "Réglages", "Profil"};
     text_at(d, s.fonts.display, {sidebar_w + content_pad, 26.f}, color::text,
             titles[static_cast<int>(s.page)]);
     // Search, right-aligned before the window controls.
@@ -957,6 +959,17 @@ void draw_player_avatar(State& s, ImDrawList* d, ImVec2 center, float r) {
     SDL_Texture* image = file.empty() ? nullptr : image_for(s, "avatar:" + file, {data_dir() / from_utf8(file)});
     draw_avatar(d, center, r, player_name(s), s.settings.number("avatar_color", 0), image, s.fonts);
 }
+void draw_ra_identity(State& s, ImDrawList* d, ImVec2 center, float radius) {
+    const auto snap = ravenemudsk_ra::client().snapshot();
+    if (snap.logged_in) {
+        SDL_Texture* avatar = s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
+        const std::string name = snap.display_name.empty() ? snap.username : snap.display_name;
+        // Until the official image has loaded, show the user's initials.
+        draw_avatar(d, center, radius, name, 0, avatar, s.fonts);
+    } else {
+        draw_ra_mark(d, center, radius * 2.f);
+    }
+}
 void save_settings(State& s) {
     try {
         s.settings.save();
@@ -1003,7 +1016,7 @@ void profile_banner(State& s, Library&) {
     d->AddRectFilled(pos,{pos.x+w,pos.y+h},
                      ImGui::IsItemHovered() ? color::surface_hover : color::surface,radius::lg);
     d->AddRect(pos,{pos.x+w,pos.y+h},color::border,radius::lg);
-    draw_icon(d,Icon::RetroAchievements,{pos.x+43.f,pos.y+44.f},28.f,color::accent);
+    draw_ra_identity(s,d,{pos.x+43.f,pos.y+44.f},28.f);
     const auto name=snap.logged_in
         ? (snap.display_name.empty()?snap.username:snap.display_name)
         : std::string("Connexion RetroAchievements");
@@ -1605,7 +1618,6 @@ void render(State& s, Library& lib) {
     case Page::Home: home_view(s, lib); break;
     case Page::Library: library_view(s, lib); break;
     case Page::Recent: recent_view(s, lib); break;
-    case Page::Achievements: achievements_view(s, lib); break;
     case Page::Settings: settings_view(s, lib); break;
     case Page::Profile: profile_view(s, lib); break;
     }
@@ -1646,7 +1658,8 @@ Page smoke_page() {
     const std::string name = page ? page : "";
     if (name == "library") return Page::Library;
     if (name == "recent") return Page::Recent;
-    if (name == "achievements") return Page::Achievements;
+    // Keep the old smoke-test route pointing to the single Profile dashboard.
+    if (name == "achievements") return Page::Profile;
     if (name == "settings") return Page::Settings;
     if (name == "profile") return Page::Profile;
     return Page::Home;

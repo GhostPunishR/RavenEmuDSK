@@ -71,8 +71,8 @@ Le premier relevé des valeurs de progression sert de base : il ne déclenche pa
 
 ## Profil RetroAchievements
 
-La page Succès, aussi accessible depuis Profil, reprend le tableau de bord du compte connecté de RavenEmu. Elle affiche le statut de connexion, l'avatar du compte, le pseudo, les points Softcore et Hardcore, puis les informations du dernier jeu reconnu. Les boutons Réessayer et Déconnexion fonctionnent pendant la session.
+La page Profil est l'unique tableau de bord RetroAchievements. L'entrée Succès n'apparaît plus dans la barre latérale. Elle affiche le statut de connexion, l'avatar du compte, le pseudo, les points Softcore et Hardcore, puis les informations du dernier jeu reconnu. Les boutons Réessayer et Déconnexion fonctionnent pendant la session.
 
 Les succès du jeu peuvent être filtrés par Tous, À obtenir et Obtenus, consultés par groupes de 10 puis 15, avec badge officiel et fiche détaillée. Les liens des succès ouvrent RetroAchievements dans le navigateur.
 
-Le pictogramme RA du menu Succès est dessiné avec ImDrawList, aux couleurs RavenEmu, sans logo photo ni téléchargement d'asset RA supplémentaire. Le jeton de session ne persiste pas sur disque dans cette version.
+Sur l'accueil et dans la barre latérale, l'état déconnecté dessine le logo RA en bleu et or directement avec ImDrawList, d'après le monogramme de référence. Dès la connexion, la même zone montre l'avatar officiel du compte chargé en HTTPS, avec les initiales comme solution provisoire si l'image n'est pas encore disponible. Le jeton de session ne persiste pas sur disque dans cette version.

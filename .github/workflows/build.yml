@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Check repository typography
         run: python tools/check_text_style.py
+      - name: Check RetroAchievements navigation
+        run: python tools/check_ra_navigation.py
       - name: Linux prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev
