@@ -3,8 +3,8 @@
 Émulateur PC open source **Game Boy, Game Boy Color et Game Boy Advance**, en **C++20**, pour **Windows, Linux et macOS**.
 
 - **RavenCore** : moteurs C++ natifs GB/GBC/GBA, API publique C.
-- **Interface** : adaptation de l'interface C++ SDL2 / Dear ImGui du projet [Retrophora-Emulateur](https://github.com/Retrophora/Retrophora-Emulateur), avec le thème de RavenEmu (`#0B0C12`, `#191B28`, `#A78BFA`).
-- **RetroAchievements** : intégration officielle `rcheevos`, identification des ROM et lecture mémoire de RavenCore, authentification HTTPS, notifications et état du compte. Pas d'Engine/SDK Retrophora ni de règles de succès JSON locaux.
+- **Interface** : interface C++ SDL2 / Dear ImGui avec le thème de RavenEmu (`#0B0C12`, `#191B28`, `#A78BFA`).
+- **RetroAchievements** : intégration officielle `rcheevos`, identification des ROM et lecture mémoire de RavenCore, authentification HTTPS, notifications et état du compte. Pas de moteur de succès local ni de règles JSON de succès.
 - **Logo** : asset officiel de RavenEmu copié au build depuis une révision immuable de [RavenEmu](https://github.com/GhostPunishR/RavenEmu). Pour un build hors ligne, préremplir `build/branding/ravenemu-logo.png` avec le logo fourni.
 
 ## Compilation
@@ -42,7 +42,7 @@ Les builds et tests des trois systèmes sont automatisés dans **Actions**. Les 
 
 ## Fonctions
 
-La bibliothèque, les jaquettes locales, les imports, le mode TV/manette et les commandes proviennent de Retrophora et ont été rebrandés pour RavenEmuDSK. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
+RavenEmuDSK propose une bibliothèque de jeux, des jaquettes locales, des imports, un mode TV/manette et des commandes clavier/manette. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
 
 Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mot de passe n'est pas sauvegardé. Les succès sont identifiés pour les ROM reconnues et évalués par le SDK officiel ; aucun succès local inventé n'est soumis. **Seul le mode Softcore est proposé à ce stade**, le mode Hardcore nécessitant une vérification de conformité.
 
@@ -50,4 +50,8 @@ Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mo
 
 ## Crédits et licence
 
-© 2026 GhostPunishR. Code d'interface adapté de Retrophora-Emulateur (même auteur), moteurs [RavenCore](https://github.com/GhostPunishR/RavenCore). Les bibliothèques tierces conservent leurs licences. Logiciel sous **AGPL-3.0-only**. Aucun lien officiel avec Nintendo ou RetroAchievements.
+© 2026 GhostPunishR. Interface et intégration C++ par GhostPunishR, moteurs [RavenCore](https://github.com/GhostPunishR/RavenCore). Les bibliothèques tierces conservent leurs licences. Logiciel sous **AGPL-3.0-only**. Aucun lien officiel avec Nintendo ou RetroAchievements.
+
+## Convention typographique
+
+Utiliser uniquement le tiret simple `-` dans les textes du depot. Les tirets typographiques longs sont interdits. Cette regle est verifiee par la CI.

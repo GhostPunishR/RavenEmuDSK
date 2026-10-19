@@ -50,7 +50,7 @@ void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
     draw_icon(d, done ? Icon::Trophy : Icon::Gamepad, c, 24.f, done ? color::gold : color::accent_hover);
     const float x = a.x + 92.f;
     d->AddText(fonts.caption, fonts.caption->FontSize, {x, a.y + 28.f}, done ? color::gold : color::accent_hover,
-               done ? "OBJECTIF ATTEINT" : "DÉMO RETROPHORA");
+               done ? "OBJECTIF ATTEINT" : "DÉMO RAVENEMUDSK");
     d->AddText(fonts.title, fonts.title->FontSize, {x, a.y + 48.f}, color::text,
                done ? "Succès débloqué !" : "Débloquez votre premier succès");
     const std::string line = done ? info.achievement_title + "  \xC2\xB7  " +

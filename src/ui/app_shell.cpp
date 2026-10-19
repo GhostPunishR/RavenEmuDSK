@@ -946,7 +946,7 @@ void tv_view(State& s, Library& lib) {
     // Top bar: brand on the left, player and clock on the right.
     const float pad = std::max(48.f, screen.x * .04f);
     if (s.logo) d->AddImage(reinterpret_cast<ImTextureID>(s.logo), {pad, 30.f}, {pad + 56.f, 86.f});
-    text_at(d, s.fonts.tv_title, {pad + 72.f, 42.f}, color::text, "RETROPHORA");
+    text_at(d, s.fonts.tv_title, {pad + 72.f, 42.f}, color::text, "RAVENEMUDSK");
     std::array<char, 8> clock{};
     const std::time_t now = std::time(nullptr);
     std::tm local{};
@@ -1222,7 +1222,7 @@ void settings_view(State& s, Library& lib) {
             {"Start / Select", "Entrée / Retour arrière", "Start / Back"},
             {"Gâchettes L / R (GBA)", "A / S", "LB / RB"},
             {"Menu de pause", "Échap", "Guide ou Back + Start"},
-            {"Pause rapide", "P", "\xE2\x80\x94"},
+            {"Pause rapide", "P", "-"},
             {"Sauvegarder / charger l'état", "F5 / F9", "Menu de pause"},
             {"Réinitialiser", "F4", "Menu de pause"},
             {"Plein écran", "F11", "Menu de pause"}};
@@ -1242,7 +1242,7 @@ void settings_view(State& s, Library& lib) {
 
     begin_card("##about");
     card_title(s, Icon::Info, "À propos");
-    ImGui::TextUnformatted("RavenEmuDSK \xE2\x80\x94 émulateur Game Boy, Game Boy Color et Game Boy Advance");
+    ImGui::TextUnformatted("RavenEmuDSK - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
           "succès RavenEmuDSK-Engine (Apache-2.0) et RavenEmuDSK-SDK (MIT), interface Dear ImGui (MIT) "
           "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire et aucune donnée n'est envoyée.");
@@ -1282,7 +1282,7 @@ void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
     p = ImGui::GetCursorScreenPos();
     const std::pair<const char*, std::string> stats[] = {
         {"Dernière partie", game.last_played ? ago(game.last_played) : "Jamais"},
-        {"Temps de jeu", game.seconds_played ? duration_of(game.seconds_played) : "\xE2\x80\x94"}};
+        {"Temps de jeu", game.seconds_played ? duration_of(game.seconds_played) : "-"}};
     d->AddRectFilled(p, {p.x + w, p.y + 88.f}, color::surface, radius::md);
     for (int i = 0; i < 2; ++i) {
         const float y = p.y + 14.f + i * 36.f;

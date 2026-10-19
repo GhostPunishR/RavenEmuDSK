@@ -14,6 +14,12 @@ jobs:
         os: [ubuntu-24.04, windows-2022, macos-15]
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check repository typography
+        run: python tools/check_text_style.py
       - name: Linux prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev
