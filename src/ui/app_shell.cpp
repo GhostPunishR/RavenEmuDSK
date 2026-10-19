@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// RavenEmuDSK launcher: library, recent games, achievements and settings.
+// RavenEmu launcher: library, recent games, achievements and settings.
 #include <ravenemudsk/ui/app_shell.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/ui/library.hpp>
@@ -159,7 +159,7 @@ std::optional<fs::path> pick_rom() {
     dlg.hwndOwner = GetActiveWindow();
     dlg.lpstrFile = filename.data();
     dlg.nMaxFile = static_cast<DWORD>(filename.size());
-    dlg.lpstrTitle = L"RavenEmuDSK - Ajouter un jeu";
+    dlg.lpstrTitle = L"RavenEmu - Ajouter un jeu";
     dlg.lpstrFilter = L"ROM Game Boy (*.gb;*.gbc;*.gba)\0*.gb;*.gbc;*.gba\0Tous les fichiers (*.*)\0*.*\0";
     dlg.nFilterIndex = 1;
     dlg.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
@@ -175,7 +175,7 @@ std::optional<fs::path> pick_image() {
     dlg.hwndOwner = GetActiveWindow();
     dlg.lpstrFile = filename.data();
     dlg.nMaxFile = static_cast<DWORD>(filename.size());
-    dlg.lpstrTitle = L"RavenEmuDSK - Choisir une jaquette";
+    dlg.lpstrTitle = L"RavenEmu - Choisir une jaquette";
     dlg.lpstrFilter = L"Images (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0";
     dlg.nFilterIndex = 1;
     dlg.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
@@ -187,7 +187,7 @@ std::optional<fs::path> pick_folder() {
 #ifdef _WIN32
     BROWSEINFOW info{};
     info.hwndOwner = GetActiveWindow();
-    info.lpszTitle = L"RavenEmuDSK - Sélectionner un dossier de ROMs";
+    info.lpszTitle = L"RavenEmu - Sélectionner un dossier de ROMs";
     info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_USENEWUI;
     const auto item = SHBrowseForFolderW(&info);
     if (!item) return std::nullopt;
@@ -637,7 +637,7 @@ void hero(State& s, Library& lib) {
 }
 void home_view(State& s, Library& lib) {
     if (lib.games().empty()) {
-        empty_state(s, lib, Icon::Gamepad, "Bienvenue sur RavenEmuDSK",
+        empty_state(s, lib, Icon::Gamepad, "Bienvenue sur RavenEmu",
                     "Ajoutez vos jeux Game Boy, Game Boy Color et Game Boy Advance pour commencer.", true);
         return;
     }
@@ -1139,7 +1139,7 @@ void tv_view(State& s, Library& lib) {
     // Top bar: brand on the left, player and clock on the right.
     const float pad = std::max(48.f, screen.x * .04f);
     if (s.logo) d->AddImage(reinterpret_cast<ImTextureID>(s.logo), {pad, 30.f}, {pad + 56.f, 86.f});
-    text_at(d, s.fonts.tv_title, {pad + 72.f, 42.f}, color::text, "RAVENEMUDSK");
+    text_at(d, s.fonts.tv_title, {pad + 72.f, 42.f}, color::text, "RAVENEMU");
     std::array<char, 8> clock{};
     const std::time_t now = std::time(nullptr);
     std::tm local{};
@@ -1255,7 +1255,7 @@ void tv_view(State& s, Library& lib) {
         launch(s, *game);
 }
 // ---------------------------------------------------------------- updates
-// One check per run of RavenEmuDSK, shared by every launcher session.
+// One check per run of RavenEmu, shared by every launcher session.
 UpdateCheck& updates() {
     static UpdateCheck check;
     return check;
@@ -1281,7 +1281,7 @@ void update_banner(State& s) {
     d->AddCircleFilled({p.x + 36.f, p.y + h * .5f}, 18.f, color::accent, 32);
     draw_icon(d, Icon::Save, {p.x + 36.f, p.y + h * .5f}, 16.f, IM_COL32_WHITE);
     text_at(d, s.fonts.strong, {p.x + 68.f, p.y + 16.f}, color::text,
-            "RavenEmuDSK " + to_string(*latest) + " est disponible");
+            "RavenEmu " + to_string(*latest) + " est disponible");
     text_at(d, s.fonts.caption, {p.x + 68.f, p.y + 40.f}, color::text_muted,
             std::string("Vous utilisez la version ") + RAVENEMUDSK_VERSION + ". Vos sauvegardes sont conservées.");
     const float later_w = text_width(s.fonts.body, "Plus tard") + 32.f;
@@ -1313,7 +1313,7 @@ void updates_card(State& s) {
     switch (status) {
     case UpdateCheck::Status::Idle: line = "Aucune vérification depuis le lancement."; break;
     case UpdateCheck::Status::Checking: line = "Vérification en cours\xE2\x80\xA6"; break;
-    case UpdateCheck::Status::UpToDate: line = "RavenEmuDSK est à jour."; break;
+    case UpdateCheck::Status::UpToDate: line = "RavenEmu est à jour."; break;
     case UpdateCheck::Status::NoRelease: line = "Aucune version n'est encore publiée sur GitHub."; break;
     case UpdateCheck::Status::Available:
         line = "La version " + (latest ? to_string(*latest) : std::string("?")) + " est disponible.";
@@ -1331,7 +1331,7 @@ void updates_card(State& s) {
         updates().start(RAVENEMUDSK_VERSION);
     ImGui::PushFont(s.fonts.caption);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::text_faint));
-    ImGui::TextWrapped("RavenEmuDSK lit seulement le numéro de la dernière version sur api.github.com ; aucune "
+    ImGui::TextWrapped("RavenEmu lit seulement le numéro de la dernière version sur api.github.com ; aucune "
                        "donnée sur vous ou vos jeux n'est envoyée. Le téléchargement s'ouvre dans votre navigateur.");
     ImGui::PopStyleColor();
     ImGui::PopFont();
@@ -1358,7 +1358,7 @@ void folder_row(State& s, const char* label, const char* detail, const fs::path&
 void settings_view(State& s, Library& lib) {
     begin_card("##folders");
     card_title(s, Icon::Folder, "Dossiers");
-    muted("RavenEmuDSK range automatiquement vos fichiers dans deux dossiers à côté du programme. "
+    muted("RavenEmu range automatiquement vos fichiers dans deux dossiers à côté du programme. "
           "Copiez-les pour sauvegarder ou transférer votre progression.");
     ImGui::Dummy({0.f, space::xs});
     folder_row(s, "Sauvegardes", "sauvegardes de jeu, états et dernières captures",
@@ -1368,7 +1368,7 @@ void settings_view(State& s, Library& lib) {
 
     begin_card("##library");
     card_title(s, Icon::Library, "Bibliothèque");
-    muted("RavenEmuDSK mémorise seulement l'emplacement de vos jeux : les ROMs restent dans leur dossier, "
+    muted("RavenEmu mémorise seulement l'emplacement de vos jeux : les ROMs restent dans leur dossier, "
           "sur ce PC.");
     ImGui::Dummy({0.f, space::xs});
     ImGui::PushFont(s.fonts.caption);
@@ -1388,7 +1388,7 @@ void settings_view(State& s, Library& lib) {
     begin_card("##tv");
     card_title(s, Icon::Gamepad, "Mode TV / manette");
     muted("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé. "
-          "Start ou Échap revient au mode bureau ; RavenEmuDSK s'en souvient au prochain lancement.");
+          "Start ou Échap revient au mode bureau ; RavenEmu s'en souvient au prochain lancement.");
     ImGui::Dummy({0.f, space::xs});
     if (button("Passer en mode TV", Icon::Fullscreen, ButtonStyle::Primary)) set_tv(s, true);
     end_card();
@@ -1435,9 +1435,9 @@ void settings_view(State& s, Library& lib) {
 
     begin_card("##about");
     card_title(s, Icon::Info, "À propos");
-    ImGui::TextUnformatted("RavenEmuDSK - émulateur Game Boy, Game Boy Color et Game Boy Advance");
+    ImGui::TextUnformatted("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
-          "succès RavenEmuDSK-Engine (Apache-2.0) et RavenEmuDSK-SDK (MIT), interface Dear ImGui (MIT) "
+          "succès RetroAchievements via rcheevos (MIT), interface Dear ImGui (MIT) "
           "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire et aucune donnée n'est envoyée.");
     end_card();
 }
@@ -1607,16 +1607,16 @@ void render(State& s, Library& lib) {
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize(screen);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    ImGui::Begin("RavenEmuDSK##root", nullptr,
+    ImGui::Begin("RavenEmu##root", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (s.chosen >= static_cast<int>(lib.games().size())) s.chosen = lib.games().empty() ? -1 : 0;
-    static bool update_told = false;  // one toast per run of RavenEmuDSK
+    static bool update_told = false;  // one toast per run of RavenEmu
     if (!update_told && updates().status() == UpdateCheck::Status::Available) {
         update_told = true;
         if (const auto latest = updates().latest())
-            notify(s, Toast::Kind::Info, "RavenEmuDSK " + to_string(*latest) + " est disponible",
+            notify(s, Toast::Kind::Info, "RavenEmu " + to_string(*latest) + " est disponible",
                    "Téléchargement depuis l'accueil ou Réglages, Mises à jour");
     }
     if (s.tv) {
@@ -1714,7 +1714,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    SDL_Window* window = SDL_CreateWindow("RavenEmuDSK", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN);
     if (!window) { SDL_Quit(); return std::nullopt; }
     if (char* base = SDL_GetBasePath()) {

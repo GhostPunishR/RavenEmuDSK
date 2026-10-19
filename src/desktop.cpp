@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// RavenEmuDSK: SDL2 desktop gameplay, RavenCore emulation, official RetroAchievements.
+// RavenEmu: SDL2 desktop gameplay, RavenCore emulation, official RetroAchievements.
 #include <SDL.h>
 #include <ravenemu/bridge.h>
 #include <ravenemudsk/ui/app_shell.hpp>
@@ -146,7 +146,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
     Sdl sdl;
     const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
-    Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmuDSK - "+title).c_str(),
+    Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmu - "+title).c_str(),
         SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
         SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE),SDL_DestroyWindow);
     if(!win)throw std::runtime_error(SDL_GetError());
@@ -317,9 +317,9 @@ int entry(int argc,char** argv) {
     try {
         if(argc>1) {
             if(argc==2 && std::string(argv[1])=="--help") {
-                std::cout<<"RavenEmuDSK - Windows, Linux, macOS\nUsage: RavenEmuDSK [gb|gbc|gba ROM]\n";return 0;
+                std::cout<<"RavenEmu - Windows, Linux, macOS\nUsage: RavenEmuDSK [gb|gbc|gba ROM]\n";return 0;
             }
-            if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmuDSK 0.1.0\n";return 0;}
+            if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu 0.1.0\n";return 0;}
             if(argc!=3)throw std::runtime_error("Usage : RavenEmuDSK [gb|gbc|gba ROM]");
             play({argv[1],argv[2],false});return 0;
         }
@@ -333,7 +333,7 @@ int entry(int argc,char** argv) {
             const auto seconds=std::chrono::duration_cast<std::chrono::seconds>(Clock::now()-started).count();
             ravenemudsk_ui::record_session(*req,static_cast<unsigned long long>(std::max<std::int64_t>(0,seconds)));
         }
-    } catch(const std::exception& e){std::cerr<<"RavenEmuDSK: "<<e.what()<<'\n';return 1;}
+    } catch(const std::exception& e){std::cerr<<"RavenEmu: "<<e.what()<<'\n';return 1;}
 }
 }
 #ifdef _WIN32

@@ -1,4 +1,4 @@
-# RavenEmuDSK
+# RavenEmu - version PC
 
 Émulateur PC open source **Game Boy, Game Boy Color et Game Boy Advance**, en **C++20**, pour **Windows, Linux et macOS**.
 
@@ -42,7 +42,7 @@ Les builds et tests des trois systèmes sont automatisés dans **Actions**. Les 
 
 ## Fonctions
 
-RavenEmuDSK propose une bibliothèque de jeux, des jaquettes locales, des imports, un mode TV/manette et des commandes clavier/manette. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
+RavenEmu propose une bibliothèque de jeux, des jaquettes locales, des imports, un mode TV/manette et des commandes clavier/manette. En jeu : écran SDL, audio, clavier/manette, sauvegardes batterie, états rapides et notifications. `Échap` affiche le menu ; `Z/X` = A/B ; `F5/F9` = sauvegarder/charger l'état (désactivés en Hardcore).
 
 Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mot de passe n'est pas sauvegardé. Les succès sont identifiés pour les ROM reconnues et évalués par le SDK officiel ; aucun succès local inventé n'est soumis. **Seul le mode Softcore est proposé à ce stade**, le mode Hardcore nécessitant une vérification de conformité.
 
