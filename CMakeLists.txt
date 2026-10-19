@@ -65,6 +65,11 @@ add_library(ravenemudsk_ui_library STATIC
   src/ui/library.cpp src/ui/settings.cpp src/ui/storage.cpp src/ui/updates.cpp)
 target_include_directories(ravenemudsk_ui_library PUBLIC include)
 target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
+target_link_libraries(ravenemudsk_ui_library PRIVATE ravenemu_common)
+
+add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp)
+target_include_directories(ravenemudsk_game_input PUBLIC include)
+target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api)
 
 add_executable(RavenEmuDSK
   src/desktop.cpp
@@ -78,7 +83,7 @@ target_compile_definitions(RavenEmuDSK PRIVATE
   RAVENEMUDSK_VERSION="${PROJECT_VERSION}" RAVENEMUDSK_HAVE_CURL)
 target_include_directories(RavenEmuDSK PRIVATE include "${stb_SOURCE_DIR}")
 target_link_libraries(RavenEmuDSK PRIVATE
-  ravenemudsk_ui_library ravenemudsk_imgui ravenemu_c_api
+  ravenemudsk_ui_library ravenemudsk_imgui ravenemudsk_game_input ravenemu_c_api
   ravenemudsk_rcheevos ${RAVENEMUDSK_SDL} CURL::libcurl)
 if(WIN32)
   target_compile_definitions(RavenEmuDSK PRIVATE SDL_MAIN_HANDLED)
@@ -130,6 +135,13 @@ if(BUILD_TESTING)
   add_executable(ravenemudsk_library_test tests/library_test.cpp)
   target_link_libraries(ravenemudsk_library_test PRIVATE ravenemudsk_ui_library)
   add_test(NAME library COMMAND ravenemudsk_library_test)
+  add_executable(ravenemudsk_storage_test tests/storage_test.cpp)
+  target_link_libraries(ravenemudsk_storage_test PRIVATE ravenemudsk_ui_library)
+  add_test(NAME storage COMMAND ravenemudsk_storage_test)
+  add_executable(ravenemudsk_game_input_test tests/game_input_test.cpp)
+  target_compile_definitions(ravenemudsk_game_input_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_game_input_test PRIVATE ravenemudsk_game_input)
+  add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
   add_test(NAME help COMMAND RavenEmuDSK --help)
   add_test(NAME launcher_smoke COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
@@ -139,4 +151,13 @@ if(BUILD_TESTING)
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
     RAVENEMUDSK_UI_SMOKE_PAGE=profile $<TARGET_FILE:RavenEmuDSK>)
   set_tests_properties(retro_profile_smoke PROPERTIES TIMEOUT 30)
+  add_test(NAME launcher_invalid_video COMMAND ${CMAKE_COMMAND} -E env
+    SDL_VIDEODRIVER=unavailable-raven-test-driver SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
+    $<TARGET_FILE:RavenEmuDSK>)
+  add_test(NAME launcher_screenshot_failure COMMAND ${CMAKE_COMMAND} -E env
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
+    "RAVENEMUDSK_UI_SCREENSHOT=${CMAKE_CURRENT_BINARY_DIR}"
+    $<TARGET_FILE:RavenEmuDSK>)
+  set_tests_properties(launcher_invalid_video launcher_screenshot_failure
+    PROPERTIES WILL_FAIL TRUE TIMEOUT 30)
 endif()

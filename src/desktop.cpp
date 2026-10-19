@@ -4,6 +4,7 @@
 #include <ravenemu/bridge.h>
 #include <ravenemudsk/ui/app_shell.hpp>
 #include <ravenemudsk/ui/game_overlay.hpp>
+#include <ravenemudsk/ui/game_input.hpp>
 #include <ravenemudsk/ui/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/achievements/client.hpp>
@@ -98,34 +99,6 @@ int system_of(const std::string& code) {
     if(code=="gba")return RAVENEMU_GBA;
     throw std::runtime_error("Console inconnue : "+code);
 }
-int key_of(SDL_Keycode key) {
-    switch(key) {
-        case SDLK_UP:return RAVENEMU_UP;case SDLK_DOWN:return RAVENEMU_DOWN;
-        case SDLK_LEFT:return RAVENEMU_LEFT;case SDLK_RIGHT:return RAVENEMU_RIGHT;
-        case SDLK_z:return RAVENEMU_A;case SDLK_x:return RAVENEMU_B;
-        case SDLK_RETURN:return RAVENEMU_START;case SDLK_BACKSPACE:return RAVENEMU_SELECT;
-        case SDLK_a:return RAVENEMU_L;case SDLK_s:return RAVENEMU_R;
-        default:return -1;
-    }
-}
-int pad_of(std::uint8_t btn) {
-    switch(btn) {
-        case SDL_CONTROLLER_BUTTON_A:return RAVENEMU_A;
-        case SDL_CONTROLLER_BUTTON_B:return RAVENEMU_B;
-        case SDL_CONTROLLER_BUTTON_START:return RAVENEMU_START;
-        case SDL_CONTROLLER_BUTTON_BACK:return RAVENEMU_SELECT;
-        case SDL_CONTROLLER_BUTTON_DPAD_UP:return RAVENEMU_UP;
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:return RAVENEMU_DOWN;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:return RAVENEMU_LEFT;
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:return RAVENEMU_RIGHT;
-        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:return RAVENEMU_L;
-        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:return RAVENEMU_R;
-        default:return -1;
-    }
-}
-void release_controls(ravenemu_bridge* core) {
-    for(int b=RAVENEMU_UP;b<=RAVENEMU_R;++b)ravenemu_set_button(core,b,0);
-}
 void play(const ravenemudsk_ui::LaunchRequest& req) {
     const auto rom_path=ravenemudsk_ui::from_utf8(req.rom);
     auto rom=read_file(rom_path,64u<<20);
@@ -135,7 +108,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     const auto folders=ravenemudsk_ui::app_folders();
     const auto battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
     const auto state_path=ravenemudsk_ui::save_path(folders,rom_path,".rstate");
-    const auto preview_path=ravenemudsk_ui::save_path(folders,rom_path,".ravenemu-preview.bmp");
+    const auto preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
            "Chargement ROM");
@@ -178,6 +151,9 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
     ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get());
+    ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
+        ravenemu_set_button(core.get(),button,pressed);
+    });
     ravenemudsk_ui::OverlayInfo info{};
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
     auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
@@ -195,13 +171,11 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         while(SDL_PollEvent(&e)) {
             overlay.process_event(e);
             if(e.type==SDL_QUIT)running=false;
-            if(e.type==SDL_WINDOWEVENT && e.window.event==SDL_WINDOWEVENT_FOCUS_LOST)
-                release_controls(core.get());
             if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
                 pad.reset(SDL_GameControllerOpen(e.cdevice.which));
             if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-                pad.reset();
+                { input.release_all(); pad.reset(); }
             if(e.type==SDL_KEYDOWN && !e.key.repeat) {
                 switch(e.key.keysym.sym) {
                     case SDLK_ESCAPE:
@@ -226,19 +200,12 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                     default:break;
                 }
             }
-            if(!overlay.menu_open() && (e.type==SDL_KEYDOWN||e.type==SDL_KEYUP) && !e.key.repeat) {
-                const int button=key_of(e.key.keysym.sym);
-                if(button>=0)ravenemu_set_button(core.get(),button,e.type==SDL_KEYDOWN);
-            }
-            if(pad && (e.type==SDL_CONTROLLERBUTTONDOWN||e.type==SDL_CONTROLLERBUTTONUP)) {
-                if(SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cbutton.which) {
-                    if(e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE && e.type==SDL_CONTROLLERBUTTONDOWN)overlay.open_menu();
-                    if(!overlay.menu_open()) {
-                        const int button=pad_of(e.cbutton.button);
-                        if(button>=0)ravenemu_set_button(core.get(),button,e.type==SDL_CONTROLLERBUTTONDOWN);
-                    }
-                }
-            }
+            if(pad && e.type==SDL_CONTROLLERBUTTONDOWN &&
+               SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cbutton.which &&
+               e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE)
+                overlay.open_menu();
+            input.set_menu_open(overlay.menu_open());
+            input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
         }
         const auto now=Clock::now();
         if(!paused&&!overlay.menu_open() && now>=next) {

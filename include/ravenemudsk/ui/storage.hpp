@@ -12,11 +12,16 @@ struct Folders {
 // Uses the first root where both folders can be created and written.
 // Throws std::runtime_error when no root is usable.
 Folders prepare_folders(const std::vector<std::filesystem::path>& roots);
-// "<saves>/<ROM file name><suffix>", e.g. Sauvegardes/Tetris.gb.sav. A file that
-// only exists next to the ROM (older versions) is copied there first; if that
-// copy fails the old location keeps being used, so no progress is hidden.
+// Files are isolated by the normalized absolute ROM path, under
+// <saves>/roms/<SHA-256 of path>/<ROM file name><suffix>.
+// Older files are copied, never moved. A shared legacy file is assigned to
+// the first ROM that migrates it, preventing reuse by another same-named ROM.
+// Migration errors throw instead of falling back to a shared writable file.
 std::filesystem::path save_path(const Folders& folders, const std::filesystem::path& rom,
                                 const char* suffix);
+// Shared capture location for the player and launcher, including migration
+// of captures written with the older .ravenemudsk-preview.bmp suffix.
+std::filesystem::path preview_path(const Folders& folders, const std::filesystem::path& rom);
 // Cover images to try, in order: Jaquettes, then next to the ROM.
 std::vector<std::filesystem::path> cover_candidates(const Folders& folders,
                                                     const std::filesystem::path& rom);

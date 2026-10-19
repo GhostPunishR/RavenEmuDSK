@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/achievements/progress.hpp>
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <cassert>
 #include <vector>
 using ravenemudsk_ra::Achievement;

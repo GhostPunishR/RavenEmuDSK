@@ -29,7 +29,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _WIN32
@@ -240,7 +242,7 @@ void forget_image(State& s, const std::string& key) {
 }
 SDL_Texture* preview_for(State& s, const Game& game) {
     return image_for(s, utf8(game.path) + ":preview",
-                     {save_path(s.folders, game.path, ".ravenemudsk-preview.bmp")});
+                     {preview_path(s.folders, game.path)});
 }
 SDL_Texture* load_brand_asset(SDL_Renderer* renderer, const char* name) {
     char* base = SDL_GetBasePath();
@@ -1689,10 +1691,32 @@ Page smoke_page() {
     if (name == "profile") return Page::Profile;
     return Page::Home;
 }
+std::string verify_smoke_frame(SDL_Renderer* renderer, const char* screenshot) {
+    int width = 0, height = 0;
+    if (SDL_GetRendererOutputSize(renderer, &width, &height) != 0 || width <= 0 || height <= 0)
+        return std::string("Dimensions du rendu SDL invalides : ") + SDL_GetError();
+    const auto free_surface = [](SDL_Surface* surface) { SDL_FreeSurface(surface); };
+    std::unique_ptr<SDL_Surface, decltype(free_surface)> image(
+        SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888), free_surface);
+    if (!image) return std::string("Capture SDL impossible : ") + SDL_GetError();
+    if (SDL_RenderReadPixels(renderer, nullptr, image->format->format, image->pixels, image->pitch) != 0)
+        return std::string("Lecture du rendu SDL impossible : ") + SDL_GetError();
+    std::unordered_set<Uint32> colors;
+    for (int y = 0; y < height && colors.size() < 16; ++y) {
+        const auto* row = reinterpret_cast<const Uint32*>(
+            static_cast<const Uint8*>(image->pixels) + y * image->pitch);
+        for (int x = 0; x < width && colors.size() < 16; ++x) colors.insert(row[x]);
+    }
+    if (colors.size() < 16) return "Rendu SDL vide ou incomplet";
+    if (screenshot && SDL_SaveBMP(image.get(), screenshot) != 0)
+        return std::string("Enregistrement de la capture impossible : ") + SDL_GetError();
+    return {};
+}
 } // namespace
 
 std::optional<LaunchRequest> run_launcher(const std::string& error) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0) return std::nullopt;
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0)
+        throw std::runtime_error(std::string("Initialisation SDL impossible : ") + SDL_GetError());
     Library lib(data_file());
     lib.load();
     if (lib.games().empty()) {
@@ -1716,7 +1740,11 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN);
-    if (!window) { SDL_Quit(); return std::nullopt; }
+    if (!window) {
+        const std::string reason = SDL_GetError();
+        SDL_Quit();
+        throw std::runtime_error("Création de la fenêtre impossible : " + reason);
+    }
     if (char* base = SDL_GetBasePath()) {
         const auto path = from_utf8(base) / "assets" / "ravenemu-logo.png";
         SDL_free(base);
@@ -1729,7 +1757,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     (void)SDL_SetWindowHitTest(window, &hit_test, &state);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    if (!renderer) { SDL_DestroyWindow(window); SDL_Quit(); return std::nullopt; }
+    if (!renderer) {
+        const std::string reason = SDL_GetError();
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        throw std::runtime_error("Création du rendu SDL impossible : " + reason);
+    }
     state.window = window;
     state.renderer = renderer;
     state.logo = load_logo(renderer);
@@ -1757,6 +1790,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     if (state.settings.flag("tv_mode", false) || (ci_smoke && smoke_name && std::string(smoke_name) == "tv"))
         set_tv(state, true, false);
     int frames = 0;
+    bool smoke_rendered = false;
+    std::string smoke_error;
     bool running = true;
     while (running && !state.done) {
         SDL_Event event{};
@@ -1796,15 +1831,10 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
         const char* screenshot = SDL_getenv("RAVENEMUDSK_UI_SCREENSHOT");
-        if (ci_smoke && screenshot && frames == 9) {
-            int width = 0, height = 0;
-            if (SDL_GetRendererOutputSize(renderer, &width, &height) == 0 && width > 0 && height > 0) {
-                if (SDL_Surface* image = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888)) {
-                    if (SDL_RenderReadPixels(renderer, nullptr, image->format->format, image->pixels, image->pitch) == 0)
-                        SDL_SaveBMP(image, screenshot);
-                    SDL_FreeSurface(image);
-                }
-            }
+        if (ci_smoke && frames == 9) {
+            smoke_error = verify_smoke_frame(renderer, screenshot);
+            smoke_rendered = smoke_error.empty();
+            if (!smoke_rendered) running = false;
         }
         SDL_RenderPresent(renderer);
         if (ci_smoke && ++frames >= 12) running = false;
@@ -1820,6 +1850,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    if (ci_smoke && !smoke_rendered)
+        throw std::runtime_error(smoke_error.empty() ? "Test de l'interface interrompu avant le rendu" : smoke_error);
     return state.launch;
 }
 Folders app_folders() {

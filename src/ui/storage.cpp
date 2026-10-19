@@ -1,16 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/storage.hpp>
 #include <ravenemudsk/ui/library.hpp>
+#include <ravenemu/sha256.hpp>
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <iterator>
 namespace ravenemudsk_ui {
 namespace fs = std::filesystem;
 namespace {
 constexpr std::array<const char*, 4> image_extensions{".png", ".jpg", ".jpeg", ".bmp"};
+std::string path_id(const std::string& value) {
+    const auto hash = ravenemu::detail::sha256(std::span<const std::uint8_t>(
+        reinterpret_cast<const std::uint8_t*>(value.data()), value.size()));
+    constexpr char hex[] = "0123456789abcdef";
+    std::string id;
+    for (const auto byte : hash) {
+        id += hex[byte >> 4];
+        id += hex[byte & 15];
+    }
+    return id;
+}
+bool owns_legacy(const Folders& folders, const fs::path& rom, const std::string& identity) {
+    const auto registry = folders.saves / ".legacy-owners";
+    fs::create_directories(registry);
+    const auto claim = registry / path_id(utf8(rom.filename()));
+    const auto owner = claim / "rom-path.txt";
+    // Directory creation claims the old basename atomically across processes.
+    if (fs::create_directory(claim)) {
+        std::ofstream out(owner, std::ios::binary);
+        out << identity;
+        out.close();
+        if (!out) throw std::runtime_error("Impossible d'attribuer l'ancienne sauvegarde");
+    }
+    std::ifstream in(owner, std::ios::binary);
+    if (!in) throw std::runtime_error("Attribution de l'ancienne sauvegarde illisible");
+    const std::string recorded{std::istreambuf_iterator<char>(in), {}};
+    if (recorded.empty()) throw std::runtime_error("Attribution de l'ancienne sauvegarde incomplète");
+    return recorded == identity;
+}
 bool writable(const fs::path& folder) {
     std::error_code ec;
     fs::create_directories(folder, ec);
@@ -38,13 +69,30 @@ Folders prepare_folders(const std::vector<fs::path>& roots) {
 }
 
 fs::path save_path(const Folders& folders, const fs::path& rom, const char* suffix) {
-    const auto target = sidecar(folders.saves / rom.filename(), suffix);
+    const auto normalized = fs::weakly_canonical(fs::absolute(rom));
+    const auto identity = utf8(normalized);
+    const auto directory = folders.saves / "roms" / path_id(identity);
+    fs::create_directories(directory);
+    const auto target = sidecar(directory / normalized.filename(), suffix);
+    if (fs::exists(target)) return target;
     const auto legacy = sidecar(rom, suffix);
-    std::error_code ec;
-    if (fs::exists(target, ec) || !fs::is_regular_file(legacy, ec)) return target;
-    // Keep the original next to the ROM as a backup; never move it.
-    fs::copy_file(legacy, target, fs::copy_options::skip_existing, ec);
-    return ec ? legacy : target;
+    const auto shared = sidecar(folders.saves / rom.filename(), suffix);
+    if (fs::is_regular_file(legacy)) {
+        fs::copy_file(legacy, target, fs::copy_options::skip_existing);
+    } else if (fs::is_regular_file(shared) && owns_legacy(folders, rom, identity)) {
+        fs::copy_file(shared, target, fs::copy_options::skip_existing);
+    }
+    return target;
+}
+
+fs::path preview_path(const Folders& folders, const fs::path& rom) {
+    const auto target = save_path(folders, rom, ".ravenemu-preview.bmp");
+    if (!fs::exists(target)) {
+        const auto legacy = save_path(folders, rom, ".ravenemudsk-preview.bmp");
+        if (fs::is_regular_file(legacy))
+            fs::copy_file(legacy, target, fs::copy_options::skip_existing);
+    }
+    return target;
 }
 
 std::vector<fs::path> cover_candidates(const Folders& folders, const fs::path& rom) {

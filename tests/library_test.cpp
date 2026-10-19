@@ -56,9 +56,10 @@ int main() {
     // Saves found next to the ROM are copied into Sauvegardes, never moved.
     { std::ofstream f(ravenemudsk_ui::sidecar(gb, ".sav")); f << "progress"; }
     const auto sav = ravenemudsk_ui::save_path(folders, gb, ".sav");
-    assert(sav == folders.saves / "Game One.GB.sav" && fs::exists(sav));
+    assert(sav.filename() == "Game One.GB.sav" && fs::exists(sav));
+    assert(sav.parent_path().parent_path() == folders.saves / "roms");
     assert(fs::exists(ravenemudsk_ui::sidecar(gb, ".sav")));
-    assert(ravenemudsk_ui::save_path(folders, gba, ".rstate") == folders.saves / "Game_two.gba.rstate");
+    assert(ravenemudsk_ui::save_path(folders, gba, ".rstate").filename() == "Game_two.gba.rstate");
     // Covers: Jaquettes first, one image per game.
     { std::ofstream f(folder / "art.png"); f << "png"; }
     { std::ofstream f(folder / "art.JPG"); f << "jpg"; }

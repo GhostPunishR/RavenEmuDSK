@@ -99,6 +99,8 @@ L'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'e
 
 La bibliothèque et les réglages sont enregistrés séparément dans le dossier de données utilisateur. Copier une ROM ne transfère donc pas automatiquement sa progression : conservez également vos sauvegardes.
 
+Les sauvegardes sont isolées dans un sous-dossier par chemin de ROM afin que deux jeux portant le même nom ne puissent pas écraser leur progression. Les anciens fichiers sont copiés vers ce classement et conservés à leur emplacement d'origine. Un ancien fichier partagé entre plusieurs ROM de même nom est attribué au premier jeu qui le migre ; vérifiez cette progression si vous aviez déjà des doublons. Si vous déplacez une ROM, conservez son ancien dossier de sauvegarde pour transférer sa progression.
+
 ### RetroAchievements
 
 L'intégration repose sur le SDK [rcheevos](https://github.com/RetroAchievements/rcheevos). Depuis **Profil**, vous pouvez vous connecter, consulter vos points et les succès du jeu reconnu. En jeu, les déblocages et la progression des succès sont affichés sous forme de notifications.
@@ -115,7 +117,7 @@ Les tests CTest sont activés par défaut. Après compilation :
 ctest --test-dir build --output-on-failure
 ```
 
-Avec Visual Studio, ajoutez `-C Release` pour tester la configuration compilée. Pour développer et exécuter les tests avec les assertions actives, utilisez une compilation **Debug**.
+Avec Visual Studio, ajoutez `-C Release` pour tester la configuration compilée. Les vérifications des tests restent actives en Release. Pour déboguer l'application, utilisez une compilation **Debug**.
 
 Deux vérifications Python complètent les tests :
 
