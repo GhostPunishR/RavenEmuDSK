@@ -23,8 +23,7 @@ std::string normalized(std::string user) {
     for (auto& c : user) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
     return user;
 }
-std::string identity(const std::string& user) {
-    const auto value = normalized(user);
+std::string identity(const std::string& value) {
     const auto hash = ravenemu::detail::sha256(std::span<const std::uint8_t>(
         reinterpret_cast<const std::uint8_t*>(value.data()), value.size()));
     std::string result;
@@ -50,7 +49,35 @@ public:
     explicit FileProfiles(fs::path root) : root_(std::move(root)) {}
     bool load(const std::string& user, Snapshot& result) override {
         try {
-            const auto file = path(user);
+            return read(path(user), user, result);
+        } catch (...) { return false; }
+    }
+    bool load_game(const std::string& user, const std::string& rom, Snapshot& result) override {
+        Snapshot game;
+        if (rom.empty() || !read(game_path(user, rom), user, game) || game.rom_path != rom) return false;
+        result = std::move(game);
+        return true;
+    }
+    bool save(const Snapshot& s) override {
+        if (s.username.empty() || s.achievements.size() > 2000) return false;
+        if (!write(path(s.username), s)) return false;
+        return s.rom_path.empty() || write(game_path(s.username, s.rom_path), s);
+    }
+    bool clear(const std::string& user) override {
+        try {
+            fs::remove(path(user));
+            fs::remove_all(root_ / (identity(normalized(user)) + ".games"));
+            return true;
+        } catch (...) { return false; }
+    }
+private:
+    fs::path root_;
+    fs::path path(const std::string& user) const { return root_ / (identity(normalized(user)) + ".profile"); }
+    fs::path game_path(const std::string& user, const std::string& rom) const {
+        return root_ / (identity(normalized(user)) + ".games") / (identity(rom) + ".profile");
+    }
+    bool read(const fs::path& file, const std::string& user, Snapshot& result) {
+        try {
             if (fs::file_size(file) > 2 * 1024 * 1024) return false;
             std::ifstream in(file, std::ios::binary);
             Snapshot s;
@@ -59,7 +86,9 @@ public:
             in >> version >> std::quoted(s.username) >> std::quoted(s.display_name) >> std::quoted(s.avatar_url)
                >> s.softcore_points >> s.hardcore_points >> std::quoted(s.game_title)
                >> s.unlocked_count >> s.total_count >> s.unlocked_points >> s.total_points >> count;
-            if (!in || version != "RavenEmuProfile1" || normalized(s.username) != normalized(user) || count > 2000 ||
+            if (version == "RavenEmuProfile2") in >> std::quoted(s.rom_path);
+            if (!in || (version != "RavenEmuProfile1" && version != "RavenEmuProfile2") ||
+                normalized(s.username) != normalized(user) || count > 2000 || s.rom_path.size() > 32768 ||
                 s.unlocked_count < 0 || s.total_count < s.unlocked_count || s.total_count > 2000 ||
                 s.unlocked_points > s.total_points) return false;
             for (std::size_t i = 0; i < count; ++i) {
@@ -78,23 +107,22 @@ public:
             return true;
         } catch (...) { return false; }
     }
-    bool save(const Snapshot& s) override {
-        if (s.username.empty() || s.achievements.size() > 2000) return false;
+    bool write(const fs::path& file, const Snapshot& s) {
         try {
-            fs::create_directories(root_);
+            fs::create_directories(file.parent_path());
 #ifndef _WIN32
-            fs::permissions(root_, fs::perms::owner_all, fs::perm_options::replace);
+            fs::permissions(file.parent_path(), fs::perms::owner_all, fs::perm_options::replace);
 #endif
-            const auto file = path(s.username);
             static std::atomic<unsigned> serial{0};
             const auto temp = fs::path(file).concat("." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
                 "." + std::to_string(serial++) + ".tmp");
             std::ofstream out(temp, std::ios::binary | std::ios::trunc);
             // Whitelist: no token, password, login flags or mutable achievement runtime.
-            out << "RavenEmuProfile1\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
+            out << "RavenEmuProfile2\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
                 << std::quoted(s.avatar_url) << '\n' << s.softcore_points << ' ' << s.hardcore_points << '\n'
                 << std::quoted(s.game_title) << '\n' << s.unlocked_count << ' ' << s.total_count << ' '
-                << s.unlocked_points << ' ' << s.total_points << '\n' << s.achievements.size() << '\n';
+                << s.unlocked_points << ' ' << s.total_points << '\n' << s.achievements.size() << '\n'
+                << std::quoted(s.rom_path) << '\n';
             for (const auto& a : s.achievements)
                 out << std::quoted(a.id) << ' ' << std::quoted(a.title) << ' ' << std::quoted(a.description) << ' '
                     << std::quoted(a.badge_url) << ' ' << a.points << ' ' << a.unlocked << '\n';
@@ -111,13 +139,15 @@ public:
             return true;
         } catch (...) { return false; }
     }
-    bool clear(const std::string& user) override {
-        try { fs::remove(path(user)); return true; } catch (...) { return false; }
-    }
-private:
-    fs::path root_;
-    fs::path path(const std::string& user) const { return root_ / (identity(user) + ".profile"); }
+
 };
+}
+std::string rom_identity(const fs::path& rom) {
+    if (rom.empty()) return {};
+    try {
+        const auto value = fs::weakly_canonical(fs::absolute(rom)).u8string();
+        return std::string(reinterpret_cast<const char*>(value.data()), value.size());
+    } catch (...) { return {}; }
 }
 std::shared_ptr<ProfileStore> make_profile_store(const fs::path& root) {
     const auto directory = root.empty() ? default_root() : root;

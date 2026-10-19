@@ -147,7 +147,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
         pad.reset(SDL_GameControllerOpen(i));if(pad)break;
     }
-    ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get());
+    ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
     ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get());

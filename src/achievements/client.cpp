@@ -13,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 namespace ravenemudsk_ra {
 namespace {
 using Reply = ServerReply;
@@ -88,7 +89,8 @@ struct Client::Impl {
     std::vector<Pending> pending;
     std::vector<Event> events;
     Snapshot state;
-    std::string retry_user, retry_token;
+    std::string retry_user, retry_token, active_rom_path;
+    std::unordered_map<std::string, std::optional<Snapshot>> game_cache;
     std::shared_ptr<SessionStore> storage;
     ServerTransport transport;
     bool token_login = false, profile_dirty = false, closing = false;
@@ -115,7 +117,13 @@ struct Client::Impl {
             rom.data(), rom.size(), loaded, nullptr);
     }
     void persist() {
-        if (profiles && profile_dirty && state.logged_in) profiles->save(state);
+        if (profile_dirty && state.logged_in) {
+            if (!state.rom_path.empty()) {
+                if (game_cache.size() >= 32) game_cache.clear();
+                game_cache[state.rom_path] = state;
+            }
+            if (profiles) profiles->save(state);
+        }
         profile_dirty = false;
     }
 
@@ -211,6 +219,7 @@ struct Client::Impl {
                 "Jeu reconnu, aucun succès officiel disponible";
             impl.state.online = true;
             impl.state.cached_profile = false;
+            impl.state.rom_path = impl.active_rom_path;
             impl.game_failures = 0;
             impl.profile_dirty = true;
             impl.events.push_back({"info", summary.num_core_achievements ? "Succès disponibles" : "Aucun succès disponible", game->title});
@@ -380,7 +389,8 @@ struct Client::Impl {
             state.hardcore_points = user->score;
         }
         state.hardcore = rc_client_get_hardcore_enabled(handle) != 0;
-        if (!game || !game->id) return;
+        if (!game || !game->id ||
+            (state.game_status != GameStatus::Ready && state.game_status != GameStatus::NoAchievements)) return;
         state.game_title = game->title ? game->title : "";
         state.achievements.clear();
         state.unlocked_count = 0;
@@ -446,6 +456,7 @@ void Client::login(const std::string& user, const std::string& password) {
     impl_->game_load = nullptr;
     impl_->retry_user.clear(); impl_->retry_token.clear();
     impl_->state = Snapshot{};
+    impl_->game_cache.clear();
     if (impl_->profiles) impl_->profiles->load(user, impl_->state);
     impl_->state.logged_in = false;
     impl_->state.login_pending = true;
@@ -472,6 +483,7 @@ void Client::disconnect() {
     const bool forgotten = !impl_->storage || impl_->storage->clear();
     impl_->retry_user.clear();
     impl_->retry_token.clear();
+    impl_->game_cache.clear();
     impl_->state = Snapshot{};
     if (!forgotten)
         impl_->state.status = "Déconnecté, mais le coffre du système n'a pas pu effacer la session enregistrée";
@@ -479,7 +491,10 @@ void Client::disconnect() {
         impl_->state.status = "Déconnecté, mais le profil public mémorisé n'a pas pu être effacé";
     impl_->events.clear();
 }
-void Client::start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core) {
+void Client::start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core,
+                        const std::string& rom_path) {
+    impl_->active_rom_path = rom_path.empty() ? std::string{} :
+        rom_identity(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(rom_path.data()), rom_path.size())));
     impl_->memory = core;
     impl_->console = console;
     impl_->rom = rom;
@@ -517,6 +532,23 @@ void Client::set_hardcore(bool on) {
 bool Client::hardcore() const { return rc_client_get_hardcore_enabled(impl_->handle) != 0; }
 bool Client::can_pause() const { return rc_client_can_pause(impl_->handle, nullptr) != 0; }
 Snapshot Client::snapshot() const { return impl_->state; }
+std::optional<Snapshot> Client::game_snapshot(const std::string& path) {
+    const auto& user = impl_->state.username;
+    if (user.empty() || path.empty()) return std::nullopt;
+    const auto key = rom_identity(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(path.data()), path.size())));
+    if (key.empty()) return std::nullopt;
+    if (impl_->state.rom_path == key && !impl_->state.game_title.empty()) return impl_->state;
+    auto found = impl_->game_cache.find(key);
+    if (found == impl_->game_cache.end()) {
+        if (impl_->game_cache.size() >= 32) impl_->game_cache.clear();
+        Snapshot cached;
+        const bool loaded = impl_->profiles && impl_->profiles->load_game(user, key, cached);
+        found = impl_->game_cache.emplace(key, loaded ? std::optional<Snapshot>(std::move(cached)) : std::nullopt).first;
+    }
+    auto result = found->second;
+    if (result) result->cached_profile = true;
+    return result;
+}
 std::vector<Event> Client::drain_events() {
     auto events = std::move(impl_->events);
     impl_->events.clear();

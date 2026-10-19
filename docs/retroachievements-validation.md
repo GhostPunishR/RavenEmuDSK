@@ -8,7 +8,8 @@ RavenEmu utilise le SDK rcheevos fixé par CMake. Deux corrections locales contr
 | --- | --- |
 | `retro_session` | Mot de passe utilisé uniquement pour l'authentification, jeton sauvegardé et renouvelé, reconnexion au redémarrage, temporisation après panne, expiration, déconnexion pendant une réponse en vol, erreurs du coffre et profil mémorisé hors ligne. |
 | `retro_game_integration` | SDK réel et moteurs RavenCore GB, GBC et GBA, petites ROMs synthétiques écrites dans le test, identification simulée, lecture mémoire, succès déclenché, badge verrouillé puis coloré, envoi interrompu puis retransmis sans double notification, fermeture et déconnexion avec des envois actifs ou programmés. ROM inconnue, jeu sans succès et panne sont distincts. |
-| `retro_profile_store` | Cache public par compte, remplacement du fichier, fichier corrompu, effacement ; aucun état d'authentification ou de progression active restauré. |
+| `retro_profile_store` | Cache public par compte et par chemin complet de ROM, deux éditions de même nom, compatibilité du cache précédent, remplacement du fichier, fichier corrompu, effacement ; aucun état d'authentification ou de progression active restauré. |
+| `home_grid` | Panneau de droite : compteurs, points et liste du jeu sélectionné après redémarrage, changement de ROM, absence de données, lien vers le bon jeu du profil et effacement à la déconnexion. |
 | `retro_badge_cache` | Échec puis retéléchargement, attente progressive, remplacement dans un cache plein, conservation des textures utilisées par l'image en cours, deux téléchargements simultanés au maximum et filtrage des URL. |
 | `retro_notifications` | 32 déblocages successifs, doublons, indicateurs de défis et de classements, délai maximal d'attente d'un badge, pause de dix minutes et réinitialisation d'une progression mesurée. |
 | `windows_session_store` | Gestionnaire d'identifiants Windows : création, lecture après recréation du stockage, mise à jour et suppression. La CI peut ignorer ce test si Windows ne fournit aucune session utilisateur compatible. |
@@ -44,6 +45,8 @@ L'API publique refuse actuellement l'activation du Hardcore. Ces protections ne 
 
 ## Données locales
 
-Le coffre du système contient uniquement le nom de compte et le jeton de session. Aucun mot de passe n'est sauvegardé. Le cache séparé contient le nom public, l'avatar, les points et le dernier jeu avec ses succès ; il ne contient aucun jeton ni autorisation d'authentification. Il est conservé jusqu'à une déconnexion ou une suppression manuelle.
+Le coffre du système contient uniquement le nom de compte et le jeton de session. Aucun mot de passe n'est sauvegardé. Le cache séparé contient le nom public, l'avatar, les points et le dernier jeu et les succès des ROMs déjà synchronisées ; il ne contient aucun jeton ni autorisation d'authentification. Il est conservé jusqu'à une déconnexion ou une suppression manuelle.
 
 Emplacements du cache : `%APPDATA%/RavenEmu/RetroAchievements` sur Windows, `~/Library/Application Support/RavenEmu/RetroAchievements` sur macOS, `$XDG_DATA_HOME/RavenEmu/RetroAchievements` ou `~/.local/share/RavenEmu/RetroAchievements` sur Linux. Les fichiers portent une empreinte du compte pour éviter les collisions de chemins. Les badges sont conservés uniquement en mémoire (128 entrées au maximum).
+
+Le panneau de droite retrouve les succès par chemin complet de ROM, sans comparer les titres ni les noms de fichiers. Les résumés sont conservés dans un sous-dossier par compte et mis à jour à la reconnaissance du jeu et lors des déblocages. Après déplacement d'une ROM, lancez-la pour associer son nouveau chemin. Les anciens caches sans chemin de ROM restent lisibles dans Profil ; un premier lancement avec cette version crée l'association nécessaire au panneau.

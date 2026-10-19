@@ -12,7 +12,12 @@ public:
     virtual ~ProfileStore() = default;
     virtual bool load(const std::string& username, Snapshot& snapshot) = 0;
     virtual bool save(const Snapshot& snapshot) = 0;
+    virtual bool load_game(const std::string&, const std::string&, Snapshot&) {
+        return false;
+    }
     virtual bool clear(const std::string& username) = 0;
 };
+// Use the full native path, never a filename or a display title, to distinguish editions.
+std::string rom_identity(const std::filesystem::path& rom);
 std::shared_ptr<ProfileStore> make_profile_store(const std::filesystem::path& root = {});
 }

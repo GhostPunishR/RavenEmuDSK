@@ -24,6 +24,7 @@ enum class GameStatus { None, Loading, Ready, NoAchievements, UnknownRom, Offlin
 struct Snapshot {
     std::string status = "Non connecté";
     std::string username, display_name, game_title, avatar_url;
+    std::string rom_path; // Normalized UTF-8 path of the ROM that supplied this game summary.
     unsigned int softcore_points = 0, hardcore_points = 0;
     int unlocked_count = 0, total_count = 0;
     unsigned int unlocked_points = 0, total_points = 0;
@@ -57,7 +58,8 @@ public:
     void login(const std::string& username, const std::string& password);
     void retry();
     void disconnect();
-    void start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core);
+    void start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core,
+                    const std::string& rom_path = {});
     void end_game();
     void pump(bool frame);
     void reset();
@@ -65,6 +67,8 @@ public:
     bool hardcore() const;
     bool can_pause() const;
     Snapshot snapshot() const;
+    // Account-scoped display data for a library ROM; never identifies or executes a game.
+    std::optional<Snapshot> game_snapshot(const std::string& rom_path);
     std::vector<Event> drain_events();
 private:
     struct Impl;

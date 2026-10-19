@@ -66,6 +66,62 @@ void exercise_title_tooltip(ravenemudsk_ui::State& state, ravenemudsk_ui::Librar
     if (std::string(region) == "play-area")
         require(action_seen, "The play area must also explain its action");
 }
+class PanelSession final : public ravenemudsk_ra::SessionStore {
+public:
+    std::optional<ravenemudsk_ra::SessionCredentials> load() override { return ravenemudsk_ra::SessionCredentials{"PanelUser","SyntheticToken"}; }
+    bool save(const ravenemudsk_ra::SessionCredentials&) override { return true; }
+    bool clear() override { return true; }
+};
+void exercise_detail_achievements(ravenemudsk_ui::State& state, const std::filesystem::path& root) {
+    using namespace ravenemudsk_ui;
+    auto profiles=ravenemudsk_ra::make_profile_store(root / "profiles");
+    Library library(root / "detail-library.txt");
+    for(const auto* directory:{"first","second","unknown"}) {
+        const auto rom=root / directory / "Same title.gba";fs::create_directories(rom.parent_path());
+        {std::ofstream out(rom);out<<"Different ROM fixture";}
+        require(library.add(rom),"Could not add panel fixture");
+    }
+    ravenemudsk_ra::Snapshot a;a.username="PanelUser";a.rom_path=ravenemudsk_ra::rom_identity(library.games()[0].path);
+    a.game_title="First edition";a.unlocked_count=1;a.total_count=3;a.unlocked_points=5;a.total_points=15;a.softcore_points=10;
+    for(int i=0;i<3;++i) a.achievements.push_back({std::to_string(i),i==0?"First unlock":"Next goal","","","",5,i==0?2:1,0,i==0});
+    require(profiles->save(a),"Could not cache first edition");
+    auto b=a;b.rom_path=ravenemudsk_ra::rom_identity(library.games()[1].path);b.game_title="Second edition";
+    b.unlocked_count=2;b.total_count=4;b.unlocked_points=10;b.total_points=20;b.softcore_points=42;
+    b.achievements[0].title="Other edition unlock";b.achievements[1].unlocked=true;
+    b.achievements.push_back({"last","Last goal","","","",5,1,0,false});
+    require(profiles->save(b),"Could not cache second edition");
+    ravenemudsk_ra::Client client(std::make_shared<PanelSession>(),
+        [](const std::string&,const std::string&,const std::string&){return ravenemudsk_ra::ServerReply{"",-2};},profiles);
+    state.retro=&client;
+    auto render_detail=[&](int index) {
+        ImGui::GetIO().DisplaySize={480.f,1100.f};
+        ImGui::NewFrame();ImGui::SetNextWindowPos({0,0});ImGui::SetNextWindowSize({480,1100});
+        ImGui::Begin("Panel regression",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoSavedSettings);
+        ImGui::LogToBuffer();detail_panel(state,library,index,{0,0},{380,1050});
+        const std::string text=ImGui::GetCurrentContext()->LogBuffer.c_str();
+        ImGui::LogFinish();ImGui::End();ImGui::Render();return text;
+    };
+    const auto first=render_detail(0);
+    require(first.find("1 / 3")!=std::string::npos && first.find("5 / 15 points")!=std::string::npos &&
+        first.find("First unlock")!=std::string::npos && first.find("Other edition") == std::string::npos,
+        "Right panel must display the selected ROM's official counts and achievements");
+    const auto second=render_detail(1);
+    require(second.find("2 / 4")!=std::string::npos && second.find("Other edition unlock")!=std::string::npos &&
+        second.find("First unlock")==std::string::npos,"Changing selection must switch the achievement data too");
+    const auto missing=render_detail(2);
+    require(missing.find("synchroniser ses succès")!=std::string::npos && missing.find("First unlock")==std::string::npos,
+        "Unknown library ROMs must not display another game's successes or a false zero");
+    state.ra_game_path=utf8(library.games()[0].path);
+    const auto profile=profile_snapshot(state);
+    require(profile.game_title==a.game_title && profile.unlocked_count==1 && profile.softcore_points==42,
+        "The selected-game profile must keep current account points while showing the selected game");
+    client.disconnect();
+    const auto signed_out=render_detail(0);
+    require(signed_out.find("Connectez votre compte")!=std::string::npos && signed_out.find("First unlock")==std::string::npos,
+        "Logout must remove the former account's cached achievements from the panel");
+    state.retro=nullptr;state.ra_game_path.clear();
+}
+
 }
 int main() {
     using namespace ravenemudsk_ui;
@@ -136,6 +192,7 @@ int main() {
         for (const char* region : {"cover-area", "title-area", "play-area", "recent-row"})
             exercise_title_tooltip(state, single, region);
     }
+    exercise_detail_achievements(state, tmp.path);
     ImGui::DestroyContext();
     std::cout << "Home hover, selection and full title tooltips passed without ID conflicts\n";
 }

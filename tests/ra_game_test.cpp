@@ -59,9 +59,13 @@ void unlock_on_real_core(int system) {
     c.login("GameUser","SyntheticPassword");wait(c,[&]{return !c.snapshot().login_pending;});
     require(c.snapshot().logged_in,"Synthetic login failed");
     c.set_hardcore(true);require(!c.hardcore(),"Unvalidated Hardcore must not be enabled through the API");
-    c.start_game(system,rom,core.handle);wait(c,[&]{return c.snapshot().game_status!=GameStatus::Loading;});
+    const auto path=(std::filesystem::temp_directory_path() / ("raven-game-"+std::to_string(system)) / "Game.gba").generic_string();
+    require(!c.game_snapshot(path),"An unsynchronized ROM must not borrow the last game's summary");
+    c.start_game(system,rom,core.handle,path);wait(c,[&]{return c.snapshot().game_status!=GameStatus::Loading;});
     require(c.snapshot().game_status==GameStatus::Ready && c.snapshot().total_count==1,"Achievement set not loaded");
     require(c.snapshot().achievements[0].badge_url.find("_lock")!=std::string::npos,"A locked achievement must use its locked badge");
+    require(c.game_snapshot(path) && c.game_snapshot(path)->unlocked_count==0 && c.game_snapshot(path)->total_count==1,
+        "The library summary must appear when the SDK recognizes this ROM");
     c.drain_events();c.pump(true); // initial false memory exits SDK waiting state
     std::vector<std::uint32_t> pixels(ravenemu_video_width(core.handle)*ravenemu_video_height(core.handle));
     require(ravenemu_run_frame(core.handle,pixels.data(),pixels.size()),"Synthetic ROM frame failed");
@@ -69,6 +73,7 @@ void unlock_on_real_core(int system) {
     require(ravenemu_read_achievement_memory(core.handle,address,&memory,1)==1 && memory==0x5a,"Synthetic ROM did not write the RA address space");
     server.award_offline=true;c.pump(true);
     require(c.snapshot().unlocked_count==1,"SDK did not detect the real core's memory write");
+    require(c.game_snapshot(path)->unlocked_count==1,"The library summary must update immediately after an unlock");
     require(c.snapshot().achievements[0].badge_url.find("_lock")==std::string::npos,"Unlocked badge must be colored");
     auto events=c.drain_events();
     require(std::count_if(events.begin(),events.end(),[](const Event& e){return e.kind=="achievement";})==1,"Unlock notification missing or duplicated");
@@ -82,6 +87,8 @@ void unlock_on_real_core(int system) {
     require(server.awards>before && c.snapshot().softcore_points==8,"Queued unlock was not sent after recovery");
     events=c.drain_events();require(std::none_of(events.begin(),events.end(),[](const Event& e){return e.kind=="achievement";}),"Retry must not duplicate the unlock popup");
     c.end_game();require(c.snapshot().game_title=="Synthetic game" && c.snapshot().cached_profile,"Last game must remain visible in launcher");
+    require(c.game_snapshot(path) && c.game_snapshot(path)->unlocked_count==1,"Stopping emulation must retain the library summary");
+    require(!c.game_snapshot(path+".other"),"A different ROM must not inherit the latest game's achievements");
     std::cout<<"GB/GBC/GBA system "<<system<<": real memory, unlock, badges and offline resubmission passed\n";
 }
 void game_status_and_retry() {

@@ -61,13 +61,6 @@ constexpr float content_pad = 32.f;
 enum class Page { Home, Library, Recent, Settings, Profile };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
-struct AchievementInfo {
-    std::string id;
-    std::string title;
-    int points = 0;
-    bool unlocked = false;
-    std::int64_t unlocked_at = 0;  // first unlock in the local journal
-};
 struct State {
     Page page = Page::Home;
     int chosen = -1;
@@ -100,7 +93,8 @@ struct State {
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = nullptr;
     std::unordered_map<std::string, SDL_Texture*> images;
-    std::unordered_map<std::string, std::optional<AchievementInfo>> achievements;
+    ravenemudsk_ra::Client* retro = nullptr; // Optional injected client for UI regression tests.
+    std::string ra_game_path;
     std::vector<Toast> toasts;
     // Clickable rectangles inside the draggable title area, for hit testing.
     std::vector<ImVec4> interactive;
@@ -207,15 +201,28 @@ fs::path data_file() {
     SDL_free(ptr);
     return result;
 }
-std::optional<AchievementInfo> read_achievement(const Folders&, const Game&) {
-    // No local unlock rules: official RetroAchievements only.
-    return std::nullopt;
+ravenemudsk_ra::Client& retro_client(State& s) {
+    return s.retro ? *s.retro : ravenemudsk_ra::client();
 }
-const std::optional<AchievementInfo>& achievement_for(State& s, const Game& game) {
-    const auto key = utf8(game.path);
-    auto it = s.achievements.find(key);
-    if (it == s.achievements.end()) it = s.achievements.emplace(key, read_achievement(s.folders, game)).first;
-    return it->second;
+std::optional<ravenemudsk_ra::Snapshot> game_achievements(State& s, const Game& game) {
+    return retro_client(s).game_snapshot(utf8(game.path));
+}
+std::string achievement_count(const ravenemudsk_ra::Snapshot& snap) {
+    return std::to_string(snap.unlocked_count) + " / " + std::to_string(snap.total_count);
+}
+ravenemudsk_ra::Snapshot profile_snapshot(State& s) {
+    auto snap = retro_client(s).snapshot();
+    if (!s.ra_game_path.empty()) {
+        if (const auto game = retro_client(s).game_snapshot(s.ra_game_path)) {
+            snap.game_title = game->game_title;
+            snap.rom_path = game->rom_path;
+            snap.achievements = game->achievements;
+            snap.unlocked_count = game->unlocked_count; snap.total_count = game->total_count;
+            snap.unlocked_points = game->unlocked_points; snap.total_points = game->total_points;
+            snap.cached_profile = snap.cached_profile || game->cached_profile;
+        } else s.ra_game_path.clear();
+    }
+    return snap;
 }
 SDL_Texture* image_for(State& s, const std::string& key, std::initializer_list<fs::path> paths) {
     if (auto it = s.images.find(key); it != s.images.end()) return it->second;
@@ -514,7 +521,10 @@ void sidebar(State& s) {
         const ImVec2 a{12.f, y}, b{sidebar_w - 12.f, y + 64.f};
         ImGui::SetCursorScreenPos(a);
         ImGui::PushID(i);
-        if (ImGui::InvisibleButton("##nav", {b.x - a.x, b.y - a.y})) s.page = items[i].page;
+        if (ImGui::InvisibleButton("##nav", {b.x - a.x, b.y - a.y})) {
+            s.page = items[i].page;
+            if (s.page == Page::Profile) s.ra_game_path.clear();
+        }
         const bool hovered = ImGui::IsItemHovered();
         const bool active = s.page == items[i].page;
         if (active) {
@@ -625,11 +635,11 @@ void hero(State& s, Library& lib) {
     if (game.last_played) meta += "  \xC2\xB7  " + ago(game.last_played);
     if (game.seconds_played) meta += "  \xC2\xB7  " + duration_of(game.seconds_played) + " de jeu";
     text_at(d, s.fonts.body, {x, p.y + 102.f}, color::text_muted, ellipsize(s.fonts.body, meta, room));
-    if (const auto& info = achievement_for(s, game)) {
+    if (const auto& info = game_achievements(s, game)) {
         const float y = p.y + 132.f;
-        draw_icon(d, Icon::Trophy, {x + 8.f, y + 9.f}, 16.f, info->unlocked ? color::gold : color::text_faint);
-        text_at(d, s.fonts.body, {x + 24.f, y}, info->unlocked ? color::gold : color::text_muted,
-                info->unlocked ? "1 succès sur 1 débloqué" : "1 succès à débloquer");
+        draw_icon(d, Icon::Trophy, {x + 8.f, y + 9.f}, 16.f, info->unlocked_count ? color::gold : color::text_faint);
+        text_at(d, s.fonts.body, {x + 24.f, y}, info->unlocked_count ? color::gold : color::text_muted,
+                achievement_count(*info) + " succès débloqués");
     }
     ImGui::SetCursorScreenPos({x, p.y + h - 24.f - 46.f});
     ImGui::PushID("hero");
@@ -783,8 +793,8 @@ void stat_card(State& s, const char* label, const std::string& value, float frac
     ImGui::Dummy({w, h});
 }
 void achievements_view(State& s, Library&) {
-    auto& ra = ravenemudsk_ra::client();
-    const auto snap = ra.snapshot();
+    auto& ra = retro_client(s);
+    const auto snap = profile_snapshot(s);
     begin_card("##ra-account");
     // Official RA artwork stays visible as a small brand icon.
     const ImVec2 title_pos=ImGui::GetCursorScreenPos();
@@ -972,23 +982,6 @@ void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     muted("Le mot de passe n'est jamais enregistré. La session peut être mémorisée dans le coffre de votre système.");
 }
 // ---------------------------------------------------------------- profile
-struct Stats {
-    std::uint64_t points = 0, possible = 0, seconds = 0;
-    int unlocked = 0, achievements = 0, played = 0;
-};
-Stats stats_for(State& s, const Library& lib) {
-    Stats st;
-    for (const auto& game : lib.games()) {
-        st.seconds += game.seconds_played;
-        if (game.last_played) ++st.played;
-        if (const auto& info = achievement_for(s, game)) {
-            ++st.achievements;
-            st.possible += static_cast<std::uint64_t>(info->points);
-            if (info->unlocked) { ++st.unlocked; st.points += static_cast<std::uint64_t>(info->points); }
-        }
-    }
-    return st;
-}
 std::string player_name(const State& s) {
     const auto name = s.settings.get("pseudo");
     return name.empty() ? "Joueur" : name;
@@ -1018,7 +1011,7 @@ void draw_ra_brand(State& s, ImDrawList* d, ImVec2 center, float width) {
         {center.x-sz.x*.5f,center.y-sz.y*.5f},color::accent,fallback);
 }
 void draw_ra_identity(State& s, ImDrawList* d, ImVec2 center, float radius) {
-    const auto snap=ravenemudsk_ra::client().snapshot();
+    const auto snap=retro_client(s).snapshot();
     if (snap.logged_in) {
         SDL_Texture* avatar=s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
         const std::string name=snap.display_name.empty() ? snap.username : snap.display_name;
@@ -1064,7 +1057,7 @@ void level_line(State& s, ImDrawList* d, ImVec2 p, float bar_w, const Level& lev
     text_at(d, s.fonts.caption, {x + bar_w + space::md, p.y + 3.f}, color::text_faint, xp);
 }
 void profile_banner(State& s, Library&) {
-    const auto snap=ravenemudsk_ra::client().snapshot();
+    const auto snap=retro_client(s).snapshot();
     const ImVec2 pos=ImGui::GetCursorScreenPos();
     const float w=ImGui::GetContentRegionAvail().x;
     const float h=88.f;
@@ -1260,8 +1253,8 @@ void tv_view(State& s, Library& lib) {
         std::string meta = system_name(game->system);
         meta += "  \xC2\xB7  " + ago(game->last_played);
         if (game->seconds_played) meta += "  \xC2\xB7  " + duration_of(game->seconds_played) + " de jeu";
-        if (const auto& info = achievement_for(s, *game))
-            meta += info->unlocked ? "  \xC2\xB7  1 / 1 succès" : "  \xC2\xB7  0 / 1 succès";
+        if (const auto& info = game_achievements(s, *game))
+            meta += "  \xC2\xB7  " + achievement_count(*info) + " succès";
         text_at(d, s.fonts.tv_body, {(screen.x - text_width(s.fonts.tv_body, meta.c_str())) * .5f, y + 66.f},
                 color::text_muted, meta);
     }
@@ -1473,6 +1466,74 @@ void settings_view(State& s, Library& lib) {
           "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire et aucune donnée n'est envoyée.");
     end_card();
 }
+void detail_achievements(State& s, const Game& game) {
+    const auto info = game_achievements(s, game);
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::PushID("detail-achievements");
+    ImGui::PushFont(s.fonts.strong);
+    ImGui::TextUnformatted("Succès");
+    ImGui::PopFont();
+    const std::string count = info ? achievement_count(*info) : "-";
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f,
+        ImGui::GetContentRegionAvail().x - text_width(s.fonts.caption, count.c_str())));
+    ImGui::PushFont(s.fonts.caption);
+    ImGui::TextUnformatted(count.c_str());
+    ImGui::PopFont();
+    if (info) {
+        auto* d = ImGui::GetWindowDrawList();
+        auto p = ImGui::GetCursorScreenPos();
+        progress_bar(d, p, {p.x + w, p.y + 6.f}, info->total_count ?
+            static_cast<float>(info->unlocked_count) / info->total_count : 0.f, color::gold);
+        ImGui::Dummy({w, 14.f});
+        ImGui::PushFont(s.fonts.caption);
+        ImGui::TextDisabled("%u / %u points", info->unlocked_points, info->total_points);
+        if (info->cached_profile) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+            ImGui::TextDisabled("Données mémorisées, actualisées au lancement du jeu.");
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::PopFont();
+        if (info->total_count == 0) muted("Aucun succès officiel disponible pour ce jeu.");
+        const auto limit = std::min<std::size_t>(info->achievements.size(), 3);
+        for (std::size_t i = 0; i < limit; ++i) {
+            const auto& achievement = info->achievements[i];
+            p = ImGui::GetCursorScreenPos();
+            d->AddRectFilled(p, {p.x + w, p.y + 64.f}, color::surface, radius::md);
+            auto* image = s.ra_images ? s.ra_images->image(achievement.badge_url) : nullptr;
+            if (image) d->AddImage(reinterpret_cast<ImTextureID>(image),
+                {p.x + 12.f, p.y + 12.f}, {p.x + 52.f, p.y + 52.f});
+            else draw_icon(d, achievement.unlocked ? Icon::Trophy : Icon::Lock,
+                {p.x + 32.f, p.y + 32.f}, 20.f, achievement.unlocked ? color::gold : color::text_faint);
+            ImGui::SetCursorScreenPos({p.x + 64.f, p.y + 11.f});
+            ImGui::PushFont(s.fonts.strong);
+            ImGui::TextUnformatted(ellipsize(s.fonts.strong, achievement.title, w - 76.f).c_str());
+            ImGui::PopFont();
+            ImGui::SetCursorScreenPos({p.x + 64.f, p.y + 36.f});
+            ImGui::PushFont(s.fonts.caption);
+            ImGui::TextDisabled("%d pts - %s", achievement.points,
+                achievement.unlocked ? "Débloqué" : "À débloquer");
+            ImGui::PopFont();
+            ImGui::SetCursorScreenPos({p.x, p.y + 72.f});
+        }
+        if (!info->achievements.empty() && button("Voir tous les succès", Icon::Trophy,
+            ButtonStyle::Secondary, {w, 38.f})) {
+            s.ra_game_path = utf8(game.path);
+            s.ra_filter = 0; s.ra_visible_count = 10; s.ra_selected_achievement.clear();
+            s.page = Page::Profile;
+        }
+    } else {
+        ImGui::PushFont(s.fonts.caption);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+        const auto account = retro_client(s).snapshot();
+        ImGui::TextDisabled(account.logged_in || account.cached_profile ?
+            "Lancez ce jeu pour synchroniser ses succès RetroAchievements." :
+            "Connectez votre compte dans Profil, puis lancez ce jeu pour synchroniser ses succès.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+    }
+    ImGui::PopID();
+}
 void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
     const Game& game = lib.games()[static_cast<std::size_t>(index)];
     ImGui::SetCursorScreenPos(pos);
@@ -1519,37 +1580,7 @@ void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
     d->AddLine({p.x + space::md, p.y + 44.f}, {p.x + w - space::md, p.y + 44.f}, color::border);
     ImGui::Dummy({w, 88.f});
     ImGui::Dummy({0.f, space::xs});
-    // Achievements of this game.
-    p = ImGui::GetCursorScreenPos();
-    const auto& info = achievement_for(s, game);
-    text_at(d, s.fonts.strong, p, color::text, "Succès");
-    const std::string count = info ? (info->unlocked ? "1 / 1" : "0 / 1") : "0";
-    text_at(d, s.fonts.caption, {p.x + w - text_width(s.fonts.caption, count.c_str()), p.y + 2.f},
-            color::text_muted, count);
-    ImGui::Dummy({w, 24.f});
-    p = ImGui::GetCursorScreenPos();
-    if (info) {
-        progress_bar(d, p, {p.x + w, p.y + 6.f}, info->unlocked ? 1.f : 0.f, color::gold);
-        ImGui::Dummy({w, 14.f});
-        p = ImGui::GetCursorScreenPos();
-        d->AddRectFilled(p, {p.x + w, p.y + 64.f}, color::surface, radius::md);
-        const ImVec2 c{p.x + 30.f, p.y + 32.f};
-        d->AddCircleFilled(c, 18.f, info->unlocked ? color::gold_soft : color::elevated, 32);
-        draw_icon(d, info->unlocked ? Icon::Trophy : Icon::Lock, c, 16.f,
-                  info->unlocked ? color::gold : color::text_faint);
-        text_at(d, s.fonts.strong, {p.x + 58.f, p.y + 12.f}, color::text,
-                ellipsize(s.fonts.strong, info->title, w - 70.f));
-        text_at(d, s.fonts.caption, {p.x + 58.f, p.y + 36.f}, info->unlocked ? color::gold : color::text_muted,
-                std::to_string(info->points) + " pts  \xC2\xB7  " + (info->unlocked ? "Débloqué" : "À débloquer"));
-        ImGui::Dummy({w, 64.f});
-    } else {
-        ImGui::PushFont(s.fonts.caption);
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text_muted),
-                           "Les succès RetroAchievements sont disponibles en lançant une ROM reconnue.");
-        ImGui::PopTextWrapPos();
-        ImGui::PopFont();
-    }
+    detail_achievements(s, game);
     if (SDL_Texture* shot = preview_for(s, game)) {
         ImGui::Dummy({0.f, space::xs});
         text_at(d, s.fonts.strong, ImGui::GetCursorScreenPos(), color::text, "Dernière capture");
@@ -1855,8 +1886,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
-        ravenemudsk_ra::client().pump(false);
-        for (const auto& event : ravenemudsk_ra::client().drain_events()) {
+        retro_client(state).pump(false);
+        for (const auto& event : retro_client(state).drain_events()) {
             if (event.kind == "login" || event.kind == "info" || event.kind == "notice" ||
                 event.kind == "offline" || event.kind == "online" || event.kind == "error")
                 notify(state, event.kind == "error" ? Toast::Kind::Error : Toast::Kind::Info, event.title, event.detail);

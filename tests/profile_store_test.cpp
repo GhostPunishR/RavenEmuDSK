@@ -22,9 +22,29 @@ int main() {
     require(!store->load("AnotherUser",loaded));
     s.total_count=0;s.achievements.clear();s.game_title="Changed";require(store->save(s));
     require(store->load("TestUser",loaded) && loaded.game_title=="Changed");
-    const auto file=fs::directory_iterator(root)->path();
+    s.rom_path=rom_identity(root / "one" / "Game.gba");s.game_title="Edition one";
+    require(store->save(s));
+    const auto first=s.rom_path;
+    s.rom_path=rom_identity(root / "two" / "Game.gba");s.game_title="Edition two";
+    require(store->save(s));
+    const auto second=s.rom_path;
+    store=make_profile_store(root); // Recreate storage as on a restart.
+    require(store->load_game("testuser",first,loaded) && loaded.game_title=="Edition one");
+    require(store->load_game("TESTUSER",second,loaded) && loaded.game_title=="Edition two");
+    require(!store->load_game("AnotherUser",first,loaded));
+    require(!store->load_game("TestUser",rom_identity(root / "unknown.gba"),loaded));
+#ifndef _WIN32
+    // Account case is ignored; case-sensitive ROM paths must remain distinct.
+    s.rom_path=rom_identity(root / "one" / "game.gba");s.game_title="Lowercase file";require(store->save(s));
+    require(store->load_game("TestUser",first,loaded) && loaded.game_title=="Edition one");
+#endif
+    fs::path file;
+    for(const auto& entry:fs::directory_iterator(root)) if(entry.is_regular_file())file=entry.path();
+    {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile1\n\"TestUser\" \"Legacy\" \"\" 0 0 \"Legacy game\" 0 0 0 0 0\n";}
+    require(store->load("TestUser",loaded) && loaded.game_title=="Legacy game" && loaded.rom_path.empty());
     {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile1\n\"OtherUser\"";}
     require(!store->load("TestUser",loaded));
     require(store->clear("TestUser") && store->clear("TestUser"));
+    require(!store->load_game("TestUser",first,loaded) && !store->load_game("TestUser",second,loaded));
     std::cout<<"Public profile roundtrip, isolation, replacement and corrupt cache passed\n";
 }
