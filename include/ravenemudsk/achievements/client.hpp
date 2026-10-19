@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+#pragma once
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+struct ravenemu_bridge;
+namespace ravenemudsk_ra {
+struct Achievement {
+    std::string title;
+    std::string description;
+    int points = 0;
+    bool unlocked = false;
+};
+struct Snapshot {
+    std::string status = "Non connecté";
+    std::string username, display_name, game_title;
+    unsigned int softcore_points = 0, hardcore_points = 0;
+    int unlocked_count = 0, total_count = 0;
+    bool logged_in = false, hardcore = false;
+    std::vector<Achievement> achievements;
+};
+struct Event { std::string kind, title, detail; };
+class Client {
+public:
+    Client();
+    ~Client();
+    Client(const Client&) = delete;
+    Client& operator=(const Client&) = delete;
+    void login(const std::string& username, const std::string& password);
+    void start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core);
+    void end_game();
+    void pump(bool frame);
+    void reset();
+    void set_hardcore(bool on);
+    bool hardcore() const;
+    bool can_pause() const;
+    Snapshot snapshot() const;
+    std::vector<Event> drain_events();
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+Client& client();
+} // namespace ravenemudsk_ra
