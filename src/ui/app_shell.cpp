@@ -940,7 +940,7 @@ void profile_view(State& s, Library& lib) {
     const auto snap = ra.snapshot();
     const float width = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float hero_h = snap.logged_in ? 258.f : 225.f;
+    const float hero_h = 258.f;
     auto* d = ImGui::GetWindowDrawList();
     d->AddRectFilled(p, {p.x + width, p.y + hero_h}, color::surface, radius::lg);
     d->PushClipRect(p, {p.x + width, p.y + hero_h}, true);
@@ -1507,7 +1507,7 @@ void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
         ImGui::PushFont(s.fonts.caption);
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text_muted),
-                           "Aucun succès pour ce jeu. Créez-en un avec RavenEmuDSK Studio.");
+                           "Les succès RetroAchievements sont disponibles en lançant une ROM reconnue.");
         ImGui::PopTextWrapPos();
         ImGui::PopFont();
     }
