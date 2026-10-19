@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GLIBC = re.compile(r"^(?:ld-linux|ld64|linux-vdso|lib(?:c|m|mvec|dl|pthread|rt|util|resolv|anl|nss_[^.]+)\.so)")
 
 
-def run(*args: str | Path, env: dict[str, str] | None = None) -> str:
+def run(*args: str | Path, env: dict[str, str] | None = None, timeout: int = 120) -> str:
     result = subprocess.run([str(a) for a in args], text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, env=env)
+                            stderr=subprocess.STDOUT, env=env, timeout=timeout)
     if result.returncode:
         raise RuntimeError(f"Command failed: {args}\n{result.stdout}")
     return result.stdout
@@ -76,10 +76,12 @@ def verify(binary: Path, directory: Path, macos: bool) -> None:
     with tempfile.TemporaryDirectory(prefix="ravenemu-smoke-") as data:
         env.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy",
                    RAVENEMUDSK_UI_SMOKE="1", XDG_DATA_HOME=data)
-        run(binary, "--help", env=env)
+        print(f"Verifying {binary}", flush=True)
+        run(binary, "--help", env=env, timeout=30)
         for page in ("home", "settings", "profile", "tv"):
+            print(f"Smoke test: {page}", flush=True)
             env["RAVENEMUDSK_UI_SMOKE_PAGE"] = page
-            run(binary, env=env)
+            run(binary, env=env, timeout=30)
     if macos:
         run("codesign", "--verify", "--deep", "--strict", directory)
     else:
@@ -140,8 +142,14 @@ def brew_licenses(paths: list[str], resources: Path) -> None:
             raise RuntimeError(f"Missing license for bundled Homebrew formula {name}")
         for license_file in licenses:
             copy(license_file, resources / "licenses" / name / license_file.relative_to(cellar))
-        info = json.loads(run("brew", "info", "--json=v2", name))["formulae"][0]
-        records[name] = {"version": version, "source": info["urls"]["stable"]["url"]}
+        # The installed formula records the source URL and checksum for this
+        # exact bottle. Read it locally instead of making Homebrew API requests.
+        formula = cellar / ".brew" / f"{name}.rb"
+        copy(formula, resources / "licenses" / name / "source-formula.rb")
+        source_url = re.search(r'^\s*url\s+"([^"]+)"', formula.read_text(), re.MULTILINE)
+        records[name] = {"version": version, "source": source_url[1] if source_url else
+                         f"https://formulae.brew.sh/formula/{name}",
+                         "source_formula": f"licenses/{name}/source-formula.rb"}
     (resources / "dependencies.json").write_text(json.dumps(records, indent=2) + "\n")
 
 
@@ -160,12 +168,15 @@ def macos(build: Path, stage: Path) -> tuple[Path, Path]:
                       "CFBundlePackageType": "APPL", "CFBundleVersion": version,
                       "CFBundleShortVersionString": version, "LSMinimumSystemVersion": "15.0",
                       "NSHighResolutionCapable": True, "SDL_FILESYSTEM_BASE_DIR": "resource"}, stream)
-    run("cmake", f"-DAPP={app}", "-P", ROOT / "cmake/bundle_macos.cmake")
+    print("Bundling macOS libraries", flush=True)
+    run("cmake", f"-DAPP={app}", "-P", ROOT / "cmake/bundle_macos.cmake", timeout=180)
     paths_file = resources / "dependency-paths.txt"
+    print("Collecting macOS dependency licenses", flush=True)
     brew_licenses(paths_file.read_text().splitlines(), resources)
     paths_file.unlink()
     # Sign only after every binary and resource has reached its final location.
     # This is an ad-hoc signature, not Developer ID notarization.
+    print("Signing macOS application", flush=True)
     run("codesign", "--force", "--deep", "--sign", "-", app)
     verify(binary, app, macos=True)
     return app, binary
@@ -208,4 +219,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (RuntimeError, subprocess.TimeoutExpired) as error:
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            message = str(error).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error title=Unix packaging failed::{message}", flush=True)
+        raise

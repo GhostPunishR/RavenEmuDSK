@@ -87,6 +87,7 @@ jobs:
           trap 'security default-keychain -d user -s "$previous_default"; security list-keychains -d user -s "$previous_default"; security delete-keychain "$vault"' EXIT
           ./build/ravenemudsk_native_session_test
       - name: Package
+        timeout-minutes: 8
         shell: bash
         run: |
           mkdir -p dist
