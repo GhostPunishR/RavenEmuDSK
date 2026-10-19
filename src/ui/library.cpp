@@ -38,7 +38,7 @@ std::string detect_system(const fs::path& file) {
 }
 std::string display_title(const Game& game) {
     std::string value = utf8(game.path.stem());
-    for (auto& ch : value) if (ch == '_' || ch == '-') ch = ' ';
+    for (auto& ch : value) if (ch == '_') ch = ' ';
     return value.empty() ? "Jeu sans titre" : value;
 }
 Library::Library(fs::path storage) : storage_(std::move(storage)) {}
