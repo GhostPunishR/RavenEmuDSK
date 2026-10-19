@@ -5,6 +5,8 @@
 #include <curl/curl.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <memory>
 #include <future>
 #include <stdexcept>
 #include <string>
@@ -54,6 +56,19 @@ Reply https_request(std::string url, std::string post, std::string content_type)
     return reply;
 }
 }
+// Let the SDK build official image URLs if the server did not supply one.
+std::string image_url(const char* url, const rc_client_achievement_t& a, int state) {
+    if (url && *url) return url;
+    char buffer[256]{};
+    if (rc_client_achievement_get_image_url(&a, state, buffer, sizeof(buffer)) == RC_OK)
+        return buffer;
+    return {};
+}
+std::string badge(const rc_client_achievement_t& a, bool colored = false) {
+    const int state = colored ? RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED : a.state;
+    const char* ready = state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED ? a.badge_url : a.badge_locked_url;
+    return image_url(ready, a, state);
+}
 struct Client::Impl {
     struct Pending {
         rc_client_server_callback_t callback{};
@@ -62,6 +77,7 @@ struct Client::Impl {
     };
     rc_client_t* handle = nullptr;
     ravenemu_bridge* memory = nullptr;
+    int console = RAVENEMU_GB;
     std::vector<std::uint8_t> rom;
     std::vector<Pending> pending;
     std::vector<Event> events;
@@ -92,6 +108,13 @@ struct Client::Impl {
             impl.state.status = "Connecté à RetroAchievements";
             impl.state.logged_in = true;
             impl.events.push_back({"login", "RetroAchievements connecté", ""});
+            // When the ROM was opened before authentication, identify it now.
+            if (impl.memory && !impl.rom.empty()) {
+                const uint32_t console = impl.console == RAVENEMU_GB ? 4u :
+                                         impl.console == RAVENEMU_GBC ? 6u : 5u;
+                rc_client_begin_identify_and_load_game(impl.handle, console, nullptr,
+                    impl.rom.data(), impl.rom.size(), loaded, nullptr);
+            }
         } else {
             impl.state.status = "Connexion impossible : vérifiez votre compte et le réseau";
             impl.events.push_back({"error", "Connexion RetroAchievements impossible", ""});
@@ -106,22 +129,57 @@ struct Client::Impl {
             impl.state.status = "Aucun succès trouvé pour cette ROM (ou hors ligne)";
         }
     }
-    static void event(const rc_client_event_t* event, rc_client_t* c) {
+    static void event(const rc_client_event_t* ev, rc_client_t* c) {
         auto& impl = self(c);
-        if (event->type == RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED && event->achievement) {
-            const auto& a = *event->achievement;
-            impl.events.push_back({"achievement", a.title ? a.title : "Succès débloqué",
-                std::to_string(a.points) + " points"});
-        } else if (event->type == RC_CLIENT_EVENT_DISCONNECTED) {
+        if (ev->type == RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED && ev->achievement) {
+            const auto& a = *ev->achievement;
+            impl.events.push_back({"achievement", a.title ? a.title : "Succès débloqué", "",
+                std::to_string(a.id), badge(a, true), static_cast<int>(a.points)});
+        } else if (ev->type == RC_CLIENT_EVENT_DISCONNECTED) {
             impl.state.status = "RetroAchievements hors ligne";
-            impl.events.push_back({"info", "Connexion interrompue", ""});
-        } else if (event->type == RC_CLIENT_EVENT_RECONNECTED) {
+            impl.events.push_back({"offline", "RetroAchievements hors ligne", ""});
+        } else if (ev->type == RC_CLIENT_EVENT_RECONNECTED) {
             impl.state.status = "RetroAchievements reconnecté";
-            impl.events.push_back({"info", "Connexion rétablie", ""});
-        } else if (event->type == RC_CLIENT_EVENT_RESET) {
+            impl.events.push_back({"online", "RetroAchievements reconnecté", ""});
+        } else if (ev->type == RC_CLIENT_EVENT_SERVER_ERROR) {
+            impl.events.push_back({"notice", "Erreur RetroAchievements",
+                ev->server_error && ev->server_error->error_message
+                ? ev->server_error->error_message : "Le serveur a refusé une requête"});
+        } else if (ev->type == RC_CLIENT_EVENT_GAME_COMPLETED) {
+            impl.events.push_back({"notice", "Tous les succès obtenus !", ""});
+        } else if (ev->type == RC_CLIENT_EVENT_RESET) {
             impl.events.push_back({"hardcore_reset", "Mode Hardcore : réinitialisation requise", ""});
+        } else if (ev->type == RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW ||
+                   ev->type == RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_HIDE) {
+            if (!ev->achievement) return;
+            const auto& a = *ev->achievement;
+            const bool show = ev->type == RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW;
+            impl.events.push_back({show ? "challenge_show" : "challenge_hide",
+                a.title ? a.title : "", a.measured_progress ? a.measured_progress : "",
+                std::to_string(a.id), badge(a)});
+        } else if (ev->type == RC_CLIENT_EVENT_LEADERBOARD_TRACKER_SHOW ||
+                   ev->type == RC_CLIENT_EVENT_LEADERBOARD_TRACKER_UPDATE ||
+                   ev->type == RC_CLIENT_EVENT_LEADERBOARD_TRACKER_HIDE) {
+            if (!ev->leaderboard_tracker) return;
+            const auto& tracker = *ev->leaderboard_tracker;
+            const bool hide = ev->type == RC_CLIENT_EVENT_LEADERBOARD_TRACKER_HIDE;
+            impl.events.push_back({hide ? "tracker_hide" : "tracker_show",
+                "Classement en cours", tracker.display ? tracker.display : "",
+                std::to_string(tracker.id)});
+        } else if (ev->type == RC_CLIENT_EVENT_LEADERBOARD_STARTED ||
+                   ev->type == RC_CLIENT_EVENT_LEADERBOARD_FAILED ||
+                   ev->type == RC_CLIENT_EVENT_LEADERBOARD_SUBMITTED ||
+                   ev->type == RC_CLIENT_EVENT_LEADERBOARD_SCOREBOARD) {
+            if (!ev->leaderboard) return;
+            const char* kind = ev->type == RC_CLIENT_EVENT_LEADERBOARD_STARTED ? "leaderboard_started" :
+                               ev->type == RC_CLIENT_EVENT_LEADERBOARD_FAILED ? "leaderboard_failed" :
+                               ev->type == RC_CLIENT_EVENT_LEADERBOARD_SUBMITTED ? "leaderboard_submitted" :
+                               "leaderboard_scoreboard";
+            impl.events.push_back({kind, ev->leaderboard->title ? ev->leaderboard->title : "",
+                ev->leaderboard->description ? ev->leaderboard->description : ""});
         }
     }
+
     Impl() {
         if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK)
             throw std::runtime_error("Initialisation HTTPS impossible");
@@ -166,8 +224,11 @@ struct Client::Impl {
                 for (uint32_t j=0; j<bucket.num_achievements; ++j) {
                     const auto* a = bucket.achievements[j];
                     if (!a) continue;
-                    state.achievements.push_back({a->title ? a->title : "",
-                        a->description ? a->description : "", static_cast<int>(a->points),
+                    state.achievements.push_back({std::to_string(a->id),
+                        a->title ? a->title : "", a->description ? a->description : "",
+                        a->measured_progress ? a->measured_progress : "",
+                        badge(*a, true), static_cast<int>(a->points),
+                        static_cast<int>(a->state), a->measured_percent,
                         a->state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED});
                 }
             }
@@ -199,12 +260,15 @@ void Client::login(const std::string& user, const std::string& password) {
 }
 void Client::start_game(int console, const std::vector<std::uint8_t>& rom, ravenemu_bridge* core) {
     impl_->memory = core;
+    impl_->console = console;
     impl_->rom = rom;
     impl_->state.status = "Recherche des succès officiels…";
     // RetroAchievements console IDs: GB=4, GBC=6, GBA=5.
     const uint32_t ra_console = console == RAVENEMU_GB ? 4u : console == RAVENEMU_GBC ? 6u : 5u;
-    rc_client_begin_identify_and_load_game(impl_->handle, ra_console, nullptr,
-        impl_->rom.data(), impl_->rom.size(), Impl::loaded, nullptr);
+    if (rc_client_get_user_info(impl_->handle))
+        rc_client_begin_identify_and_load_game(impl_->handle, ra_console, nullptr,
+            impl_->rom.data(), impl_->rom.size(), Impl::loaded, nullptr);
+    else impl_->state.status = "Connectez votre compte pour activer les succès";
 }
 void Client::end_game() {
     impl_->memory = nullptr;

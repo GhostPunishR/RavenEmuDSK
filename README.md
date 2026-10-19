@@ -55,3 +55,16 @@ Ouvrez **Succès** ou **Profil** pour vous connecter à RetroAchievements. Le mo
 ## Convention typographique
 
 Utiliser uniquement le tiret simple `-` dans les textes du depot. Les tirets typographiques longs sont interdits. Cette regle est verifiee par la CI.
+
+## Popups RetroAchievements
+
+Les notifications en jeu reproduisent les composants RavenEmu :
+
+- Succès débloqué en haut au centre : badge officiel de 40 px, fond sombre, bordure violette et texte blanc.
+- Progression mesurée dans une seconde carte sous le succès : valeur fournie directement par le SDK.
+- Fondu de 300 ms, durée de 4,8 s pour chaque succès et de 2 s pour chaque progression.
+- Déblocages simultanés en file d'attente, sans remplacement prématuré.
+- Défis actifs et indicateurs des classements en bas jusqu'à l'événement de fin.
+- Images récupérées uniquement sur les hôtes HTTPS de RetroAchievements, avec une étoile violette si le badge n'est pas disponible.
+
+Le premier relevé des valeurs de progression sert de base : il ne déclenche pas une fausse notification.

@@ -187,6 +187,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     using Action=ravenemudsk_ui::OverlayAction;
     auto next=Clock::now();
     auto last_save=Clock::now();
+    auto next_progress=Clock::now();
     const auto duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
     try {
       while(running) {
@@ -210,14 +211,14 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                         break;
                     case SDLK_p:paused=!paused;break;
                     case SDLK_F4:
-                        verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();break;
+                        verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
                     case SDLK_F5:
                         if(ravenemudsk_ra::client().hardcore()) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","États désactivés");
                         else {save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");}
                         break;
                     case SDLK_F9:
                         if(ravenemudsk_ra::client().hardcore()) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
-                        else if(fs::exists(state_path)){load_state(core.get(),state_path);ravenemudsk_ra::client().reset();toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé");}
+                        else if(fs::exists(state_path)){load_state(core.get(),state_path);ravenemudsk_ra::client().reset();overlay.clear_retro();toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé");}
                         break;
                     case SDLK_F11:
                         SDL_SetWindowFullscreen(win.get(),(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -253,13 +254,18 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             next+=duration;
             if(now>next+std::chrono::milliseconds(150))next=now+duration;
         } else ravenemudsk_ra::client().pump(false);
-        for(const auto& event:ravenemudsk_ra::client().drain_events()) {
-            if(event.kind=="achievement")toast(ravenemudsk_ui::Toast::Kind::Achievement,event.title,event.detail);
-            else if(event.kind=="hardcore_reset"){
+        auto& retro=ravenemudsk_ra::client();
+        for(const auto& event:retro.drain_events()) {
+            if(event.kind=="hardcore_reset"){
                 ravenemu_reset(core.get());
-                toast(ravenemudsk_ui::Toast::Kind::Info,event.title);
-            } else if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
-            else toast(ravenemudsk_ui::Toast::Kind::Info,event.title,event.detail);
+                overlay.clear_retro();
+            }
+            if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
+            else overlay.retro_event(event);
+        }
+        if(now>=next_progress) {
+            overlay.update_retro_progress(retro.snapshot().achievements);
+            next_progress=now+std::chrono::milliseconds(350);
         }
         if(now-last_save>std::chrono::seconds(30)) {
             save_battery(core.get(),battery_path);last_save=now;
@@ -281,10 +287,10 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                 overlay.close_menu();break;
             case Action::LoadState:
                 if(!ravenemudsk_ra::client().hardcore() && fs::exists(state_path)){
-                    load_state(core.get(),state_path);ravenemudsk_ra::client().reset();}
+                    load_state(core.get(),state_path);ravenemudsk_ra::client().reset();overlay.clear_retro();}
                 overlay.close_menu();break;
             case Action::Reset:
-                ravenemu_reset(core.get());ravenemudsk_ra::client().reset();overlay.close_menu();break;
+                ravenemu_reset(core.get());ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
             case Action::ToggleFullscreen:
                 SDL_SetWindowFullscreen(win.get(),info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
             case Action::Quit:running=false;break;

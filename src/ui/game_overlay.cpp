@@ -5,6 +5,9 @@
 #include <backends/imgui_impl_sdlrenderer2.h>
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
+#include <cstdint>
+#include <string>
 namespace ravenemudsk_ui {
 namespace {
 float text_width(ImFont* font, const char* text) {
@@ -65,7 +68,7 @@ void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
 }
 } // namespace
 
-GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer) : renderer_(renderer) {
+GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer) : renderer_(renderer), badges_(renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -89,6 +92,155 @@ void GameOverlay::open_menu() {
 }
 bool GameOverlay::has_toast(Toast::Kind kind) const {
     return std::any_of(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.kind == kind; });
+}
+
+namespace {
+// Font rasterized at 13 px to match RavenEmu's 12 sp layout.
+void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache,
+                const ImVec2& screen, float top, const std::string& label,
+                const std::string& detail, const std::string& badge_url, float alpha) {
+    if(alpha<=0.f)return;
+    const float max_width=std::max(200.f,std::min(520.f,screen.x-24.f));
+    const float text_space=std::max(80.f,max_width-14.f*2-40.f-8.f);
+    const auto line1=ellipsize(fonts.caption,label,text_space);
+    const auto line2=detail.empty()?std::string{}:ellipsize(fonts.caption,detail,text_space);
+    const float line1w=text_width(fonts.caption,line1.c_str());
+    const float line2w=detail.empty()?0.f:text_width(fonts.caption,line2.c_str());
+    const float width=std::min(max_width,14.f*2+40.f+8.f+std::max(line1w,line2w));
+    const float height=60.f;
+    const float x=(screen.x-width)*.5f;
+    const ImVec2 from{x,top},to{x+width,top+height};
+    d->AddRectFilled(from,to,with_alpha(IM_COL32(25,27,40,255),alpha),12.f);
+    d->AddRect(from,to,with_alpha(IM_COL32(167,139,250,255),alpha),12.f,0,1.f);
+    const ImVec2 badge_min{x+14.f,top+10.f},badge_max{badge_min.x+40.f,badge_min.y+40.f};
+    SDL_Texture* image=cache.image(badge_url);
+    if(image) {
+        d->AddImageRounded(reinterpret_cast<ImTextureID>(image),badge_min,badge_max,
+                            {0,0},{1,1},with_alpha(IM_COL32_WHITE,alpha),6.f);
+    } else {
+        // Same fixed 40 px slot as RavenEmu, with violet star fallback.
+        const char* star="\xE2\x98\x85";
+        const ImVec2 size=fonts.title->CalcTextSizeA(fonts.title->FontSize,FLT_MAX,0.f,star);
+        d->AddText(fonts.title,fonts.title->FontSize,
+                   {badge_min.x+(40.f-size.x)*.5f,badge_min.y+(40.f-size.y)*.5f},
+                   with_alpha(color::accent,alpha),star);
+    }
+    const float tx=badge_max.x+8.f;
+    const float ty=line2.empty()?top+23.f:top+13.f;
+    d->AddText(fonts.caption,fonts.caption->FontSize,{tx,ty},
+               with_alpha(color::text,alpha),line1.c_str());
+    if(!line2.empty())
+        d->AddText(fonts.caption,fonts.caption->FontSize,{tx,ty+19.f},
+                   with_alpha(color::text,alpha),line2.c_str());
+}
+double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
+}
+void GameOverlay::retro_event(const ravenemudsk_ra::Event& event) {
+    if(event.kind=="challenge_show"||event.kind=="tracker_show"||
+       event.kind=="challenge_hide"||event.kind=="tracker_hide") {
+        const auto prefix=event.kind.substr(0,event.kind.find('_'));
+        const std::string key=prefix+":"+event.id;
+        auto existing=std::find_if(indicators_.begin(),indicators_.end(),
+            [&](const auto& item){return item.first==key;});
+        if(event.kind.ends_with("_hide")) {
+            if(existing!=indicators_.end())indicators_.erase(existing);
+        } else {
+            const std::string value=event.title+
+                (event.detail.empty()?std::string{}:std::string(" \xC2\xB7 ")+event.detail);
+            if(existing!=indicators_.end())existing->second=value;
+            else if(indicators_.size()<16)indicators_.emplace_back(key,value);
+        }
+        return;
+    }
+    std::string label;
+    std::string badge;
+    if(event.kind=="achievement") {
+        label="Succès débloqué \xC2\xB7 "+event.title+
+            " ("+std::to_string(event.points)+" pts)";
+        badge=event.badge_url;
+    } else if(event.kind=="leaderboard_started")label="Classement commencé \xC2\xB7 "+event.title;
+    else if(event.kind=="leaderboard_failed")label="Classement annulé \xC2\xB7 "+event.title;
+    else if(event.kind=="leaderboard_submitted")label="Classement envoyé \xC2\xB7 "+event.title;
+    else if(event.kind=="leaderboard_scoreboard")label="Classement terminé \xC2\xB7 "+event.title;
+    else if(event.kind=="notice"||event.kind=="offline"||event.kind=="online"||
+            event.kind=="hardcore_reset")label=event.title;
+    if(label.empty())return;
+    if(queue_.size()<20) queue_.push_back({label,
+        event.kind=="achievement"||event.kind.starts_with("leaderboard_")?std::string{}:event.detail,
+        badge});
+}
+void GameOverlay::update_retro_progress(const std::vector<ravenemudsk_ra::Achievement>& entries) {
+    progress_.update(entries,static_cast<std::int64_t>(SDL_GetTicks64()));
+}
+void GameOverlay::clear_retro() {
+    progress_.clear();
+    last_progress_.reset();
+    progress_visible_=false;
+    progress_hidden_at_=0.0;
+    indicators_.clear();
+    queue_.clear();
+    notice_.reset();
+    waiting_since_=-1.0;
+}
+void GameOverlay::draw_retro(double now,const ImVec2 screen) {
+    progress_.advance(static_cast<std::int64_t>(now*1000.0));
+    if(!notice_ && !queue_.empty()) {
+        const auto& next=queue_.front();
+        if(waiting_since_<0)waiting_since_=now;
+        SDL_Texture* image=badges_.image(next.badge);
+        if(next.badge.empty()||image||now-waiting_since_>=2.0) {
+            notice_=std::move(queue_.front());
+            queue_.pop_front();
+            notice_since_=now;
+            waiting_since_=-1.0;
+        }
+    }
+    if(notice_ && now-notice_since_>=5.2)notice_.reset();
+    const auto& current=progress_.current();
+    if(current) {
+        if(!progress_visible_ || !last_progress_ || last_progress_->id!=current->id) {
+            progress_started_=now;
+            progress_visible_=true;
+        }
+        last_progress_=*current;
+    } else if(progress_visible_) {
+        progress_visible_=false;
+        progress_hidden_at_=now;
+    }
+    if(menu_open_)return;
+    auto* d=ImGui::GetForegroundDrawList();
+    const float slide=std::clamp(screen.x-24.f,200.f,520.f);
+    (void)slide;
+    float top=10.f;
+    if(notice_) {
+        const double elapsed=now-notice_since_;
+        const float alpha=static_cast<float>(std::clamp(
+            std::min(elapsed/0.3,(5.1-elapsed)/0.3),0.0,1.0));
+        if(alpha>0.f) {
+            retro_card(d,fonts_,badges_,screen,top,
+                notice_->text,notice_->detail,notice_->badge,alpha);
+            top+=68.f;
+        }
+    }
+    if(last_progress_) {
+        const float alpha=progress_visible_?
+            static_cast<float>(std::clamp((now-progress_started_)/0.3,0.0,1.0)):
+            static_cast<float>(std::clamp(1.0-(now-progress_hidden_at_)/0.3,0.0,1.0));
+        if(alpha>0.f)
+            retro_card(d,fonts_,badges_,screen,top,
+                "Progression \xC2\xB7 "+last_progress_->title,
+                last_progress_->detail,last_progress_->badge_url,alpha);
+    }
+    if(indicators_.empty())return;
+    const std::size_t count=std::min<std::size_t>(indicators_.size(),4);
+    const float w=std::min(screen.x-24.f,440.f),h=16.f+count*18.f;
+    const float x=(screen.x-w)*.5f,y=screen.y-10.f-h;
+    d->AddRectFilled({x,y},{x+w,y+h},with_alpha(color::surface,.88f),10.f);
+    for(std::size_t i=0;i<count;++i){
+        const auto label=ellipsize(fonts_.caption,indicators_[i].second,w-24.f);
+        d->AddText(fonts_.caption,fonts_.caption->FontSize,
+                   {x+12.f,y+8.f+static_cast<float>(i)*18.f},color::text,label.c_str());
+    }
 }
 
 OverlayAction GameOverlay::draw(const OverlayInfo& info) {
@@ -178,7 +330,9 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         ImGui::PopStyleVar(4);
         ImGui::PopStyleColor(2);
     }
-    // Toasts would cover the menu; they resume (if still alive) on close.
+    // RetroAchievements cards use RavenEmu's dedicated top-center style.
+    draw_retro(seconds_now(),screen);
+    // Non-achievement local notifications still use the desktop toast style.
     if (!menu_open_) draw_toasts(toasts_, fonts_);
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);

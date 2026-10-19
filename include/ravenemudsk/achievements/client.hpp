@@ -7,9 +7,14 @@
 struct ravenemu_bridge;
 namespace ravenemudsk_ra {
 struct Achievement {
+    std::string id;
     std::string title;
     std::string description;
+    std::string progress;
+    std::string badge_url;
     int points = 0;
+    int state = 0;
+    float measured_percent = 0.f;
     bool unlocked = false;
 };
 struct Snapshot {
@@ -20,7 +25,11 @@ struct Snapshot {
     bool logged_in = false, hardcore = false;
     std::vector<Achievement> achievements;
 };
-struct Event { std::string kind, title, detail; };
+struct Event {
+    std::string kind, title, detail;
+    std::string id, badge_url;
+    int points = 0;
+};
 class Client {
 public:
     Client();

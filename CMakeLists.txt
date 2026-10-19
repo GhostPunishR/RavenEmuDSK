@@ -68,7 +68,8 @@ target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
 
 add_executable(RavenEmuDSK
   src/desktop.cpp
-  src/achievements/client.cpp
+  src/achievements/client.cpp src/achievements/progress.cpp
+  src/ui/badge_cache.cpp
   src/ui/app_shell.cpp src/ui/game_overlay.cpp
   src/ui/image_loader.cpp src/ui/theme.cpp
   src/ui/widgets.cpp src/ui/update_check.cpp)
@@ -109,6 +110,10 @@ else()
 endif()
 
 if(BUILD_TESTING)
+  add_executable(ravenemudsk_progress_test
+    tests/progress_test.cpp src/achievements/progress.cpp)
+  target_include_directories(ravenemudsk_progress_test PRIVATE include)
+  add_test(NAME retro_progress COMMAND ravenemudsk_progress_test)
   add_executable(ravenemudsk_library_test tests/library_test.cpp)
   target_link_libraries(ravenemudsk_library_test PRIVATE ravenemudsk_ui_library)
   add_test(NAME library COMMAND ravenemudsk_library_test)
