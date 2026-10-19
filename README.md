@@ -37,6 +37,8 @@ Les paquets Unix contiennent les licences de leurs bibliothèques et un fichier 
 
 RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu sans marge grise est inclus dans `assets/ravenemu-logo.png`, à partir de l’[icône originale du projet RavenEmu](https://github.com/GhostPunishR/RavenEmu/blob/5f002726a68c1978f4cad273bf8b7b3786b9fb3b/docs/assets/ravenemu-icon.png). Il est utilisé dans l’interface et pour les icônes des fenêtres.
 
+La révision RavenCore intégrée est [`241f56c`](https://github.com/GhostPunishR/RavenCore/commit/241f56c3564ca1389813753d5c13dd931771fe40), qui inclut les corrections RTC GBA et la détection des pilotes Pokémon compatibles sans marqueur Seiko. Le moteur est compilé dans l'application : aucun téléchargement séparé de RavenCore n'est nécessaire pour jouer.
+
 Récupérez les sources :
 
 ```sh
