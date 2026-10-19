@@ -68,3 +68,11 @@ Les notifications en jeu reproduisent les composants RavenEmu :
 - Images récupérées uniquement sur les hôtes HTTPS de RetroAchievements, avec une étoile violette si le badge n'est pas disponible.
 
 Le premier relevé des valeurs de progression sert de base : il ne déclenche pas une fausse notification.
+
+## Profil RetroAchievements
+
+La page **Profil** affiche une carte de compte complète avec le logo officiel de RetroAchievements, le pseudo, l'avatar du compte fourni par rcheevos et un lien vers la page du joueur sur RetroAchievements. Les points Hardcore et Softcore sont distincts. Les statistiques de jeux joués et de temps de jeu sont clairement signalées comme locales.
+
+Le suivi d'un jeu et ses succès sont affichés uniquement lorsque le SDK fournit des données pour ce jeu. L'absence de jeu actif ne signifie pas que le compte a perdu ses succès.
+
+Logo RetroAchievements chargé depuis la documentation officielle à une révision Git fixée. Les logos et marques appartiennent à leurs titulaires respectifs. En cas d'indisponibilité du logo, l'interface affiche un monogramme RA.

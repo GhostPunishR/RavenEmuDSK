@@ -19,7 +19,7 @@ struct Achievement {
 };
 struct Snapshot {
     std::string status = "Non connecté";
-    std::string username, display_name, game_title;
+    std::string username, display_name, game_title, avatar_url;
     unsigned int softcore_points = 0, hardcore_points = 0;
     int unlocked_count = 0, total_count = 0;
     bool logged_in = false, hardcore = false;

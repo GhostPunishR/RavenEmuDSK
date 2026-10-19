@@ -9,6 +9,7 @@
 #include <ravenemudsk/ui/updates.hpp>
 #include <ravenemudsk/ui/widgets.hpp>
 #include <ravenemudsk/achievements/client.hpp>
+#include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
@@ -25,6 +26,7 @@
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -88,6 +90,8 @@ struct State {
     Fonts fonts;
     Folders folders;
     SDL_Texture* logo = nullptr;
+    SDL_Texture* ra_logo = nullptr;
+    std::unique_ptr<BadgeCache> ra_images;
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = nullptr;
     std::unordered_map<std::string, SDL_Texture*> images;
@@ -101,6 +105,10 @@ struct State {
 void draw_player_avatar(State& s, ImDrawList* d, ImVec2 center, float r);
 void profile_banner(State& s, Library& lib);
 void set_tv(State& s, bool on, bool remember = true);
+void text_at(ImDrawList* d, ImFont* font, ImVec2 pos, ImU32 col, const std::string& value);
+float text_width(ImFont* font, const char* value);
+void ra_login_controls(State& s, ravenemudsk_ra::Client& ra);
+void ra_profile_link(State& s, const ravenemudsk_ra::Snapshot& snap);
 void update_banner(State& s);
 
 // ---------------------------------------------------------------- data
@@ -230,13 +238,48 @@ SDL_Texture* preview_for(State& s, const Game& game) {
     return image_for(s, utf8(game.path) + ":preview",
                      {save_path(s.folders, game.path, ".ravenemudsk-preview.bmp")});
 }
-SDL_Texture* load_logo(SDL_Renderer* renderer) {
+SDL_Texture* load_brand_asset(SDL_Renderer* renderer, const char* name) {
     char* base = SDL_GetBasePath();
     if (!base) return nullptr;
-    const auto folder = from_utf8(base) / "assets";
+    const auto path = from_utf8(base) / "assets" / name;
     SDL_free(base);
-    if (auto* texture = load_local_image(renderer, folder / "ravenemu-logo.png")) return texture;
-    return nullptr;
+    return load_local_image(renderer, path);
+}
+SDL_Texture* load_logo(SDL_Renderer* renderer) {
+    return load_brand_asset(renderer, "ravenemu-logo.png");
+}
+void draw_ra_logo(State& s, ImDrawList* d, ImVec2 from, ImVec2 size) {
+    d->AddRectFilled(from, {from.x + size.x, from.y + size.y}, color::accent_soft, radius::md);
+    int image_w = 0, image_h = 0;
+    if (s.ra_logo && SDL_QueryTexture(s.ra_logo, nullptr, nullptr, &image_w, &image_h) == 0 &&
+        image_w > 0 && image_h > 0) {
+        const float scale = std::min((size.x - 12.f) / image_w, (size.y - 12.f) / image_h);
+        const ImVec2 span{image_w * scale, image_h * scale};
+        const ImVec2 pos{from.x + (size.x - span.x) * .5f, from.y + (size.y - span.y) * .5f};
+        d->AddImage(reinterpret_cast<ImTextureID>(s.ra_logo), pos, {pos.x + span.x, pos.y + span.y});
+    } else {
+        const char* fallback = "RA";
+        const float width = text_width(s.fonts.title, fallback);
+        text_at(d, s.fonts.title, {from.x + (size.x - width) * .5f,
+            from.y + (size.y - s.fonts.title->FontSize) * .5f}, color::accent_hover, fallback);
+    }
+}
+std::string ra_profile_url(const std::string& username) {
+    // Encode every unreserved byte; usernames never become arbitrary URLs.
+    if (username.empty()) return {};
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string encoded;
+    for (const unsigned char c : username) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+            encoded.push_back(static_cast<char>(c));
+        } else {
+            encoded += '%';
+            encoded += hex[c >> 4];
+            encoded += hex[c & 15];
+        }
+    }
+    return "https://retroachievements.org/user/" + encoded;
 }
 bool passes(const Game& g, const State& s) {
     static const char* systems[] = {"", "gb", "gbc", "gba"};
@@ -751,28 +794,26 @@ void achievements_view(State& s, Library&) {
     auto& ra = ravenemudsk_ra::client();
     const auto snap = ra.snapshot();
     begin_card("##ra-account");
-    card_title(s, Icon::Trophy, "RetroAchievements");
-    muted(snap.status.c_str());
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    auto* d = ImGui::GetWindowDrawList();
+    draw_ra_logo(s, d, start, {72.f, 72.f});
+    text_at(d, s.fonts.title, {start.x + 92.f, start.y + 7.f}, color::text, "RetroAchievements");
+    text_at(d, s.fonts.body, {start.x + 92.f, start.y + 39.f}, color::text_muted,
+            snap.logged_in ? snap.display_name : "Connectez votre compte RetroAchievements");
+    ImGui::Dummy({0.f, 80.f});
     if (!snap.logged_in) {
-        ImGui::InputTextWithHint("##ra-user", "Identifiant RetroAchievements", s.ra_user, sizeof(s.ra_user));
-        ImGui::InputTextWithHint("##ra-password", "Mot de passe", s.ra_password, sizeof(s.ra_password),
-                                 ImGuiInputTextFlags_Password);
-        if (button("Se connecter", Icon::Play, ButtonStyle::Primary)) {
-            ra.login(s.ra_user, s.ra_password);
-            std::fill(std::begin(s.ra_password), std::end(s.ra_password), '\0');
-        }
-        muted("Mot de passe transmis exclusivement à RetroAchievements via HTTPS, jamais enregistré sur disque.");
+        muted(snap.status.c_str());
+        ra_login_controls(s, ra);
     } else {
-        ImGui::Text("Compte : %s", snap.display_name.c_str());
-        ImGui::Text("Hardcore : %u points  |  Softcore : %u points",
-                    snap.hardcore_points, snap.softcore_points);
-        muted("Mode normal (Softcore) : Hardcore sera proposé après validation de conformité.");
+        ImGui::Text("Hardcore : %u points", snap.hardcore_points);
+        ImGui::Text("Softcore : %u points", snap.softcore_points);
+        ra_profile_link(s, snap);
     }
     end_card();
     if (!snap.game_title.empty()) {
         begin_card("##ra-game");
         card_title(s, Icon::Gamepad, snap.game_title.c_str());
-        ImGui::Text("%d / %d succès", snap.unlocked_count, snap.total_count);
+        ImGui::Text("%d / %d succès officiels", snap.unlocked_count, snap.total_count);
         for (const auto& a : snap.achievements) {
             ImGui::Separator();
             ImGui::Text("%s  (%d pts)", a.title.c_str(), a.points);
@@ -781,8 +822,30 @@ void achievements_view(State& s, Library&) {
         }
         end_card();
     } else {
-        muted("Lancez une ROM reconnue par RetroAchievements pour afficher ses succès officiels.");
+        begin_card("##ra-empty-game");
+        card_title(s, Icon::Gamepad, "Succès des jeux");
+        muted("Les succès des ROM reconnues s'affichent ici pendant la partie.");
+        end_card();
     }
+}
+void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
+    ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
+    ImGui::InputTextWithHint("##ra-user", "Identifiant RetroAchievements", s.ra_user, sizeof(s.ra_user));
+    ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
+    ImGui::InputTextWithHint("##ra-password", "Mot de passe", s.ra_password, sizeof(s.ra_password),
+                             ImGuiInputTextFlags_Password);
+    if (button("Se connecter", Icon::Play, ButtonStyle::Primary)) {
+        ra.login(s.ra_user, s.ra_password);
+        std::fill(std::begin(s.ra_password), std::end(s.ra_password), '\0');
+    }
+    muted("Connexion HTTPS officielle. Aucun mot de passe n'est conservé sur le PC.");
+}
+void ra_profile_link(State& s, const ravenemudsk_ra::Snapshot& snap) {
+    const auto url = ra_profile_url(snap.username);
+    if (url.empty()) return;
+    if (button("Voir mon profil en ligne", Icon::Info, ButtonStyle::Secondary, {245.f, 42.f}))
+        if (SDL_OpenURL(url.c_str()) != 0)
+            notify(s, Toast::Kind::Error, "Ouverture du navigateur impossible", SDL_GetError());
 }
 // ---------------------------------------------------------------- profile
 struct Stats {
@@ -852,18 +915,141 @@ void profile_banner(State& s, Library&) {
     const auto snap = ravenemudsk_ra::client().snapshot();
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float w = ImGui::GetContentRegionAvail().x;
-    if (ImGui::InvisibleButton("##ra-profile-banner", {w, 88.f})) s.page = Page::Profile;
+    constexpr float h = 108.f;
+    if (ImGui::InvisibleButton("##ra-profile-banner", {w, h})) s.page = Page::Profile;
+    const bool hovered = ImGui::IsItemHovered();
     auto* d = ImGui::GetWindowDrawList();
-    d->AddRectFilled(p, {p.x + w, p.y + 88.f}, color::surface, radius::lg);
-    d->AddRect(p, {p.x + w, p.y + 88.f}, color::border, radius::lg);
-    draw_icon(d, Icon::Trophy, {p.x + 44.f, p.y + 44.f}, 26.f, color::accent);
-    const std::string name = snap.logged_in ? snap.display_name : "Connexion RetroAchievements";
-    text_at(d, s.fonts.title, {p.x + 88.f, p.y + 18.f}, color::text, name);
-    text_at(d, s.fonts.caption, {p.x + 88.f, p.y + 50.f}, color::text_muted,
-            snap.logged_in ? std::to_string(snap.hardcore_points) + " points Hardcore" : snap.status);
+    d->AddRectFilled(p, {p.x + w, p.y + h}, hovered ? color::surface_hover : color::surface, radius::lg);
+    d->AddRect(p, {p.x + w, p.y + h}, hovered ? color::accent : color::border, radius::lg);
+    draw_ra_logo(s, d, {p.x + 18.f, p.y + 17.f}, {74.f, 74.f});
+    const float x = p.x + 114.f;
+    text_at(d, s.fonts.caption, {x, p.y + 17.f}, color::accent, "RETROACHIEVEMENTS");
+    const auto name = snap.logged_in ? snap.display_name : "Connecter mon compte";
+    text_at(d, s.fonts.title, {x, p.y + 39.f}, color::text,
+            ellipsize(s.fonts.title, name, std::max(130.f, w - 145.f)));
+    const std::string stats = snap.logged_in
+        ? std::to_string(snap.hardcore_points) + " pts Hardcore  |  " +
+          std::to_string(snap.softcore_points) + " pts Softcore"
+        : "Synchronisez vos succès et votre profil en ligne";
+    text_at(d, s.fonts.caption, {x, p.y + 77.f}, color::text_muted,
+            ellipsize(s.fonts.caption, stats, std::max(130.f, w - 145.f)));
+    focus_ring(d, p, {p.x + w, p.y + h}, radius::lg);
 }
 void profile_view(State& s, Library& lib) {
-    achievements_view(s, lib);
+    auto& ra = ravenemudsk_ra::client();
+    const auto snap = ra.snapshot();
+    const float width = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float hero_h = snap.logged_in ? 258.f : 225.f;
+    auto* d = ImGui::GetWindowDrawList();
+    d->AddRectFilled(p, {p.x + width, p.y + hero_h}, color::surface, radius::lg);
+    d->PushClipRect(p, {p.x + width, p.y + hero_h}, true);
+    d->AddCircleFilled({p.x + width - 85.f, p.y + 18.f}, 192.f,
+                       with_alpha(color::accent, .09f));
+    d->AddCircleFilled({p.x + width - 10.f, p.y + hero_h}, 130.f,
+                       with_alpha(color::accent, .08f));
+    d->PopClipRect();
+    d->AddRect(p, {p.x + width, p.y + hero_h}, color::border_strong, radius::lg);
+    draw_ra_logo(s, d, {p.x + 28.f, p.y + 30.f}, {118.f, 100.f});
+    const float left = p.x + 172.f;
+    text_at(d, s.fonts.caption, {left, p.y + 33.f}, color::accent, "MON COMPTE RETROACHIEVEMENTS");
+    text_at(d, s.fonts.display, {left, p.y + 62.f}, color::text,
+            ellipsize(s.fonts.display, snap.logged_in ? snap.display_name : "Compte non connecté",
+                      std::max(180.f, width - 375.f)));
+    text_at(d, s.fonts.body, {left, p.y + 113.f}, color::text_muted,
+            snap.logged_in ? ("@" + snap.username) : "Connectez-vous pour retrouver votre profil en ligne.");
+    const ImVec2 status_pos{left, p.y + 153.f};
+    pill(d, status_pos, snap.logged_in ? "CONNECTÉ" : "HORS LIGNE",
+         snap.logged_in ? color::success : color::text_muted, s.fonts.caption);
+    if (snap.logged_in && s.ra_images && width > 720.f) {
+        const auto image = s.ra_images->image(snap.avatar_url);
+        draw_avatar(d, {p.x + width - 99.f, p.y + 103.f}, 57.f,
+                    snap.display_name, 3, image, s.fonts);
+    }
+    ImGui::SetCursorScreenPos({left, p.y + hero_h - 63.f});
+    if (snap.logged_in) ra_profile_link(s, snap);
+    else {
+        ImGui::SetNextItemWidth(std::min(210.f, std::max(155.f, width * .27f)));
+        ImGui::InputTextWithHint("##profile-ra-user", "Identifiant", s.ra_user, sizeof(s.ra_user));
+        ImGui::SameLine(0.f, 8.f);
+        ImGui::SetNextItemWidth(std::min(200.f, std::max(135.f, width * .25f)));
+        ImGui::InputTextWithHint("##profile-ra-password", "Mot de passe", s.ra_password,
+                                sizeof(s.ra_password), ImGuiInputTextFlags_Password);
+        ImGui::SameLine(0.f, 8.f);
+        if (button("Connexion", Icon::Play, ButtonStyle::Primary, {123.f, 40.f})) {
+            ra.login(s.ra_user, s.ra_password);
+            std::fill(std::begin(s.ra_password), std::end(s.ra_password), '\0');
+        }
+    }
+    ImGui::SetCursorScreenPos({p.x, p.y + hero_h});
+    ImGui::Dummy({0.f, 0.f});
+    ImGui::Dummy({0.f, 16.f});
+
+    int played = 0;
+    std::uint64_t seconds = 0;
+    for (const auto& game : lib.games()) {
+        if (game.last_played) ++played;
+        seconds += game.seconds_played;
+    }
+    const float gap = 14.f;
+    const float cell = std::max(130.f, (width - gap * 3.f) / 4.f);
+    stat_card(s, "POINTS HARDCORE", snap.logged_in ? std::to_string(snap.hardcore_points) : "-",
+              -1.f, color::accent, cell);
+    ImGui::SameLine(0.f, gap);
+    stat_card(s, "POINTS SOFTCORE", snap.logged_in ? std::to_string(snap.softcore_points) : "-",
+              -1.f, color::accent, cell);
+    ImGui::SameLine(0.f, gap);
+    stat_card(s, "JEUX JOUÉS (LOCAL)", std::to_string(played), -1.f, color::accent, cell);
+    ImGui::SameLine(0.f, gap);
+    stat_card(s, "TEMPS DE JEU (LOCAL)", seconds ? duration_of(seconds) : "0 min",
+              -1.f, color::accent, cell);
+    ImGui::Dummy({0.f, 12.f});
+
+    begin_card("##ra-current-game");
+    card_title(s, Icon::Gamepad, "Activité RetroAchievements");
+    ImGui::Dummy({0.f, 6.f});
+    if (snap.game_title.empty()) {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text),
+                           "%s", snap.logged_in ? "Compte RetroAchievements connecté" :
+                               "Aucun compte connecté");
+        muted(snap.logged_in ? "Lancez un jeu reconnu pour suivre sa progression et ses succès officiels."
+                             : "Connectez-vous pour synchroniser vos succès en ligne.");
+        muted("Les jeux joués et le temps de jeu affichés ci-dessus sont des données locales.");
+    } else {
+        ImGui::PushFont(s.fonts.title);
+        ImGui::TextUnformatted(snap.game_title.c_str());
+        ImGui::PopFont();
+        ImGui::Text("%d / %d succès débloqués", snap.unlocked_count, snap.total_count);
+        const float fraction = snap.total_count > 0
+            ? std::clamp(static_cast<float>(snap.unlocked_count) / snap.total_count, 0.f, 1.f)
+            : 0.f;
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        const float bar_width = ImGui::GetContentRegionAvail().x;
+        progress_bar(d, {bar.x, bar.y + 6.f}, {bar.x + bar_width, bar.y + 15.f},
+                     fraction, color::accent);
+        ImGui::Dummy({0.f, 20.f});
+        int shown = 0;
+        for (const auto& achievement : snap.achievements) {
+            if (shown++ >= 5) break;
+            ImGui::Separator();
+            ImGui::Text("%s", achievement.title.c_str());
+            ImGui::TextDisabled("%d pts  |  %s", achievement.points,
+                                achievement.unlocked ? "Débloqué" : "À débloquer");
+        }
+        if (button("Voir tous les succès", Icon::Info, ButtonStyle::Secondary))
+            s.page = Page::Achievements;
+    }
+    end_card();
+    ImGui::Dummy({0.f, 8.f});
+
+    const auto recent = recent_order(lib);
+    if (!recent.empty()) {
+        ImGui::PushFont(s.fonts.title);
+        ImGui::TextUnformatted("Vos jeux récents");
+        ImGui::PopFont();
+        muted("Activité enregistrée sur cet ordinateur.");
+        game_grid(s, lib, recent, 1);
+    }
 }
 // ---------------------------------------------------------------- TV mode
 // Full screen, couch-friendly library driven by a gamepad or the keyboard.
@@ -1540,6 +1726,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     state.window = window;
     state.renderer = renderer;
     state.logo = load_logo(renderer);
+    state.ra_logo = load_brand_asset(renderer, "ra-logo-large.png");
+    state.ra_images = std::make_unique<BadgeCache>(renderer);
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -1618,6 +1806,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
+    state.ra_images.reset();
+    if (state.ra_logo) SDL_DestroyTexture(state.ra_logo);
     if (state.logo) SDL_DestroyTexture(state.logo);
     for (auto& [key, texture] : state.images) if (texture) SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);

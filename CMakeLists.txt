@@ -109,6 +109,25 @@ else()
   message(WARNING "RavenEmu brand asset download failed. See README.")
 endif()
 
+# The official RetroAchievements logo ships beside RavenEmuDSK.
+# Fixed upstream revision avoids unexpectedly changing artwork on rebuild.
+set(RAVENEMUDSK_RA_LOGO_URL
+  "https://raw.githubusercontent.com/RetroAchievements/docs/9de47ca8af23bc4fb231f6b0d9261164305d0704/docs/public/ra-logo-large.png")
+file(DOWNLOAD "${RAVENEMUDSK_RA_LOGO_URL}"
+  "${CMAKE_CURRENT_BINARY_DIR}/branding/ra-logo-large.png"
+  STATUS RA_BRAND_STATUS TLS_VERIFY ON)
+list(GET RA_BRAND_STATUS 0 RA_BRAND_ERROR)
+if(RA_BRAND_ERROR EQUAL 0)
+  add_custom_command(TARGET RavenEmuDSK POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_BINARY_DIR}/branding/ra-logo-large.png"
+      "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ra-logo-large.png"
+    VERBATIM)
+else()
+  message(WARNING "RetroAchievements logo download unavailable; RA monogram fallback will be used.")
+endif()
+
 if(BUILD_TESTING)
   add_executable(ravenemudsk_progress_test
     tests/progress_test.cpp src/achievements/progress.cpp)
@@ -122,4 +141,8 @@ if(BUILD_TESTING)
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
     $<TARGET_FILE:RavenEmuDSK>)
   set_tests_properties(launcher_smoke PROPERTIES TIMEOUT 30)
+  add_test(NAME retro_profile_smoke COMMAND ${CMAKE_COMMAND} -E env
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
+    RAVENEMUDSK_UI_SMOKE_PAGE=profile $<TARGET_FILE:RavenEmuDSK>)
+  set_tests_properties(retro_profile_smoke PROPERTIES TIMEOUT 30)
 endif()

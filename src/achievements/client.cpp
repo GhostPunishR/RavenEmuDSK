@@ -203,6 +203,12 @@ struct Client::Impl {
             state.logged_in = true;
             state.username = user->username ? user->username : "";
             state.display_name = user->display_name ? user->display_name : state.username;
+            if (user->avatar_url && *user->avatar_url) state.avatar_url = user->avatar_url;
+            else {
+                char avatar[256]{};
+                state.avatar_url = rc_client_user_get_image_url(user, avatar, sizeof(avatar)) == RC_OK
+                    ? std::string(avatar) : std::string();
+            }
             state.softcore_points = user->score_softcore;
             state.hardcore_points = user->score;
         }
