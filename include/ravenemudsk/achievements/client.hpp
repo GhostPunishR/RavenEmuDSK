@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <ravenemudsk/achievements/profile_store.hpp>
+#include <ravenemudsk/achievements/outbox.hpp>
 #include <functional>
 #include <ravenemudsk/achievements/session_store.hpp>
 #include <memory>
@@ -20,6 +21,14 @@ struct Achievement {
     float measured_percent = 0.f;
     bool unlocked = false;
 };
+struct Leaderboard { std::uint32_t id=0; std::string title,description; };
+struct RankingEntry { std::uint32_t rank=0; std::string username,score; bool current_user=false; };
+struct Ranking {
+    std::uint32_t id=0,total=0;
+    bool loading=false,around_user=false;
+    std::string error;
+    std::vector<RankingEntry> entries;
+};
 enum class GameStatus { None, Loading, Ready, NoAchievements, UnknownRom, Offline, Error };
 struct Snapshot {
     std::string status = "Non connecté";
@@ -33,6 +42,10 @@ struct Snapshot {
     bool cached_profile = false, reconnect_scheduled = false, online = false;
     GameStatus game_status = GameStatus::None;
     std::vector<Achievement> achievements;
+    std::string game_hash,rich_presence;
+    std::vector<Leaderboard> leaderboards;
+    std::uint32_t pending_submissions=0;
+    bool durable_submissions=false,hardcore_preferred=false,game_hardcore=false;
 };
 struct Event {
     std::string kind, title, detail;
@@ -51,7 +64,7 @@ public:
     // without contacting RetroAchievements or touching the user's credentials.
     using Clock = std::function<std::int64_t()>;
     Client(std::shared_ptr<SessionStore> storage, ServerTransport transport,
-           std::shared_ptr<ProfileStore> profiles = {}, Clock clock = {});
+           std::shared_ptr<ProfileStore> profiles = {}, Clock clock = {}, std::shared_ptr<Outbox> outbox = {});
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
@@ -63,8 +76,15 @@ public:
     void end_game();
     void pump(bool frame);
     void reset();
-    void set_hardcore(bool on);
+    bool set_hardcore(bool on);
+    // Launcher-only metadata refresh; never replaces a live game's runtime.
+    bool refresh_game(const std::string& rom_path);
+    void fetch_ranking(std::uint32_t id, bool around_user = false);
+    Ranking ranking() const;
+    std::vector<std::uint8_t> save_progress() const;
+    bool load_progress(const std::vector<std::uint8_t>& progress);
     bool hardcore() const;
+    bool can_load_state() const;
     bool can_pause() const;
     Snapshot snapshot() const;
     // Account-scoped display data for a library ROM; never identifies or executes a game.

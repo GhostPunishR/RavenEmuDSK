@@ -8,6 +8,7 @@
 #include <ravenemudsk/ui/theme.hpp>
 #include <ravenemudsk/ui/updates.hpp>
 #include <ravenemudsk/ui/widgets.hpp>
+#include <ravenemudsk/ui/retro_widgets.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
@@ -59,7 +60,7 @@ constexpr float card_gap = 20.f;
 constexpr float content_pad = 32.f;
 
 enum class Page { Home, Library, Recent, Settings, Profile };
-enum class SettingsCategory { Library, Display, Controls, Updates, About };
+enum class SettingsCategory { Library, Display, Controls, Retro, Updates, About };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
 struct State {
@@ -90,6 +91,7 @@ struct State {
     SDL_Texture* ra_logo = nullptr;
     std::unique_ptr<BadgeCache> ra_images;
     int ra_filter = 0;
+    int ra_tab = 0;
     int ra_visible_count = 10;
     std::string ra_selected_achievement;
     SDL_Renderer* renderer = nullptr;
@@ -112,6 +114,8 @@ void text_at(ImDrawList* d, ImFont* font, ImVec2 pos, ImU32 col, const std::stri
 float text_width(ImFont* font, const char* value);
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra);
 void update_banner(State& s);
+void save_settings(State& s);
+void ra_mode_controls(State& s);
 
 // ---------------------------------------------------------------- data
 std::string date_of(std::int64_t stamp) {
@@ -221,6 +225,8 @@ ravenemudsk_ra::Snapshot profile_snapshot(State& s) {
             snap.achievements = game->achievements;
             snap.unlocked_count = game->unlocked_count; snap.total_count = game->total_count;
             snap.unlocked_points = game->unlocked_points; snap.total_points = game->total_points;
+            snap.game_hash=game->game_hash;snap.rich_presence=game->rich_presence;snap.leaderboards=game->leaderboards;
+            snap.game_hardcore=game->game_hardcore;
             snap.cached_profile = snap.cached_profile || game->cached_profile;
         } else s.ra_game_path.clear();
     }
@@ -815,6 +821,8 @@ void achievements_view(State& s, Library&) {
     ImGui::PopFont();
     ImGui::Dummy({0.f, 4.f});
     muted(snap.status.c_str());
+    if(snap.pending_submissions)ImGui::TextWrapped("%u envoi(s) en attente%s",snap.pending_submissions,
+        snap.durable_submissions?", conservés après fermeture.":" : gardez l’application ouverte pour synchroniser.");
     if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu’à une minute.");
     ImGui::Dummy({0.f, 8.f});
     if (snap.cached_profile) muted("Profil et dernier jeu mémorisés : données à actualiser lors d'une connexion et d'une partie.");
@@ -822,9 +830,8 @@ void achievements_view(State& s, Library&) {
         if (snap.cached_profile) ImGui::Text("@%s : %u points Softcore, %u points Hardcore", snap.username.c_str(), snap.softcore_points, snap.hardcore_points);
         muted("Connectez votre compte pour obtenir les succès officiels pendant vos parties Game Boy, Game Boy Color et Game Boy Advance.");
         ra_login_controls(s, ra);
-    } else {
-        // Exactly the account information from RavenEmu: avatar, name, score,
-        // active game summary, then session controls. The logo is only an icon.
+    } else if(s.ra_tab==0) {
+        // Account details stay on the achievement tab to leave room for rankings.
         const ImVec2 avatar = ImGui::GetCursorScreenPos();
         SDL_Texture* image = s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
         draw_avatar(ImGui::GetWindowDrawList(), {avatar.x + 29.f,avatar.y + 29.f},
@@ -849,9 +856,21 @@ void achievements_view(State& s, Library&) {
             ImGui::TextDisabled("%d/%d succès  |  %u/%u points",
                                 snap.unlocked_count, snap.total_count,
                                 snap.unlocked_points, snap.total_points);
+            muted(snap.game_hardcore?"Progression Hardcore":"Progression Softcore");
         } else {
             muted("Aucun jeu reconnu pour le moment.");
         }
+    } else {
+        ImGui::TextUnformatted(snap.display_name.empty()?snap.username.c_str():snap.display_name.c_str());
+        if(!snap.game_title.empty())ImGui::TextWrapped("%s",snap.game_title.c_str());
+        muted(snap.game_hardcore?"Progression Hardcore":"Progression Softcore");
+    }
+    if(s.ra_tab==0||!snap.logged_in)ra_mode_controls(s);
+    if(snap.logged_in){
+        ImGui::BeginDisabled(snap.login_pending);
+        if(button("Actualiser le profil et les succès",Icon::Reset,ButtonStyle::Secondary))
+            ra.refresh_game(s.ra_game_path.empty()?snap.rom_path:s.ra_game_path);
+        ImGui::EndDisabled();
     }
     end_card();
 
@@ -869,6 +888,20 @@ void achievements_view(State& s, Library&) {
         ImGui::Dummy({0.f, 10.f});
     }
 
+    const char* tabs[]={"Succès","Classements","Activité"};
+    chips("##ra-sections",tabs,3,&s.ra_tab);
+    ImGui::Dummy({0.f,space::sm});
+    if(s.ra_tab==1){
+        begin_card("##ra-leaderboards");card_title(s,Icon::Trophy,"Classements");
+        draw_leaderboards(ra,snap,s.fonts);end_card();return;
+    }
+    if(s.ra_tab==2){
+        begin_card("##ra-presence");card_title(s,Icon::Gamepad,"Activité en cours");
+        muted(snap.cached_profile?"Dernière activité mémorisée : actualisez le jeu pour obtenir son état actuel.":
+              "Activité partagée avec RetroAchievements pendant la partie.");
+        ImGui::TextWrapped("%s",snap.rich_presence.empty()?"Aucune activité détaillée disponible pour ce jeu.":snap.rich_presence.c_str());
+        end_card();return;
+    }
     if (!snap.game_title.empty() && !snap.achievements.empty()) {
         ImGui::PushFont(s.fonts.title);
         ImGui::TextUnformatted("Succès du jeu");
@@ -971,6 +1004,23 @@ void achievements_view(State& s, Library&) {
         }
         ImGui::EndPopup();
     }
+}
+void ra_mode_controls(State& s) {
+    auto& client=retro_client(s);const auto snap=client.snapshot();
+    bool hardcore=snap.hardcore_preferred;
+    ImGui::PushStyleColor(ImGuiCol_FrameBg,ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    if(ImGui::Checkbox("Mode Hardcore",&hardcore)){
+        client.set_hardcore(hardcore);
+        s.settings.set_flag("ra_hardcore",client.snapshot().hardcore_preferred);save_settings(s);
+    }
+    ImGui::PopStyleColor(2);
+    ImGui::PushFont(s.fonts.caption);
+    if(snap.hardcore)ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::gold),"Hardcore actif");
+    else if(snap.hardcore_preferred)muted("Hardcore sélectionné : une connexion et un coffre système sont nécessaires.");
+    else muted("Softcore actif : chargement des états autorisé.");
+    muted("Le Hardcore interdit le chargement des états. Son activation pendant une partie réinitialise la console.");
+    ImGui::PopFont();
 }
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     const auto snap = ra.snapshot();
@@ -1479,7 +1529,9 @@ void settings_about(State& s) {
     ImGui::TextWrapped("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
           "succès RetroAchievements via rcheevos (MIT), interface Dear ImGui (MIT) "
-          "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire et aucune donnée n'est envoyée.");
+          "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
+          "Les fonctions RetroAchievements transmettent au service les données du compte, du jeu et des succès. "
+          "La recherche de mises à jour contacte GitHub.");
     end_card();
 }
 void settings_view(State& s, Library& lib) {
@@ -1496,6 +1548,8 @@ void settings_view(State& s, Library& lib) {
          "Choisissez comment utiliser RavenEmu sur votre écran."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
          "Retrouvez les commandes au clavier et à la manette."},
+        {SettingsCategory::Retro, Icon::Trophy, "RetroAchievements",
+         "Choisissez votre mode de jeu et gérez la synchronisation des succès."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",
          "Vérifiez les nouvelles versions et gérez la recherche au démarrage."},
         {SettingsCategory::About, Icon::Info, "À propos",
@@ -1530,6 +1584,15 @@ void settings_view(State& s, Library& lib) {
     case SettingsCategory::Library: settings_library(s, lib); break;
     case SettingsCategory::Display: settings_display(s); break;
     case SettingsCategory::Controls: settings_controls(s); break;
+    case SettingsCategory::Retro:
+        begin_card("##ra-settings");card_title(s,Icon::Trophy,"Mode et synchronisation");ra_mode_controls(s);
+        muted(retro_client(s).snapshot().status.c_str());
+        if(button("Ouvrir mon profil",Icon::Trophy,ButtonStyle::Primary))s.page=Page::Profile;
+        if(button("Confidentialité",Icon::Info,ButtonStyle::Ghost)){
+            if(SDL_OpenURL("https://github.com/GhostPunishR/RavenEmuDSK/blob/main/docs/confidentialite.md")!=0)
+                notify(s,Toast::Kind::Error,"Ouverture du navigateur impossible",SDL_GetError());
+        }
+        end_card();break;
     case SettingsCategory::Updates: updates_card(s); break;
     case SettingsCategory::About: settings_about(s); break;
     }
@@ -1558,9 +1621,10 @@ void detail_achievements(State& s, const Game& game) {
         ImGui::Dummy({w, 14.f});
         ImGui::PushFont(s.fonts.caption);
         ImGui::TextDisabled("%u / %u points", info->unlocked_points, info->total_points);
+        ImGui::TextDisabled("%s",info->game_hardcore?"Progression Hardcore":"Progression Softcore");
         if (info->cached_profile) {
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
-            ImGui::TextDisabled("Données mémorisées, actualisées au lancement du jeu.");
+            ImGui::TextDisabled("Données mémorisées. Actualisez les succès ou lancez le jeu.");
             ImGui::PopTextWrapPos();
         }
         ImGui::PopFont();
@@ -1602,6 +1666,12 @@ void detail_achievements(State& s, const Game& game) {
         ImGui::PopTextWrapPos();
         ImGui::PopFont();
     }
+    ImGui::BeginDisabled(retro_client(s).snapshot().login_pending);
+    if(button("Actualiser les succès",Icon::Reset,ButtonStyle::Ghost,{w,36.f})){
+        if(!retro_client(s).refresh_game(utf8(game.path)))
+            notify(s,Toast::Kind::Info,"Actualisation non démarrée",retro_client(s).snapshot().status);
+    }
+    ImGui::EndDisabled();
     ImGui::PopID();
 }
 void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
@@ -1910,6 +1980,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     ImGui_ImplSDLRenderer2_Init(renderer);
     if (!error.empty()) state.toasts.push_back({Toast::Kind::Error, "Impossible de lancer le jeu", error, -1.0, 8.0});
     const bool ci_smoke = SDL_getenv("RAVENEMUDSK_UI_SMOKE") != nullptr;
+    retro_client(state).set_hardcore(ci_smoke?false:state.settings.flag("ra_hardcore",false));
     if (ci_smoke) state.page = smoke_page();
     state.library = &lib;
     static bool update_started = false;  // once per run, not per return from a game
@@ -2007,6 +2078,15 @@ Folders app_folders() {
         SDL_free(pref);
     }
     return prepare_folders(roots);
+}
+bool remember_hardcore(bool enabled){
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();
+        settings.set_flag("ra_hardcore",enabled);settings.save();return true;
+    }catch(...){return false;}
+}
+bool hardcore_preference(){
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_hardcore",false);}
+    catch(...){return false;}
 }
 void record_session(const LaunchRequest& request, unsigned long long seconds) {
     if (SDL_Init(0) != 0) return;

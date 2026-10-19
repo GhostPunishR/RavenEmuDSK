@@ -15,6 +15,9 @@ struct OverlayInfo {
     std::string game_title;
     std::string system;
     bool hardcore = false;
+    bool hardcore_preferred = false;
+    bool hardcore_waiting = false;
+    std::string retro_status;
     bool paused = false;          // quick pause with P
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
@@ -24,13 +27,13 @@ struct OverlayInfo {
     bool achievement_unlocked = false;
     bool demo = false;            // bundled demo ROM: show the guided panel
 };
-enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, Quit };
+enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.
 class GameOverlay {
 public:
-    GameOverlay(SDL_Window* window, SDL_Renderer* renderer);
+    GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro=nullptr);
     ~GameOverlay();
     GameOverlay(const GameOverlay&) = delete;
     GameOverlay& operator=(const GameOverlay&) = delete;
@@ -52,10 +55,12 @@ public:
 
 private:
     SDL_Renderer* renderer_;
+    ravenemudsk_ra::Client* retro_;
     Fonts fonts_;
     std::vector<Toast> toasts_;
     bool menu_open_ = false;
     bool focus_first_ = false;
+    bool retro_open_ = false;
     BadgeCache badges_;
     ravenemudsk_ra::Notifications notifications_;
     std::optional<ravenemudsk_ra::Progress> last_progress_;

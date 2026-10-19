@@ -5,6 +5,7 @@
 #include <ravenemudsk/ui/app_shell.hpp>
 #include <ravenemudsk/ui/game_overlay.hpp>
 #include <ravenemudsk/ui/game_input.hpp>
+#include <ravenemudsk/ui/game_state.hpp>
 #include <ravenemudsk/ui/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/achievements/client.hpp>
@@ -83,15 +84,12 @@ void save_battery(ravenemu_bridge* core, const fs::path& path) {
     verify(ravenemu_acknowledge_battery(core,gen)!=0,"Validation de sauvegarde");
 }
 void save_state(ravenemu_bridge* core, const fs::path& path) {
-    const size_t len=ravenemu_state_size(core);
-    if(!len || len>(16u<<20))throw std::runtime_error("État trop volumineux");
-    std::vector<std::uint8_t> bytes(len);
-    verify(ravenemu_save_state(core,bytes.data(),bytes.size())!=0,"Sauvegarde d'état");
-    atomic_write(path,bytes);
+    atomic_write(path,ravenemudsk_ui::encode_game_state(ravenemudsk_ui::capture_game_state(core,ravenemudsk_ra::client())));
 }
-void load_state(ravenemu_bridge* core,const fs::path& path) {
-    auto data=read_file(path,16u<<20);
-    verify(ravenemu_load_state(core,data.data(),data.size())!=0,"Chargement d'état");
+bool load_state(ravenemu_bridge* core,const fs::path& path) {
+    auto& ra=ravenemudsk_ra::client();
+    if(!ra.can_load_state())throw std::runtime_error("Chargement d’état interdit en Hardcore");
+    return ravenemudsk_ui::restore_game_state(core,ra,read_file(path,24u<<20));
 }
 int system_of(const std::string& code) {
     if(code=="gb")return RAVENEMU_GB;
@@ -191,12 +189,13 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                     case SDLK_F4:
                         input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
                     case SDLK_F5:
-                        if(ravenemudsk_ra::client().hardcore()) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","États désactivés");
-                        else {save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");}
+                        save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
                         break;
                     case SDLK_F9:
-                        if(ravenemudsk_ra::client().hardcore()) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
-                        else if(fs::exists(state_path)){load_state(core.get(),state_path);ravenemudsk_ra::client().reset();overlay.clear_retro();toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé");}
+                        if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
+                        else if(fs::exists(state_path)){
+                            const bool restored=load_state(core.get(),state_path);overlay.clear_retro();
+                            toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
                         break;
                     case SDLK_F11:
                         SDL_SetWindowFullscreen(win.get(),(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -213,7 +212,10 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
         }
         const auto now=Clock::now();
-        if(!paused&&!overlay.menu_open() && now>=next) {
+        const auto ra_status=ravenemudsk_ra::client().snapshot();
+        const bool waiting=ra_status.hardcore_preferred && (!ra_status.logged_in ||
+            (ra_status.game_status!=ravenemudsk_ra::GameStatus::Ready && ra_status.game_status!=ravenemudsk_ra::GameStatus::NoAchievements));
+        if(!waiting&&!paused&&!overlay.menu_open() && now>=next) {
             verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
             ravenemudsk_ra::client().pump(true);
             const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
@@ -229,8 +231,8 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         auto& retro=ravenemudsk_ra::client();
         for(const auto& event:retro.drain_events()) {
             if(event.kind=="hardcore_reset"){
-                input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");
-                overlay.clear_retro();
+                input.release_all();paused=false;next=Clock::now();
+                overlay.clear_retro();overlay.close_menu();
             }
             if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
             else overlay.retro_event(event);
@@ -250,18 +252,26 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
         SDL_RenderCopy(renderer.get(),texture.get(),nullptr,&rect);
         info.hardcore=retro.hardcore();
+        info.hardcore_preferred=retro.snapshot().hardcore_preferred;
+        info.hardcore_waiting=waiting;
+        info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
         info.paused=paused;
         info.fullscreen=(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
         switch(overlay.draw(info)) {
             case Action::None:break;
             case Action::Resume:overlay.close_menu();break;
             case Action::SaveState:
-                if(!ravenemudsk_ra::client().hardcore()){save_state(core.get(),state_path);info.has_state=true;}
+                save_state(core.get(),state_path);info.has_state=true;
                 overlay.close_menu();break;
             case Action::LoadState:
-                if(!ravenemudsk_ra::client().hardcore() && fs::exists(state_path)){
-                    load_state(core.get(),state_path);ravenemudsk_ra::client().reset();overlay.clear_retro();}
+                if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && fs::exists(state_path)){
+                    load_state(core.get(),state_path);overlay.clear_retro();}
                 overlay.close_menu();break;
+            case Action::ToggleHardcore:
+                input.release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
+                if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
+                    toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
+                overlay.close_menu();paused=false;break;
             case Action::Reset:
                 input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
             case Action::ToggleFullscreen:
@@ -269,7 +279,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             case Action::Quit:running=false;break;
         }
         SDL_RenderPresent(renderer.get());
-        if(paused||overlay.menu_open())SDL_Delay(16);
+        if(waiting||paused||overlay.menu_open())SDL_Delay(16);
         else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       save_battery(core.get(),battery_path);
@@ -292,8 +302,9 @@ int entry(int argc,char** argv) {
             if(argc==2 && std::string(argv[1])=="--help") {
                 std::cout<<"RavenEmu - Windows, Linux, macOS\nUsage: RavenEmuDSK [gb|gbc|gba ROM]\n";return 0;
             }
-            if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu 0.1.0\n";return 0;}
+            if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu " RAVENEMUDSK_VERSION "\n";return 0;}
             if(argc!=3)throw std::runtime_error("Usage : RavenEmuDSK [gb|gbc|gba ROM]");
+            ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::hardcore_preference());
             play({argv[1],argv[2],false});return 0;
         }
         std::string error;

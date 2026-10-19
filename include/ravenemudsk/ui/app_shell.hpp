@@ -16,4 +16,6 @@ void record_session(const LaunchRequest& selection, unsigned long long seconds);
 // Sauvegardes and Jaquettes next to the program, or in the user data
 // folder when the program folder is read-only.
 Folders app_folders();
+bool remember_hardcore(bool enabled);
+bool hardcore_preference();
 } // namespace ravenemudsk_ui

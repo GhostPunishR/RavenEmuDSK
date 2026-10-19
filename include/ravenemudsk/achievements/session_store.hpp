@@ -9,7 +9,7 @@ struct SessionCredentials {
     std::string username;
     std::string token;
 };
-// Only an API token is retained. Passwords never enter this interface.
+// Session tokens and separate outbox authentication keys. Passwords never enter this interface.
 class SessionStore {
 public:
     virtual ~SessionStore() = default;

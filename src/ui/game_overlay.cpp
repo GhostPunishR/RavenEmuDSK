@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/game_overlay.hpp>
+#include <ravenemudsk/ui/retro_widgets.hpp>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
 #include <backends/imgui_impl_sdlrenderer2.h>
@@ -19,7 +20,7 @@ bool menu_item(const Fonts& fonts, const char* label, Icon icon, const char* sho
     const float w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
     if (!enabled) ImGui::BeginDisabled();
-    const bool pressed = ImGui::InvisibleButton(label, {w, 46.f});
+    const bool pressed = ImGui::InvisibleButton(label, {w, 46.f},ImGuiButtonFlags_EnableNav);
     if (!enabled) ImGui::EndDisabled();
     const bool hovered = enabled && ImGui::IsItemHovered();
     auto* d = ImGui::GetWindowDrawList();
@@ -68,7 +69,8 @@ void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
 }
 } // namespace
 
-GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer) : renderer_(renderer), badges_(renderer) {
+GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro)
+    : renderer_(renderer),retro_(retro),badges_(renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -139,6 +141,7 @@ double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 void GameOverlay::close_menu() {
     notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), false);
     menu_open_ = false;
+    retro_open_=false;
 }
 void GameOverlay::retro_event(const ravenemudsk_ra::Event& event) { notifications_.event(event); }
 void GameOverlay::update_retro_progress(const std::vector<ravenemudsk_ra::Achievement>& entries) {
@@ -212,14 +215,18 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     auto* bg = ImGui::GetBackgroundDrawList();
     const auto time = static_cast<float>(ImGui::GetTime());
+    if(info.hardcore_preferred){
+        pill(bg,{16.f,16.f},info.hardcore&&!info.hardcore_waiting?"HARDCORE":"HARDCORE EN ATTENTE",color::gold,fonts_.caption);
+    }
 
     if (info.demo && !menu_open_) demo_panel(fonts_, info);
     if (info.paused && !menu_open_) {
         const char* label = "Pause  \xC2\xB7  P pour reprendre";
         const ImVec2 size{text_width(fonts_.body, label) + 56.f, 40.f};
-        bg->AddRectFilled({16, 16}, {16 + size.x, 16 + size.y}, with_alpha(color::elevated, .95f), 20.f);
-        draw_icon(bg, Icon::Pause, {38, 36}, 14.f, color::accent_hover);
-        bg->AddText(fonts_.body, fonts_.body->FontSize, {54, 27}, color::text, label);
+        const float top=info.hardcore_waiting?76.f:info.hardcore_preferred?54.f:16.f;
+        bg->AddRectFilled({16,top}, {16+size.x,top+size.y}, with_alpha(color::elevated,.95f),20.f);
+        draw_icon(bg,Icon::Pause,{38,top+20.f},14.f,color::accent_hover);
+        bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
     }
     if (time < 6.f && !menu_open_) {
         // Short reminder of the essential keys when a game starts.
@@ -231,11 +238,12 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         bg->AddText(fonts_.caption, fonts_.caption->FontSize, {a.x + 16.f, a.y + 8.f},
                     with_alpha(color::text_muted, alpha), hint);
     }
-    if (menu_open_) {
+    if (menu_open_ && !retro_open_) {
         bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, 200));
         const float w = std::min(440.f, screen.x - 32.f);
         ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
         ImGui::SetNextWindowSize({w, 0.f});
+        ImGui::SetNextWindowSizeConstraints({w,100.f},{w,std::max(100.f,screen.y-32.f)});
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
         ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
@@ -258,9 +266,12 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             focus_first_ = false;
         }
         if (menu_item(fonts_, "Reprendre la partie", Icon::Play, "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, "F5", !info.hardcore)) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, "Charger l'état", Icon::Load, "F9", info.has_state && !info.hardcore))
+        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, "F5")) action = OverlayAction::SaveState;
+        if (menu_item(fonts_, "Charger l'état", Icon::Load, "F9", info.has_state && !info.hardcore_preferred))
             action = OverlayAction::LoadState;
+        if(menu_item(fonts_,"Succès et classements",Icon::Trophy,nullptr))retro_open_=true;
+        if(menu_item(fonts_,info.hardcore_preferred?"Passer en Softcore":"Activer Hardcore (réinitialise)",Icon::Lock,nullptr))
+            action=OverlayAction::ToggleHardcore;
         if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, "F4")) action = OverlayAction::Reset;
         if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, "F11"))
             action = OverlayAction::ToggleFullscreen;
@@ -290,6 +301,40 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         ImGui::End();
         ImGui::PopStyleVar(4);
         ImGui::PopStyleColor(2);
+    }
+    if(retro_open_&&menu_open_){
+        ImGui::SetNextWindowPos({screen.x*.5f,screen.y*.5f},ImGuiCond_Always,{.5f,.5f});
+        ImGui::SetNextWindowSize({std::min(680.f,screen.x-32.f),std::min(620.f,screen.y-48.f)});
+        ImGui::Begin("Succès et classements",&retro_open_,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoCollapse);
+        auto& client=retro_?*retro_:ravenemudsk_ra::client();const auto snapshot=client.snapshot();
+        ImGui::TextWrapped("%s",snapshot.game_title.empty()?snapshot.status.c_str():snapshot.game_title.c_str());
+        ImGui::TextDisabled("%s",info.hardcore?"Mode Hardcore":"Mode Softcore");
+        if(button("Retour au menu",Icon::Close,ButtonStyle::Ghost))retro_open_=false;
+        if(ImGui::BeginTabBar("##retro-tabs")){
+            if(ImGui::BeginTabItem("Succès")){
+                ImGui::Text("%d / %d succès",snapshot.unlocked_count,snapshot.total_count);
+                for(const auto& a:snapshot.achievements){
+                    ImGui::PushID(a.id.c_str());ImGui::Separator();
+                    ImGui::TextWrapped("%s  (%d pts)",a.title.c_str(),a.points);
+                    ImGui::TextWrapped("%s",a.description.c_str());
+                    ImGui::TextDisabled("%s",a.unlocked?"Débloqué":a.progress.empty()?"À obtenir":a.progress.c_str());
+                    if(!a.unlocked&&a.measured_percent>0)ImGui::ProgressBar(std::clamp(a.measured_percent/100.f,0.f,1.f));
+                    ImGui::PopID();
+                }
+                ImGui::EndTabItem();
+            }
+            if(ImGui::BeginTabItem("Classements")){draw_leaderboards(client,snapshot,fonts_);ImGui::EndTabItem();}
+            if(ImGui::BeginTabItem("Activité")){
+                ImGui::TextWrapped("%s",snapshot.rich_presence.empty()?"Aucune activité détaillée disponible pour ce jeu.":snapshot.rich_presence.c_str());
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::End();
+    }
+    if(!info.retro_status.empty() && info.hardcore_preferred && info.hardcore_waiting){
+        bg->AddText(fonts_.caption,fonts_.caption->FontSize,{16.f,48.f},color::text_muted,
+            ellipsize(fonts_.caption,info.retro_status,screen.x-32.f).c_str());
     }
     // RetroAchievements cards use RavenEmu's dedicated top-center style.
     draw_retro(seconds_now(),screen);

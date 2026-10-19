@@ -39,6 +39,9 @@ int run_native_round_trip() {
     require(!restarted->save({"", ""}), "Empty credentials must not overwrite a valid session");
     saved = store->load();
     require(saved && saved->token == "RotatedFakeToken", "Replacement credential was not retained");
+    const std::string journal_key(64,'a');
+    require(restarted->save({"SessionTestUser",journal_key}),"Could not store outbox authentication key");
+    saved=store->load();require(saved&&saved->token==journal_key,"Native journal key was truncated");
     require(store->clear() && store->clear(), "Native logout must be repeatable");
     require(!restarted->load(), "The deleted native credential was restored");
     std::cout << "Native Windows session storage round trip passed\n";

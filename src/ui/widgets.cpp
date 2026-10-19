@@ -201,7 +201,7 @@ bool button(const char* label, Icon icon, ButtonStyle style, ImVec2 size, bool w
     const float icon_w = with_icon ? 16.f + space::sm : 0.f;
     if (size.x <= 0.f) size.x = text.x + icon_w + space::lg * 2.f;
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const bool pressed = ImGui::InvisibleButton(label, size);
+    const bool pressed = ImGui::InvisibleButton(label, size,ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     const bool held = ImGui::IsItemActive();
     ImU32 bg = 0, fg = color::text, border = 0;
@@ -240,7 +240,7 @@ bool button(const char* label, Icon icon, ButtonStyle style, ImVec2 size, bool w
 
 bool icon_button(const char* id, Icon icon, const char* tooltip, float size, ImU32 hover) {
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const bool pressed = ImGui::InvisibleButton(id, {size, size});
+    const bool pressed = ImGui::InvisibleButton(id, {size, size},ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
     auto* d = ImGui::GetWindowDrawList();
     const ImVec2 max{pos.x + size, pos.y + size};
@@ -262,7 +262,7 @@ bool chips(const char* id, const char* const* labels, int count, int* selected) 
         const ImVec2 size{text.x + space::lg * 2.f, 32.f};
         const ImVec2 pos = ImGui::GetCursorScreenPos();
         ImGui::PushID(i);
-        if (ImGui::InvisibleButton("##chip", size) && *selected != i) {
+        if (ImGui::InvisibleButton("##chip", size,ImGuiButtonFlags_EnableNav) && *selected != i) {
             *selected = i;
             changed = true;
         }

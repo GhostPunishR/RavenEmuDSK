@@ -19,6 +19,10 @@ int main() {
     require(store->save({"UpdatedUser","SyntheticTokenB"}),"Native credential update failed");
     session=store->load();require(session && session->username=="UpdatedUser" && session->token=="SyntheticTokenB","Native update not visible");
     require(!store->save({"","Invalid"}),"Invalid credentials must not overwrite the item");
+    const std::string journal_key(64,'a');
+    require(store->save({"UpdatedUser",journal_key}),"Native outbox key write failed");
+    session=make_session_store(target)->load();
+    require(session&&session->token==journal_key,"Native vault did not retain a full outbox authentication key");
     require(store->clear() && !store->load() && store->clear(),"Native explicit logout failed");
     require(!make_session_store(std::string("bad\0target",10)),"Invalid native target accepted");
     std::cout<<"Native credential restart, update and logout passed\n";

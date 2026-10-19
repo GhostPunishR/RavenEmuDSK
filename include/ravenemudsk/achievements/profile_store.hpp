@@ -19,5 +19,6 @@ public:
 };
 // Use the full native path, never a filename or a display title, to distinguish editions.
 std::string rom_identity(const std::filesystem::path& rom);
+std::filesystem::path achievement_data_root();
 std::shared_ptr<ProfileStore> make_profile_store(const std::filesystem::path& root = {});
 }

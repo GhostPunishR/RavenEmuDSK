@@ -13,12 +13,16 @@ int main() {
     auto store=make_profile_store(root);
     Snapshot s;s.username="TestUser";s.display_name="Test \"User\"";s.game_title="Last Game";
     s.softcore_points=23;s.total_count=1;s.total_points=5;s.logged_in=true;s.login_pending=true;s.session_saved=true;
+    s.hardcore=true;s.game_hardcore=true;s.game_hash="0123456789abcdef0123456789abcdef";
+    s.rich_presence="At the final boss";s.leaderboards.push_back({4401,"High score","Record points"});
     s.achievements.push_back({"123","An award","A description\nwith newline","10/10","https://media.retroachievements.org/Badge/123_lock.png",5,1,10,false});
     require(store->save(s));
     Snapshot loaded; require(store->load("testuser",loaded));
     require(loaded.cached_profile && !loaded.logged_in && !loaded.login_pending && !loaded.session_saved);
     require(loaded.game_title==s.game_title && loaded.achievements.size()==1 && loaded.achievements[0].description==s.achievements[0].description);
     require(loaded.achievements[0].progress.empty() && loaded.softcore_points==23);
+    require(loaded.game_hardcore&&!loaded.hardcore&&loaded.game_hash==s.game_hash&&loaded.rich_presence==s.rich_presence);
+    require(loaded.leaderboards.size()==1&&loaded.leaderboards[0].id==4401&&!loaded.hardcore_preferred);
     require(!store->load("AnotherUser",loaded));
     s.total_count=0;s.achievements.clear();s.game_title="Changed";require(store->save(s));
     require(store->load("TestUser",loaded) && loaded.game_title=="Changed");

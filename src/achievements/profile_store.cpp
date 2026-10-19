@@ -59,7 +59,8 @@ public:
         return true;
     }
     bool save(const Snapshot& s) override {
-        if (s.username.empty() || s.achievements.size() > 2000) return false;
+        if (s.username.empty() || s.achievements.size() > 2000 || s.leaderboards.size()>2000 ||
+            s.game_hash.size()>64 || s.rich_presence.size()>4096) return false;
         if (!write(path(s.username), s)) return false;
         return s.rom_path.empty() || write(game_path(s.username, s.rom_path), s);
     }
@@ -86,9 +87,12 @@ private:
             in >> version >> std::quoted(s.username) >> std::quoted(s.display_name) >> std::quoted(s.avatar_url)
                >> s.softcore_points >> s.hardcore_points >> std::quoted(s.game_title)
                >> s.unlocked_count >> s.total_count >> s.unlocked_points >> s.total_points >> count;
-            if (version == "RavenEmuProfile2") in >> std::quoted(s.rom_path);
-            if (!in || (version != "RavenEmuProfile1" && version != "RavenEmuProfile2") ||
+            if (version == "RavenEmuProfile2" || version=="RavenEmuProfile3") in >> std::quoted(s.rom_path);
+            std::size_t boards=0;
+            if(version=="RavenEmuProfile3")in>>s.game_hardcore>>std::quoted(s.game_hash)>>std::quoted(s.rich_presence)>>boards;
+            if (!in || (version != "RavenEmuProfile1" && version != "RavenEmuProfile2" && version!="RavenEmuProfile3") ||
                 normalized(s.username) != normalized(user) || count > 2000 || s.rom_path.size() > 32768 ||
+                s.game_hash.size()>64||s.rich_presence.size()>4096||boards>2000||
                 s.unlocked_count < 0 || s.total_count < s.unlocked_count || s.total_count > 2000 ||
                 s.unlocked_points > s.total_points) return false;
             for (std::size_t i = 0; i < count; ++i) {
@@ -99,6 +103,11 @@ private:
                     a.badge_url.size() > 512 || a.points < 0) return false;
                 a.state = a.unlocked ? 2 : 1;
                 s.achievements.push_back(std::move(a));
+            }
+            for(std::size_t i=0;i<boards;++i){
+                Leaderboard board;in>>board.id>>std::quoted(board.title)>>std::quoted(board.description);
+                if(!in||!board.id||board.title.size()>4096||board.description.size()>16384)return false;
+                s.leaderboards.push_back(std::move(board));
             }
             in >> std::ws;
             if (!in.eof()) return false;
@@ -118,14 +127,17 @@ private:
                 "." + std::to_string(serial++) + ".tmp");
             std::ofstream out(temp, std::ios::binary | std::ios::trunc);
             // Whitelist: no token, password, login flags or mutable achievement runtime.
-            out << "RavenEmuProfile2\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
+            out << "RavenEmuProfile3\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
                 << std::quoted(s.avatar_url) << '\n' << s.softcore_points << ' ' << s.hardcore_points << '\n'
                 << std::quoted(s.game_title) << '\n' << s.unlocked_count << ' ' << s.total_count << ' '
                 << s.unlocked_points << ' ' << s.total_points << '\n' << s.achievements.size() << '\n'
-                << std::quoted(s.rom_path) << '\n';
+                << std::quoted(s.rom_path) << '\n'<<s.game_hardcore<<' '<<std::quoted(s.game_hash)<<' '
+                <<std::quoted(s.rich_presence)<<' '<<s.leaderboards.size()<<'\n';
             for (const auto& a : s.achievements)
                 out << std::quoted(a.id) << ' ' << std::quoted(a.title) << ' ' << std::quoted(a.description) << ' '
                     << std::quoted(a.badge_url) << ' ' << a.points << ' ' << a.unlocked << '\n';
+            for(const auto& board:s.leaderboards)
+                out<<board.id<<' '<<std::quoted(board.title)<<' '<<std::quoted(board.description)<<'\n';
             out.close();
             if (!out || fs::file_size(temp) > 2 * 1024 * 1024) { fs::remove(temp); return false; }
 #ifndef _WIN32
@@ -149,6 +161,7 @@ std::string rom_identity(const fs::path& rom) {
         return std::string(reinterpret_cast<const char*>(value.data()), value.size());
     } catch (...) { return {}; }
 }
+fs::path achievement_data_root() { return default_root(); }
 std::shared_ptr<ProfileStore> make_profile_store(const fs::path& root) {
     const auto directory = root.empty() ? default_root() : root;
     return directory.empty() ? nullptr : std::make_shared<FileProfiles>(directory);
