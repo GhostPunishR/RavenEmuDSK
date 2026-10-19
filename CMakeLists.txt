@@ -123,24 +123,18 @@ if(WIN32)
     COMMAND_EXPAND_LISTS VERBATIM)
 endif()
 
-# Reuse the RavenEmu brand asset from a fixed revision (not a floating main URL).
-set(RAVENEMUDSK_BRAND_URL
-  "https://raw.githubusercontent.com/GhostPunishR/RavenEmu/5f002726a68c1978f4cad273bf8b7b3786b9fb3b/docs/assets/ravenemu-logo.png")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/branding")
-file(DOWNLOAD "${RAVENEMUDSK_BRAND_URL}"
-  "${CMAKE_CURRENT_BINARY_DIR}/branding/ravenemu-logo.png"
-  STATUS BRAND_STATUS TLS_VERIFY ON)
-list(GET BRAND_STATUS 0 BRAND_ERROR)
-if(BRAND_ERROR EQUAL 0)
-  add_custom_command(TARGET RavenEmuDSK POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${CMAKE_CURRENT_BINARY_DIR}/branding/ravenemu-logo.png"
-      "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ravenemu-logo.png"
-    VERBATIM)
-else()
-  message(WARNING "RavenEmu brand asset download failed. See README.")
+# Use the unpadded RavenEmu icon for both the UI and SDL window icons.
+# Bundle the original PNG so its transparent corners survive offline builds.
+set(RAVENEMUDSK_BRAND_LOGO "${CMAKE_CURRENT_SOURCE_DIR}/assets/ravenemu-logo.png")
+if(NOT EXISTS "${RAVENEMUDSK_BRAND_LOGO}")
+  message(FATAL_ERROR "Missing RavenEmu artwork: assets/ravenemu-logo.png")
 endif()
+add_custom_command(TARGET RavenEmuDSK POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${RAVENEMUDSK_BRAND_LOGO}"
+    "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ravenemu-logo.png"
+  VERBATIM)
 
 # Bundle the provided RetroAchievements artwork from this repository, not a
 # network dependency. The image remains available in offline builds.

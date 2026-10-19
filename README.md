@@ -23,7 +23,7 @@ Le projet est en développement. La compatibilité des jeux et le comportement s
 - Les bibliothèques de développement SDL2 et libcurl.
 - Une connexion Internet pour récupérer les dépendances à la première configuration.
 
-RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu est téléchargé depuis une révision fixée du [projet RavenEmu](https://github.com/GhostPunishR/RavenEmu).
+RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu sans marge grise est inclus dans `assets/ravenemu-logo.png`, à partir de l’[icône originale du projet RavenEmu](https://github.com/GhostPunishR/RavenEmu/blob/5f002726a68c1978f4cad273bf8b7b3786b9fb3b/docs/assets/ravenemu-icon.png). Il est utilisé dans l’interface et pour les icônes des fenêtres.
 
 Récupérez les sources :
 
