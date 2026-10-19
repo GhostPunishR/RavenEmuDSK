@@ -5,6 +5,12 @@ include(FetchContent)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# libcurl includes Windows headers too. Apply this before any dependency or
+# application target so min/max macros cannot break C++ standard functions.
+if(WIN32)
+  add_compile_definitions(NOMINMAX)
+endif()
+
 # All source dependencies are pinned. RavenCore stays a separate reusable engine.
 set(RAVENEMU_BUILD_LIBRETRO OFF CACHE BOOL "" FORCE)
 set(RAVENEMU_INSTALL OFF CACHE BOOL "" FORCE)
