@@ -90,6 +90,7 @@ struct State {
     Fonts fonts;
     Folders folders;
     SDL_Texture* logo = nullptr;
+    SDL_Texture* ra_logo = nullptr;
     std::unique_ptr<BadgeCache> ra_images;
     int ra_filter = 0;
     int ra_visible_count = 10;
@@ -106,6 +107,7 @@ struct State {
 // Defined with the profile page, used by the sidebar and the home page.
 void draw_player_avatar(State& s, ImDrawList* d, ImVec2 center, float r);
 void draw_ra_identity(State& s, ImDrawList* draw, ImVec2 center, float radius);
+void draw_ra_brand(State& s, ImDrawList* draw, ImVec2 center, float width);
 void profile_banner(State& s, Library& lib);
 void set_tv(State& s, bool on, bool remember = true);
 void text_at(ImDrawList* d, ImFont* font, ImVec2 pos, ImU32 col, const std::string& value);
@@ -487,7 +489,7 @@ void sidebar(State& s) {
     struct Item { Page page; Icon icon; const char* label; };
     const Item items[] = {{Page::Home, Icon::Home, "Accueil"}, {Page::Library, Icon::Library, "Jeux"},
                           {Page::Recent, Icon::Recent, "Récents"},
-                          {Page::Profile, Icon::RetroAchievements, "Profil"},
+                          {Page::Profile, Icon::Home, "Profil"},
                           {Page::Settings, Icon::Settings, "Réglages"}};
     for (int i = 0; i < 5; ++i) {
         const float y = i < 3 ? 96.f + i * 72.f : height - 84.f - (4 - i) * 72.f;
@@ -764,7 +766,13 @@ void achievements_view(State& s, Library&) {
     auto& ra = ravenemudsk_ra::client();
     const auto snap = ra.snapshot();
     begin_card("##ra-account");
-    card_title(s, Icon::RetroAchievements, "RetroAchievements");
+    // Official RA artwork stays visible as a small brand icon.
+    const ImVec2 title_pos=ImGui::GetCursorScreenPos();
+    draw_ra_brand(s,ImGui::GetWindowDrawList(),{title_pos.x+11.f,title_pos.y+12.f},24.f);
+    ImGui::SetCursorScreenPos({title_pos.x+31.f,title_pos.y});
+    ImGui::PushFont(s.fonts.title);
+    ImGui::TextUnformatted("RetroAchievements");
+    ImGui::PopFont();
     ImGui::Dummy({0.f, 4.f});
     muted(snap.status.c_str());
     ImGui::Dummy({0.f, 8.f});
@@ -856,7 +864,7 @@ void achievements_view(State& s, Library&) {
             else {
                 d->AddRectFilled({pos.x+12.f,pos.y+15.f},
                                  {pos.x+54.f,pos.y+57.f},color::accent_soft,6.f);
-                draw_icon(d,Icon::RetroAchievements,{pos.x+33.f,pos.y+36.f},23.f,color::accent);
+                draw_ra_brand(s,d,{pos.x+33.f,pos.y+36.f},30.f);
             }
             const float right=std::max(110.f,width-230.f);
             text_at(d,s.fonts.strong,{pos.x+68.f,pos.y+14.f},color::text,
@@ -959,15 +967,32 @@ void draw_player_avatar(State& s, ImDrawList* d, ImVec2 center, float r) {
     SDL_Texture* image = file.empty() ? nullptr : image_for(s, "avatar:" + file, {data_dir() / from_utf8(file)});
     draw_avatar(d, center, r, player_name(s), s.settings.number("avatar_color", 0), image, s.fonts);
 }
+void draw_ra_brand(State& s, ImDrawList* d, ImVec2 center, float width) {
+    if (s.ra_logo) {
+        int iw=0, ih=0;
+        if (SDL_QueryTexture(s.ra_logo,nullptr,nullptr,&iw,&ih)==0 && iw>0 && ih>0) {
+            const float height=width*static_cast<float>(ih)/static_cast<float>(iw);
+            d->AddImage(reinterpret_cast<ImTextureID>(s.ra_logo),
+                {center.x-width*.5f,center.y-height*.5f},
+                {center.x+width*.5f,center.y+height*.5f});
+            return;
+        }
+    }
+    // Only a simple text fallback is needed if the packaged PNG is missing.
+    const char* fallback="RA";
+    const float fsize=std::max(10.f,width*.45f);
+    const ImVec2 sz=s.fonts.caption->CalcTextSizeA(fsize,FLT_MAX,0.f,fallback);
+    d->AddText(s.fonts.caption,fsize,
+        {center.x-sz.x*.5f,center.y-sz.y*.5f},color::accent,fallback);
+}
 void draw_ra_identity(State& s, ImDrawList* d, ImVec2 center, float radius) {
-    const auto snap = ravenemudsk_ra::client().snapshot();
+    const auto snap=ravenemudsk_ra::client().snapshot();
     if (snap.logged_in) {
-        SDL_Texture* avatar = s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
-        const std::string name = snap.display_name.empty() ? snap.username : snap.display_name;
-        // Until the official image has loaded, show the user's initials.
-        draw_avatar(d, center, radius, name, 0, avatar, s.fonts);
+        SDL_Texture* avatar=s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
+        const std::string name=snap.display_name.empty() ? snap.username : snap.display_name;
+        draw_avatar(d,center,radius,name,0,avatar,s.fonts);
     } else {
-        draw_ra_mark(d, center, radius * 2.f);
+        draw_ra_brand(s,d,center,radius*2.f);
     }
 }
 void save_settings(State& s) {
@@ -1708,6 +1733,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     state.window = window;
     state.renderer = renderer;
     state.logo = load_logo(renderer);
+    state.ra_logo = load_brand_asset(renderer,"ra-logo.png");
     state.ra_images = std::make_unique<BadgeCache>(renderer);
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1788,6 +1814,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
     state.ra_images.reset();
+    if (state.ra_logo) SDL_DestroyTexture(state.ra_logo);
     if (state.logo) SDL_DestroyTexture(state.logo);
     for (auto& [key, texture] : state.images) if (texture) SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);

@@ -43,51 +43,6 @@ void gradient_rect(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 top, ImU32 bo
                                                   min, {min.x, max.y}, top, bottom);
 }
 
-void draw_ra_mark(ImDrawList* draw, ImVec2 center, float width) {
-    // Stylized intertwined RA monogram based on the blue R and gold A artwork.
-    // Built from paths, not an image or the letters of a font. Transparent background.
-    const float scale = width / 108.f;
-    auto point = [&](float x, float y) -> ImVec2 {
-        return {center.x + (x - 53.f) * scale, center.y + (y - 28.f) * scale};
-    };
-    auto start = [&](float x, float y) { draw->PathClear(); draw->PathLineTo(point(x,y)); };
-    auto line_to = [&](float x, float y) { draw->PathLineTo(point(x,y)); };
-    auto curve = [&](float x1,float y1,float x2,float y2,float x3,float y3) {
-        draw->PathBezierCubicCurveTo(point(x1,y1),point(x2,y2),point(x3,y3),12);
-    };
-    auto stroke = [&](ImU32 color, float thick) {
-        draw->PathStroke(color, 0, std::max(1.f,thick*scale));
-    };
-    const ImU32 blue = IM_COL32(20,101,220,255);
-    const ImU32 blue_light = IM_COL32(126,178,245,255);
-    const ImU32 gold = IM_COL32(216,165,0,255);
-    const ImU32 gold_light = IM_COL32(232,210,130,255);
-
-    // Heavy outer curve, blue R leg and narrow internal rail.
-    start(8.f,53.f); line_to(8.f,6.f); line_to(30.f,6.f);
-    curve(46.f,6.f,47.f,17.f,46.f,22.f);
-    curve(45.f,32.f,37.f,36.f,30.f,36.f);
-    line_to(46.f,53.f);
-    stroke(blue,12.f);
-    start(8.f,6.f); line_to(30.f,6.f);
-    curve(38.f,6.f,41.f,10.f,43.f,15.f);
-    stroke(blue_light,3.3f);
-    start(8.f,20.f); line_to(29.f,20.f);
-    curve(35.f,20.f,37.f,25.f,30.f,27.f);
-    line_to(22.f,27.f);
-    stroke(blue_light,3.f);
-
-    // Broad gold A, sloping uprights and the distinctive lower crossbar.
-    start(57.f,53.f); line_to(73.f,6.f); line_to(80.f,6.f); line_to(100.f,53.f);
-    stroke(gold,12.f);
-    start(72.f,6.f); line_to(80.f,6.f);
-    stroke(gold_light,3.5f);
-    start(68.f,40.f); line_to(91.f,40.f);
-    stroke(gold,7.3f);
-    start(70.f,35.f); line_to(76.f,19.f); line_to(83.f,35.f);
-    stroke(gold_light,2.2f);
-}
-
 void draw_icon(ImDrawList* d, Icon icon, ImVec2 c, float size, ImU32 col) {
     const float s = size * .5f;
     const float t = std::max(1.5f, size / 11.f);
@@ -120,9 +75,6 @@ void draw_icon(ImDrawList* d, Icon icon, ImVec2 c, float size, ImU32 col) {
     case Icon::Recent: case Icon::Clock:
         d->AddCircle(c, .82f * s, col, 0, t);
         line(0, 0, 0, -.5f); line(0, 0, .38f, .25f);
-        break;
-    case Icon::RetroAchievements:
-        draw_ra_mark(d,c,size);
         break;
     case Icon::Trophy:
         d->PathLineTo({c.x - .55f * s, c.y - .78f * s});

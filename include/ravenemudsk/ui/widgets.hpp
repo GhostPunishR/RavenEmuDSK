@@ -8,14 +8,11 @@
 namespace ravenemudsk_ui {
 // Vector icons drawn with ImDrawList: no icon font or image is shipped.
 enum class Icon {
-    Home, Library, Recent, Trophy, RetroAchievements, Settings, Search, Play, Plus, Folder,
+    Home, Library, Recent, Trophy, Settings, Search, Play, Plus, Folder,
     Close, Minimize, Maximize, Restore, Pause, Save, Load, Reset,
     Fullscreen, Exit, Clock, Check, Lock, Gamepad, Keyboard, Info, Trash
 };
 void draw_icon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
-// Reference-inspired RA emblem drawn directly with ImDrawList in blue and gold.
-// The width is independent of the avatar diameter: no bitmap is loaded.
-void draw_ra_mark(ImDrawList* draw, ImVec2 center, float width);
 
 enum class ButtonStyle { Primary, Secondary, Ghost, Danger };
 // Rounded button with an optional leading icon. Width 0 fits the label.

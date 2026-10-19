@@ -75,4 +75,4 @@ La page Profil est l'unique tableau de bord RetroAchievements. L'entrée Succès
 
 Les succès du jeu peuvent être filtrés par Tous, À obtenir et Obtenus, consultés par groupes de 10 puis 15, avec badge officiel et fiche détaillée. Les liens des succès ouvrent RetroAchievements dans le navigateur.
 
-Sur l'accueil et dans la barre latérale, l'état déconnecté dessine le logo RA en bleu et or directement avec ImDrawList, d'après le monogramme de référence. Dès la connexion, la même zone montre l'avatar officiel du compte chargé en HTTPS, avec les initiales comme solution provisoire si l'image n'est pas encore disponible. Le jeton de session ne persiste pas sur disque dans cette version.
+Sur l'accueil et dans la barre latérale, l'état déconnecté utilise le PNG RA bleu et or fourni dans `assets/ra-logo.png`, intégré aux builds (aucun téléchargement requis). Dès la connexion, la même zone montre l'avatar officiel du compte chargé en HTTPS, avec les initiales comme solution provisoire si l'image n'est pas encore disponible. Le jeton de session ne persiste pas sur disque dans cette version.

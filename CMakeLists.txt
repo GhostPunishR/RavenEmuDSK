@@ -109,6 +109,19 @@ else()
   message(WARNING "RavenEmu brand asset download failed. See README.")
 endif()
 
+# Bundle the provided RetroAchievements artwork from this repository, not a
+# network dependency. The image remains available in offline builds.
+set(RAVENEMUDSK_RA_LOGO "${CMAKE_CURRENT_SOURCE_DIR}/assets/ra-logo.png")
+if(NOT EXISTS "${RAVENEMUDSK_RA_LOGO}")
+  message(FATAL_ERROR "Missing RetroAchievements artwork: assets/ra-logo.png")
+endif()
+add_custom_command(TARGET RavenEmuDSK POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${RAVENEMUDSK_RA_LOGO}"
+    "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ra-logo.png"
+  VERBATIM)
+
 if(BUILD_TESTING)
   add_executable(ravenemudsk_progress_test
     tests/progress_test.cpp src/achievements/progress.cpp)
