@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import signal
 import shutil
 import subprocess
 import tarfile
@@ -21,11 +22,22 @@ GLIBC = re.compile(r"^(?:ld-linux|ld64|linux-vdso|lib(?:c|m|mvec|dl|pthread|rt|u
 
 
 def run(*args: str | Path, env: dict[str, str] | None = None, timeout: int = 120) -> str:
-    result = subprocess.run([str(a) for a in args], text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, env=env, timeout=timeout)
-    if result.returncode:
-        raise RuntimeError(f"Command failed: {args}\n{result.stdout}")
-    return result.stdout
+    with subprocess.Popen([str(a) for a in args], text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, env=env, start_new_session=True) as process:
+        try:
+            output = process.communicate(timeout=timeout)[0]
+        except subprocess.TimeoutExpired:
+            diagnostic = ""
+            if platform.system() == "Darwin":
+                sample = subprocess.run(["sample", str(process.pid), "1", "1"], text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+                diagnostic = sample.stdout[:9000]
+            os.killpg(process.pid, signal.SIGKILL)
+            output = process.communicate(timeout=10)[0]
+            raise RuntimeError(f"Command timed out after {timeout}s: {args}\n{output[-4000:]}\n{diagnostic}")
+        if process.returncode:
+            raise RuntimeError(f"Command failed: {args}\n{output}")
+        return output
 
 
 def copy(source: Path, destination: Path) -> None:
@@ -73,6 +85,8 @@ def verify(binary: Path, directory: Path, macos: bool) -> None:
     env = dict(os.environ)
     for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"):
         env.pop(name, None)
+    if macos:
+        run("codesign", "--verify", "--deep", "--strict", directory)
     with tempfile.TemporaryDirectory(prefix="ravenemu-smoke-") as data:
         env.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy",
                    RAVENEMUDSK_UI_SMOKE="1", XDG_DATA_HOME=data)
