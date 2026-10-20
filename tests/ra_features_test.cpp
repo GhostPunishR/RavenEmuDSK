@@ -15,7 +15,7 @@ struct FeatureServer : TestServer {
     std::atomic<int> expected_hardcore{0},scores{0};
     // 1: 401 invalid_credentials, 2: 403 access_denied, 3: Success:false without code, 4: 503 outage.
     std::atomic<int> session_refusal{0};
-    std::atomic<bool> award_forbidden{false},token_login_refused{false};
+    std::atomic<bool> award_forbidden{false},token_login_refused{false},award_rejected{false};
     ServerTransport transport(){auto basic=TestServer::transport();return [this,basic](const auto& url,const std::string& post,const auto& type)->ServerReply{
         std::lock_guard guard(mutex);posts.push_back(post);
         if(post.starts_with("r=login")&&post.find("&t=")!=std::string::npos&&token_login_refused)
@@ -62,6 +62,7 @@ struct FeatureServer : TestServer {
                 token="RenewedSyntheticToken";return {R"({"Success":false,"Error":"Session expired"})",401};
             }
             if(award_forbidden)return {R"({"Success":false,"Error":"Access denied.","Code":"access_denied","Status":403})",403};
+            if(award_rejected)return {R"({"Success":false,"Error":"Achievement definition has changed."})",200};
             if(award_offline)return {"",-2};
             ++accepted;return {R"({"Success":true,"Score":12,"SoftcoreScore":8,"AchievementID":123,"AchievementsRemaining":0})",200};
         }
@@ -83,6 +84,9 @@ void frame(Core& core){
 }
 std::uint8_t memory(Core& core,int system=RAVENEMU_GB){
     std::uint8_t value=0;require(ravenemu_read_achievement_memory(core.handle,system==RAVENEMU_GBA?0x8000:0xc000,&value,1)==1,"Memory read failed");return value;
+}
+std::size_t count(const std::vector<std::string>& posts,const char* operation){
+    return static_cast<std::size_t>(std::count_if(posts.begin(),posts.end(),[&](const auto& p){return p.starts_with(operation);}));
 }
 void login(Client& client){client.login("GameUser","SyntheticPassword");wait(client,[&]{return client.snapshot().logged_in;});}
 void start(Client& client,Core& core,const std::vector<std::uint8_t>& rom,int system=RAVENEMU_GB,const std::string& path={}){
@@ -215,6 +219,10 @@ void launcher_refresh_rankings_activity(){
         client.snapshot().achievements[0].badge_url.find("_lock")==std::string::npos,
         "Already-earned achievement must remain marked as unlocked after a launcher-only refresh");
     require(client.snapshot().leaderboards.size()==1&&client.snapshot().leaderboards[0].id==4401,"Leaderboard list missing from game metadata");
+    {const auto posts=server.requests();
+    require(count(posts,"r=startsession")==0&&count(posts,"r=ping")==0&&count(posts,"r=unlocks")==2,
+        "A launcher refresh must read the account's unlocks without opening a game session");}
+    require(client.snapshot().achievements[0].unlock_time==0,"An unlock read without a session has no known date");
     client.fetch_ranking(4401);wait(client,[&]{return !client.ranking().loading;});
     auto ranking=client.ranking();require(ranking.error.empty()&&ranking.total==10&&ranking.entries.size()==2,"Leaderboard records failed to load");
     require(ranking.entries[1].current_user&&ranking.entries[1].rank==2&&!ranking.entries[1].score.empty(),"Personal score/rank not highlighted case insensitively");
@@ -227,11 +235,22 @@ void launcher_refresh_rankings_activity(){
     require(client.ranking().id==0,"Late ranking callback revived a closed game's leaderboard");
     Core core(RAVENEMU_GB,rom);start(client,core,rom,RAVENEMU_GB,file.generic_string());client.pump(true);frame(core);client.pump(true);
     require(client.snapshot().rich_presence=="Synthetic test","Evaluated Rich Presence missing");
+    require(client.snapshot().achievements[0].unlock_time==1700000000,"A game session's unlock date was lost");
     require(!client.refresh_game(file.generic_string()),"Launcher refresh replaced a live runtime");
+    client.end_game();
+    const auto sessions=count(server.requests(),"r=startsession");
+    require(client.refresh_game(file.generic_string()),"Second launcher refresh refused");
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready&&!client.snapshot().login_pending;});
+    require(count(server.requests(),"r=startsession")==sessions&&client.snapshot().achievements[0].unlock_time==1700000000,
+        "A launcher refresh must keep the known unlock date without opening a session");
     client.end_game();Snapshot cached;
     require(profiles->load_game("GameUser",rom_identity(file),cached)&&cached.leaderboards.size()==1&&cached.rich_presence=="Synthetic test"&&!cached.logged_in,
         "Public metadata cache lost rankings/activity or granted authentication");
+    client.drain_events();
     client.set_hardcore(true);require(!client.hardcore()&&!client.snapshot().hardcore_preferred,"Hardcore must explain/refuse unavailable durable protection");
+    const auto refusal=client.drain_events();
+    require(std::any_of(refusal.begin(),refusal.end(),[](const auto& e){return e.kind=="hardcore_refused";}),
+        "A refused Hardcore preference must be reported so the setting follows");
     std::cout<<"Launcher-only refresh, rankings/top/around-user/error/cancellation, Rich Presence and public metadata persistence passed\n";
 }
 void hardcore_during_loading(){
@@ -296,9 +315,6 @@ void previously_earned_achievements(){
     require(client.snapshot().achievements[0].unlocked&&offline.awards==0,"Account history did not recover after the outage");
     std::cout<<"Existing Softcore/Hardcore awards load before gameplay, never re-award, persist and recover from a sync outage\n";
 }
-std::size_t count(const std::vector<std::string>& posts,const char* operation){
-    return static_cast<std::size_t>(std::count_if(posts.begin(),posts.end(),[&](const auto& p){return p.starts_with(operation);}));
-}
 void refused_replay_does_not_block_games(){
     for(bool started_first:{true,false}){
         retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
@@ -349,9 +365,77 @@ void refused_game_session_is_not_an_outage(){
     server.session_refusal=0;now+=5000;client.pump(false);wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
     std::cout<<"Refused game sessions renew once, expire or fail without retry loops; outages still retry\n";
 }
+// Different bytes, so the SDK's hash cache does not reuse the first game's identity.
+std::vector<std::uint8_t> other_rom(){auto rom=rom_for(RAVENEMU_GB);rom[0x150]=1;return rom;}
+void previous_game_is_not_shown(){
+    retro_test::Directory root;FeatureServer server;auto profiles=make_profile_store(root.path/"profiles");
+    const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);
+    Client client(nullptr,server.transport(),profiles);login(client);
+    const auto known=(root.path/"Known.gb").generic_string(),unknown=(root.path/"Unknown.gb").generic_string();
+    start(client,core,rom,RAVENEMU_GB,known);client.pump(true);frame(core);client.pump(true);
+    require(client.snapshot().game_title=="Synthetic game"&&!client.snapshot().rich_presence.empty(),"Fixture game did not load");
+    client.end_game();
+    const auto second=other_rom();Core other(RAVENEMU_GB,second);
+    server.mode=2;client.start_game(RAVENEMU_GB,second,other.handle,unknown);
+    auto shown=client.snapshot();
+    require(shown.game_title.empty()&&shown.achievements.empty()&&shown.rich_presence.empty()&&
+        shown.leaderboards.empty()&&shown.total_count==0&&!shown.cached_profile,"A loading ROM showed the previous game's data");
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::UnknownRom;});
+    shown=client.snapshot();
+    require(shown.game_title.empty()&&shown.achievements.empty(),"An unknown ROM showed the previous game's data");
+    client.end_game();server.mode=0;
+    client.start_game(RAVENEMU_GB,rom,core.handle,known);shown=client.snapshot();
+    require(shown.game_title=="Synthetic game"&&shown.cached_profile&&shown.achievements.size()==1,
+        "A known ROM must show its own cached summary while it loads");
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+    std::cout<<"A loading or unknown ROM never shows the previous game; a known ROM shows its own cache\n";
+}
+void achievement_sync_states(){
+    {
+        // Without a journal, an unsent unlock stays pending until the SDK's retry is accepted.
+        FeatureServer server;server.award_offline=true;
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);std::int64_t now=1000;
+        Client client(nullptr,server.transport(),{},[&]{return now;});login(client);
+        client.start_game(RAVENEMU_GB,rom,core.handle);wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+        require(client.snapshot().achievements[0].sync==AchievementSync::Server,"A locked achievement has nothing to send");
+        client.pump(true);frame(core);client.pump(true);
+        wait(client,[&]{return server.awards>=1&&client.snapshot().achievements[0].unlocked;});
+        require(client.snapshot().achievements[0].sync==AchievementSync::Pending,"An unsent unlock must read as pending");
+        server.award_offline=false;
+        for(int i=0;i<20&&server.accepted==0;++i){now+=120000;for(int j=0;j<5;++j){client.pump(false);std::this_thread::sleep_for(std::chrono::milliseconds(1));}}
+        wait(client,[&]{return server.accepted==1&&client.snapshot().achievements[0].sync==AchievementSync::Server;});
+    }
+    {
+        // With a journal, a refused submission leaves the queue and reads as refused.
+        retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
+        FeatureServer server;server.award_rejected=true;
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);
+        Client client(nullptr,server.transport(),{},{},queue);login(client);start(client,core,rom);
+        client.pump(true);frame(core);client.pump(true);
+        wait(client,[&]{return server.awards>=1&&client.snapshot().achievements[0].sync==AchievementSync::Refused;});
+        require(queue->entries("GameUser").empty(),"A refused submission must leave the journal");
+    }
+    {
+        // A queued unlock is pending, on the live game and on a cached one.
+        retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path/"pending",keys.factory());
+        auto profiles=make_profile_store(root.path/"profiles");
+        FeatureServer server;server.award_offline=true;
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);const auto path=(root.path/"Game.gb").generic_string();
+        Client client(nullptr,server.transport(),profiles,{},queue);login(client);start(client,core,rom,RAVENEMU_GB,path);
+        client.pump(true);frame(core);client.pump(true);
+        wait(client,[&]{return client.snapshot().pending_submissions==1&&client.snapshot().achievements[0].sync==AchievementSync::Pending;});
+        const auto second=other_rom();Core other(RAVENEMU_GB,second);
+        client.end_game();server.mode=2;client.start_game(RAVENEMU_GB,second,other.handle,(root.path/"Other.gb").generic_string());
+        const auto cached=client.game_snapshot(path);
+        require(cached&&cached->achievements.size()==1&&cached->achievements[0].sync==AchievementSync::Pending,
+            "A cached game must show its queued unlock as pending");
+    }
+    std::cout<<"Unlocks read as pending until accepted, refused when rejected, and pending while queued\n";
+}
 int main(){
     restart_with_pending_award();restart_with_pending_score();softcore_states();
     for(const auto system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})hardcore_transitions(system);
     launcher_refresh_rankings_activity();hardcore_during_loading();expired_submission_session();previously_earned_achievements();
     refused_replay_does_not_block_games();refused_game_session_is_not_an_outage();
+    previous_game_is_not_shown();achievement_sync_states();
 }

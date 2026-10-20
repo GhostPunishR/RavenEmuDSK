@@ -10,6 +10,10 @@
 #include <vector>
 struct ravenemu_bridge;
 namespace ravenemudsk_ra {
+// Where an unlock stands with RetroAchievements. Server: as the service
+// reports it. Pending: earned on this computer, not confirmed yet.
+// Refused: the service rejected its submission.
+enum class AchievementSync { Server, Pending, Refused };
 struct Achievement {
     std::string id;
     std::string title;
@@ -20,6 +24,10 @@ struct Achievement {
     int state = 0;
     float measured_percent = 0.f;
     bool unlocked = false;
+    std::int64_t unlock_time = 0; // Unix seconds of the account's unlock; 0 when locked or unknown.
+    int type = 0;                 // RC_CLIENT_ACHIEVEMENT_TYPE_*: standard, missable, progression, win.
+    float rarity = 0.f, rarity_hardcore = 0.f; // Percent of players, as reported by the server.
+    AchievementSync sync = AchievementSync::Server; // Live state; never cached.
 };
 struct Leaderboard { std::uint32_t id=0; std::string title,description; };
 struct RankingEntry { std::uint32_t rank=0; std::string username,score; bool current_user=false; };
@@ -47,6 +55,8 @@ struct Snapshot {
     std::uint32_t pending_submissions=0;
     bool durable_submissions=false,hardcore_preferred=false,game_hardcore=false;
 };
+// Kind "hardcore_refused" carries no text: the client turned the Hardcore
+// preference off itself, and the saved setting must follow it.
 struct Event {
     std::string kind, title, detail;
     std::string id, badge_url;

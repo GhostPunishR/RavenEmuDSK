@@ -182,8 +182,20 @@ def macos(build: Path, stage: Path) -> tuple[Path, Path]:
     project_files(resources, build)
     version = re.search(r"project\(RavenEmuDSK VERSION ([0-9.]+)",
                         (ROOT / "CMakeLists.txt").read_text())[1]
+    # Finder and the Dock show the provided logo: an .icns built from it with
+    # the system's own sips and iconutil.
+    iconset = stage / "RavenEmu.iconset"
+    iconset.mkdir()
+    for size in (16, 32, 128, 256, 512):
+        for scale in (1, 2):
+            suffix = "@2x" if scale == 2 else ""
+            run("sips", "-z", str(size * scale), str(size * scale), ROOT / "assets/ravenemu-logo.png",
+                "--out", iconset / f"icon_{size}x{size}{suffix}.png")
+    run("iconutil", "-c", "icns", iconset, "-o", resources / "RavenEmu.icns")
+    shutil.rmtree(iconset)
     with (app / "Contents/Info.plist").open("wb") as stream:
         plistlib.dump({"CFBundleExecutable": "RavenEmuDSK", "CFBundleName": "RavenEmu",
+                      "CFBundleIconFile": "RavenEmu",
                       "CFBundleDisplayName": "RavenEmu", "CFBundleIdentifier": "org.ravenemu.desktop",
                       "CFBundlePackageType": "APPL", "CFBundleVersion": version,
                       "CFBundleShortVersionString": version, "LSMinimumSystemVersion": "15.0",

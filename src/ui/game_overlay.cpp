@@ -31,7 +31,7 @@ bool menu_item(const Fonts& fonts, const char* label, Icon icon, const char* sho
     draw_icon(d, icon, {p.x + 24.f, p.y + 23.f}, 17.f, danger ? color::danger :
               enabled ? color::accent_hover : color::text_faint);
     d->AddText(fonts.body, fonts.body->FontSize, {p.x + 48.f, p.y + 13.f}, fg, label);
-    if (shortcut) {
+    if (shortcut && *shortcut) {
         const auto caption=ellipsize(fonts.caption,shortcut,std::max(16.f,w-text_width(fonts.body,label)-92.f));
         const float sw = text_width(fonts.caption, caption.c_str());
         const ImVec2 k{max.x - sw - 26.f, p.y + 12.f};
@@ -70,14 +70,16 @@ void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
 }
 } // namespace
 
-GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro)
-    : renderer_(renderer),retro_(retro),badges_(renderer) {
+GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro, bool tv)
+    : renderer_(renderer),retro_(retro),tv_(tv),badges_(renderer) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
-    fonts_ = load_fonts();
+    fonts_ = load_fonts(tv);
+    // A game started from TV mode is played from the couch: no mouse, no cursor.
+    if (tv) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
     apply_theme();
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
@@ -89,53 +91,87 @@ GameOverlay::~GameOverlay() {
 }
 void GameOverlay::process_event(const SDL_Event& event) { ImGui_ImplSDL2_ProcessEvent(&event); }
 bool GameOverlay::wants_mouse() const { return menu_open_ || ImGui::GetIO().WantCaptureMouse; }
-void GameOverlay::open_menu() {
+void GameOverlay::open_menu(bool from_pad) {
     notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), true);
     menu_open_ = true;
+    pad_menu_ = from_pad;
     focus_first_ = true;
 }
 bool GameOverlay::has_toast(Toast::Kind kind) const {
     return std::any_of(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.kind == kind; });
 }
 
+RetroCardStyle retro_card_style(ImVec2 screen, bool tv) {
+    RetroCardStyle style;
+    if (!tv) {
+        style.max_width = std::max(200.f, std::min(520.f, screen.x - 24.f));
+        return style;
+    }
+    style.tv = true;
+    style.top = style.bottom = std::max(16.f, screen.y * .05f);
+    style.height = 104.f;
+    style.badge = 72.f;
+    style.pad = 22.f;
+    style.gap = 18.f;
+    style.line = 30.f;
+    style.radius = 18.f;
+    style.max_width = std::max(320.f, std::min(1100.f, std::min(screen.x * .6f, screen.x - 2.f * style.top)));
+    return style;
+}
 namespace {
-// Font rasterized at 13 px to match RavenEmu's 12 sp layout.
-void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache,
+// Five-pointed star, filled as a fan from its center.
+void draw_star(ImDrawList* d,ImVec2 c,float r,ImU32 col){
+    ImVec2 p[10];
+    for(int i=0;i<10;++i){
+        const float a=-1.5707963f+static_cast<float>(i)*0.6283185f;
+        const float radius=i%2?r*.45f:r;
+        p[i]={c.x+std::cos(a)*radius,c.y+std::sin(a)*radius};
+    }
+    // Anti-aliased triangles would leave seams: fill plainly, then smooth the outline.
+    const auto flags=d->Flags;
+    d->Flags&=~ImDrawListFlags_AntiAliasedFill;
+    for(int i=0;i<10;++i)d->AddTriangleFilled(c,p[i],p[(i+1)%10],col);
+    d->Flags=flags;
+    d->AddPolyline(p,10,col,ImDrawFlags_Closed,1.f);
+}
+// Desktop text is rasterized at 13 px to match RavenEmu's 12 sp layout; TV text at 22 px.
+ImFont* card_font(const Fonts& fonts, const RetroCardStyle& style) {
+    return style.tv && fonts.tv_body ? fonts.tv_body : fonts.caption;
+}
+void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const RetroCardStyle& style,
                 const ImVec2& screen, float top, const std::string& label,
                 const std::string& detail, const std::string& badge_url, float alpha) {
     if(alpha<=0.f)return;
-    const float max_width=std::max(200.f,std::min(520.f,screen.x-24.f));
-    const float text_space=std::max(80.f,max_width-14.f*2-40.f-8.f);
-    const auto line1=ellipsize(fonts.caption,label,text_space);
-    const auto line2=detail.empty()?std::string{}:ellipsize(fonts.caption,detail,text_space);
-    const float line1w=text_width(fonts.caption,line1.c_str());
-    const float line2w=detail.empty()?0.f:text_width(fonts.caption,line2.c_str());
-    const float width=std::min(max_width,14.f*2+40.f+8.f+std::max(line1w,line2w));
-    const float height=60.f;
+    ImFont* font=card_font(fonts,style);
+    const float chrome=style.pad*2+style.badge+style.gap;
+    const float text_space=std::max(80.f,style.max_width-chrome);
+    const auto line1=ellipsize(font,label,text_space);
+    const auto line2=detail.empty()?std::string{}:ellipsize(font,detail,text_space);
+    const float line1w=text_width(font,line1.c_str());
+    const float line2w=detail.empty()?0.f:text_width(font,line2.c_str());
+    const float width=std::min(style.max_width,chrome+std::max(line1w,line2w));
+    const float height=style.height;
     const float x=(screen.x-width)*.5f;
     const ImVec2 from{x,top},to{x+width,top+height};
-    d->AddRectFilled(from,to,with_alpha(IM_COL32(25,27,40,255),alpha),12.f);
-    d->AddRect(from,to,with_alpha(IM_COL32(167,139,250,255),alpha),12.f,0,1.f);
-    const ImVec2 badge_min{x+14.f,top+10.f},badge_max{badge_min.x+40.f,badge_min.y+40.f};
+    d->AddRectFilled(from,to,with_alpha(IM_COL32(25,27,40,255),alpha),style.radius);
+    d->AddRect(from,to,with_alpha(IM_COL32(167,139,250,255),alpha),style.radius,0,style.tv?2.f:1.f);
+    const ImVec2 badge_min{x+style.pad,top+(height-style.badge)*.5f},badge_max{badge_min.x+style.badge,badge_min.y+style.badge};
     SDL_Texture* image=cache.image(badge_url);
     if(image) {
         d->AddImageRounded(reinterpret_cast<ImTextureID>(image),badge_min,badge_max,
                             {0,0},{1,1},with_alpha(IM_COL32_WHITE,alpha),6.f);
     } else {
-        // Same fixed 40 px slot as RavenEmu, with violet star fallback.
-        const char* star="\xE2\x98\x85";
-        const ImVec2 size=fonts.title->CalcTextSizeA(fonts.title->FontSize,FLT_MAX,0.f,star);
-        d->AddText(fonts.title,fonts.title->FontSize,
-                   {badge_min.x+(40.f-size.x)*.5f,badge_min.y+(40.f-size.y)*.5f},
-                   with_alpha(color::accent,alpha),star);
+        // Same fixed badge slot as RavenEmu, with a violet star drawn as a
+        // shape: the fonts carry no star glyph.
+        draw_star(d,{(badge_min.x+badge_max.x)*.5f,(badge_min.y+badge_max.y)*.5f},style.badge*.4f,
+                  with_alpha(color::accent,alpha));
     }
-    const float tx=badge_max.x+8.f;
-    const float ty=line2.empty()?top+23.f:top+13.f;
-    d->AddText(fonts.caption,fonts.caption->FontSize,{tx,ty},
-               with_alpha(color::text,alpha),line1.c_str());
+    const float tx=badge_max.x+style.gap;
+    const float lines=line2.empty()?font->FontSize:style.line+font->FontSize;
+    const float ty=top+(height-lines)*.5f;
+    d->AddText(font,font->FontSize,{tx,ty},with_alpha(color::text,alpha),line1.c_str());
     if(!line2.empty())
-        d->AddText(fonts.caption,fonts.caption->FontSize,{tx,ty+19.f},
-                   with_alpha(color::text,alpha),line2.c_str());
+        d->AddText(font,font->FontSize,{tx,ty+style.line},with_alpha(color::text,alpha),line2.c_str());
 }
 double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 }
@@ -175,15 +211,16 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
         progress_hidden_at_=now;
     }
     auto* d=ImGui::GetForegroundDrawList();
-    float top=10.f;
+    const auto style=retro_card_style(screen,tv_);
+    float top=style.top;
     if(notice_) {
         const double elapsed=now-notice_since_;
         const float alpha=static_cast<float>(std::clamp(
             std::min(elapsed/0.3,(5.1-elapsed)/0.3),0.0,1.0));
         if(alpha>0.f) {
-            retro_card(d,fonts_,badges_,screen,top,
+            retro_card(d,fonts_,badges_,style,screen,top,
                 notice_->text,notice_->detail,notice_->badge,alpha);
-            top+=68.f;
+            top+=style.height+(style.tv?14.f:8.f);
         }
     }
     if(last_progress_) {
@@ -191,19 +228,23 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
             static_cast<float>(std::clamp((now-progress_started_)/0.3,0.0,1.0)):
             static_cast<float>(std::clamp(1.0-(now-progress_hidden_at_)/0.3,0.0,1.0));
         if(alpha>0.f)
-            retro_card(d,fonts_,badges_,screen,top,
+            retro_card(d,fonts_,badges_,style,screen,top,
                 "Progression \xC2\xB7 "+last_progress_->title,
                 last_progress_->detail,last_progress_->badge_url,alpha);
     }
     if(indicators_.empty())return;
+    // Active challenges, at the bottom center.
+    ImFont* font=card_font(fonts_,style);
     const std::size_t count=std::min<std::size_t>(indicators_.size(),4);
-    const float w=std::min(screen.x-24.f,440.f),h=16.f+count*18.f;
-    const float x=(screen.x-w)*.5f,y=screen.y-10.f-h;
-    d->AddRectFilled({x,y},{x+w,y+h},with_alpha(color::surface,.88f),10.f);
+    const float row=style.tv?34.f:18.f,inset=style.tv?20.f:12.f;
+    const float w=style.tv?std::min(style.max_width,screen.x*.5f):std::min(screen.x-24.f,440.f);
+    const float h=style.tv?inset+count*row:16.f+count*18.f;
+    const float first=style.tv?inset*.5f+(row-font->FontSize)*.5f:8.f;
+    const float x=(screen.x-w)*.5f,y=screen.y-style.bottom-h;
+    d->AddRectFilled({x,y},{x+w,y+h},with_alpha(color::surface,.88f),style.tv?14.f:10.f);
     for(std::size_t i=0;i<count;++i){
-        const auto label=ellipsize(fonts_.caption,indicators_[i].second,w-24.f);
-        d->AddText(fonts_.caption,fonts_.caption->FontSize,
-                   {x+12.f,y+8.f+static_cast<float>(i)*18.f},color::text,label.c_str());
+        const auto label=ellipsize(font,indicators_[i].second,w-inset*2.f);
+        d->AddText(font,font->FontSize,{x+inset,y+first+static_cast<float>(i)*row},color::text,label.c_str());
     }
 }
 
@@ -213,6 +254,7 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
     OverlayAction action = OverlayAction::None;
+    if (tv_) ImGui::SetMouseCursor(ImGuiMouseCursor_None);
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
     auto* bg = ImGui::GetBackgroundDrawList();
     const auto time = static_cast<float>(ImGui::GetTime());
@@ -231,18 +273,34 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
     }
     if (time < 6.f && !menu_open_) {
-        // Short reminder of the essential keys when a game starts.
+        // Short reminder of the essential keys when a game starts, with the
+        // buttons of the controller in use when there is one.
         const float alpha = std::clamp(6.f - time, 0.f, 1.f) * std::clamp(time * 2.f, 0.f, 1.f);
-        const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
-            "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
-            info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
-        const auto fitted=ellipsize(fonts_.caption,hint_text,std::max(40.f,screen.x-64.f));
-        const char* hint=fitted.c_str();
-        const float w = text_width(fonts_.caption, hint) + 32.f;
-        const ImVec2 a{(screen.x - w) * .5f, screen.y - 52.f};
-        bg->AddRectFilled(a, {a.x + w, a.y + 32.f}, with_alpha(color::elevated, .92f * alpha), 16.f);
-        bg->AddText(fonts_.caption, fonts_.caption->FontSize, {a.x + 16.f, a.y + 8.f},
-                    with_alpha(color::text_muted, alpha), hint);
+        ImFont* font = tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.caption;
+        const float bar_h = tv_ ? 52.f : 32.f;
+        const float bottom = tv_ ? retro_card_style(screen, true).bottom : 20.f;
+        if (info.pad && !info.hardcore) {
+            const float gh = tv_ ? 34.f : 22.f;
+            const char* label = "  Menu";
+            const float gw = pad_menu_combo(nullptr, {}, *info.pad, fonts_.strong, gh);
+            const float w = gw + text_width(font, label) + 32.f;
+            const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
+            bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
+            pad_menu_combo(bg, {a.x + 16.f, a.y + (bar_h - gh) * .5f}, *info.pad, fonts_.strong, gh, alpha);
+            bg->AddText(font, font->FontSize, {a.x + 16.f + gw, a.y + (bar_h - font->FontSize) * .5f},
+                        with_alpha(color::text_muted, alpha), label);
+        } else {
+            const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+                "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
+                info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
+            const auto fitted=ellipsize(font,hint_text,std::max(40.f,screen.x-64.f));
+            const char* hint=fitted.c_str();
+            const float w = text_width(font, hint) + 32.f;
+            const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
+            bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
+            bg->AddText(font, font->FontSize, {a.x + 16.f, a.y + (bar_h - font->FontSize) * .5f},
+                        with_alpha(color::text_muted, alpha), hint);
+        }
     }
     if (menu_open_ && !retro_open_) {
         bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, 200));
@@ -271,15 +329,17 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             ImGui::SetNavCursorVisible(true);
             focus_first_ = false;
         }
-        if (menu_item(fonts_, "Reprendre la partie", Icon::Play, "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, info.keyboard.label(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, "Charger l'état", Icon::Load, info.keyboard.label(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
+        // Opened with the controller: the keyboard shortcuts would not apply.
+        const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
+        if (menu_item(fonts_, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
+        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
+        if (menu_item(fonts_, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
             action = OverlayAction::LoadState;
         if(menu_item(fonts_,"Succès et classements",Icon::Trophy,nullptr))retro_open_=true;
         if(menu_item(fonts_,info.hardcore_preferred?"Passer en Softcore":"Activer Hardcore (réinitialise)",Icon::Lock,nullptr))
             action=OverlayAction::ToggleHardcore;
-        if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, info.keyboard.label(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
-        if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, info.keyboard.label(KeyAction::Fullscreen).c_str()))
+        if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
+        if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, shortcut(KeyAction::Fullscreen).c_str()))
             action = OverlayAction::ToggleFullscreen;
         ImGui::Dummy({inner, space::sm});
         p = ImGui::GetCursorScreenPos();

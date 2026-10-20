@@ -21,6 +21,8 @@ bool button(const char* label, Icon icon, ButtonStyle style = ButtonStyle::Secon
 // Square icon-only button; the tooltip doubles as its accessible label.
 bool icon_button(const char* id, Icon icon, const char* tooltip, float size = 36.f,
                  ImU32 hover = color::surface_hover);
+// On/off switch with the colours of the chips; returns true when toggled.
+bool toggle(const char* id, bool* value);
 // Segmented filter chips; returns true when the selection changes.
 bool chips(const char* id, const char* const* labels, int count, int* selected);
 void pill(ImDrawList* draw, ImVec2 pos, const char* text, ImU32 color, ImFont* font);

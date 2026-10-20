@@ -5,6 +5,7 @@
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <ravenemudsk/achievements/notifications.hpp>
 #include <ravenemudsk/ui/keyboard_bindings.hpp>
+#include <ravenemudsk/ui/pad_glyphs.hpp>
 #include <deque>
 #include <optional>
 #include <utility>
@@ -28,14 +29,26 @@ struct OverlayInfo {
     int achievement_points = 0;
     bool achievement_unlocked = false;
     bool demo = false;            // bundled demo ROM: show the guided panel
+    std::optional<PadFamily> pad; // controller in use: hints show its buttons
 };
+// Top-center RetroAchievements cards (unlocks, progress) and the challenge
+// list: desktop sizes, or larger ones read from a couch in TV mode, inside a
+// 5 % safe area since televisions may crop the picture's edges.
+struct RetroCardStyle {
+    float top = 10.f, bottom = 10.f; // Margins from the screen edges.
+    float height = 60.f, badge = 40.f, pad = 14.f, gap = 8.f, line = 19.f, radius = 12.f;
+    float max_width = 520.f;
+    bool tv = false;
+};
+RetroCardStyle retro_card_style(ImVec2 screen, bool tv);
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.
 class GameOverlay {
 public:
-    GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro=nullptr);
+    // `tv`: the game was started from TV mode; its cards use the TV sizes.
+    GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_ra::Client* retro=nullptr, bool tv=false);
     ~GameOverlay();
     GameOverlay(const GameOverlay&) = delete;
     GameOverlay& operator=(const GameOverlay&) = delete;
@@ -44,7 +57,8 @@ public:
     // True while the overlay uses the mouse, so clicks must not reach the game.
     bool wants_mouse() const;
     bool menu_open() const { return menu_open_; }
-    void open_menu();
+    // `from_pad`: opened with the controller, so keyboard shortcuts are not listed.
+    void open_menu(bool from_pad = false);
     void close_menu();
     void notify(Toast toast) { toasts_.push_back(std::move(toast)); }
     bool has_toast(Toast::Kind kind) const;
@@ -58,9 +72,11 @@ public:
 private:
     SDL_Renderer* renderer_;
     ravenemudsk_ra::Client* retro_;
+    bool tv_;
     Fonts fonts_;
     std::vector<Toast> toasts_;
     bool menu_open_ = false;
+    bool pad_menu_ = false;
     bool focus_first_ = false;
     bool retro_open_ = false;
     BadgeCache badges_;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/achievements/profile_store.hpp>
 #include <ravenemudsk/achievements/client.hpp>
+#include <locale>
 #include <ravenemu/sha256.hpp>
 #include <algorithm>
 #include <atomic>
@@ -81,16 +82,19 @@ private:
         try {
             if (fs::file_size(file) > 2 * 1024 * 1024) return false;
             std::ifstream in(file, std::ios::binary);
+            in.imbue(std::locale::classic()); // Rarity is a decimal number.
             Snapshot s;
             std::string version;
             std::size_t count = 0;
             in >> version >> std::quoted(s.username) >> std::quoted(s.display_name) >> std::quoted(s.avatar_url)
                >> s.softcore_points >> s.hardcore_points >> std::quoted(s.game_title)
                >> s.unlocked_count >> s.total_count >> s.unlocked_points >> s.total_points >> count;
-            if (version == "RavenEmuProfile2" || version=="RavenEmuProfile3") in >> std::quoted(s.rom_path);
+            // Version 4 adds each achievement's unlock date, type and rarity.
+            const bool v4=version=="RavenEmuProfile4";
+            if (version == "RavenEmuProfile2" || version=="RavenEmuProfile3" || v4) in >> std::quoted(s.rom_path);
             std::size_t boards=0;
-            if(version=="RavenEmuProfile3")in>>s.game_hardcore>>std::quoted(s.game_hash)>>std::quoted(s.rich_presence)>>boards;
-            if (!in || (version != "RavenEmuProfile1" && version != "RavenEmuProfile2" && version!="RavenEmuProfile3") ||
+            if(version=="RavenEmuProfile3"||v4)in>>s.game_hardcore>>std::quoted(s.game_hash)>>std::quoted(s.rich_presence)>>boards;
+            if (!in || (version != "RavenEmuProfile1" && version != "RavenEmuProfile2" && version!="RavenEmuProfile3" && !v4) ||
                 normalized(s.username) != normalized(user) || count > 2000 || s.rom_path.size() > 32768 ||
                 s.game_hash.size()>64||s.rich_presence.size()>4096||boards>2000||
                 s.unlocked_count < 0 || s.total_count < s.unlocked_count || s.total_count > 2000 ||
@@ -99,8 +103,11 @@ private:
                 Achievement a;
                 in >> std::quoted(a.id) >> std::quoted(a.title) >> std::quoted(a.description)
                    >> std::quoted(a.badge_url) >> a.points >> a.unlocked;
+                if(v4)in>>a.unlock_time>>a.type>>a.rarity>>a.rarity_hardcore;
                 if (!in || a.id.size() > 32 || a.title.size() > 4096 || a.description.size() > 16384 ||
-                    a.badge_url.size() > 512 || a.points < 0) return false;
+                    a.badge_url.size() > 512 || a.points < 0 || a.unlock_time < 0 || a.type < 0 || a.type > 3 ||
+                    !(a.rarity >= 0.f && a.rarity <= 100.f) || !(a.rarity_hardcore >= 0.f && a.rarity_hardcore <= 100.f))
+                    return false;
                 a.state = a.unlocked ? 2 : 1;
                 s.achievements.push_back(std::move(a));
             }
@@ -126,8 +133,9 @@ private:
             const auto temp = fs::path(file).concat("." + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
                 "." + std::to_string(serial++) + ".tmp");
             std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+            out.imbue(std::locale::classic());
             // Whitelist: no token, password, login flags or mutable achievement runtime.
-            out << "RavenEmuProfile3\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
+            out << "RavenEmuProfile4\n" << std::quoted(s.username) << '\n' << std::quoted(s.display_name) << '\n'
                 << std::quoted(s.avatar_url) << '\n' << s.softcore_points << ' ' << s.hardcore_points << '\n'
                 << std::quoted(s.game_title) << '\n' << s.unlocked_count << ' ' << s.total_count << ' '
                 << s.unlocked_points << ' ' << s.total_points << '\n' << s.achievements.size() << '\n'
@@ -135,7 +143,8 @@ private:
                 <<std::quoted(s.rich_presence)<<' '<<s.leaderboards.size()<<'\n';
             for (const auto& a : s.achievements)
                 out << std::quoted(a.id) << ' ' << std::quoted(a.title) << ' ' << std::quoted(a.description) << ' '
-                    << std::quoted(a.badge_url) << ' ' << a.points << ' ' << a.unlocked << '\n';
+                    << std::quoted(a.badge_url) << ' ' << a.points << ' ' << a.unlocked << ' '
+                    << a.unlock_time << ' ' << a.type << ' ' << a.rarity << ' ' << a.rarity_hardcore << '\n';
             for(const auto& board:s.leaderboards)
                 out<<board.id<<' '<<std::quoted(board.title)<<' '<<std::quoted(board.description)<<'\n';
             out.close();
