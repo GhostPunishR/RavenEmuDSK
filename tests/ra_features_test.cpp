@@ -13,8 +13,13 @@ struct FeatureServer : TestServer {
     std::atomic<bool> remote_unlock{false},ranking_offline{false},expire_once{false};
     std::atomic<bool> session_omits_unlocks{false},unlock_fetch_offline{false},remote_hardcore{false};
     std::atomic<int> expected_hardcore{0},scores{0};
+    // 1: 401 invalid_credentials, 2: 403 access_denied, 3: Success:false without code, 4: 503 outage.
+    std::atomic<int> session_refusal{0};
+    std::atomic<bool> award_forbidden{false},token_login_refused{false};
     ServerTransport transport(){auto basic=TestServer::transport();return [this,basic](const auto& url,const std::string& post,const auto& type)->ServerReply{
         std::lock_guard guard(mutex);posts.push_back(post);
+        if(post.starts_with("r=login")&&post.find("&t=")!=std::string::npos&&token_login_refused)
+            return {R"({"Success":false,"Error":"Invalid user/token combination.","Code":"invalid_credentials","Status":401})",401};
         if(post.starts_with("r=login"))return {std::string(R"({"Success":true,"User":"GameUser","Token":")")+token+
             R"(","Score":12,"SoftcoreScore":)"+(remote_unlock||accepted?"8":"3")+R"(,"Messages":0})",200};
         if(post.starts_with("r=achievementsets")){
@@ -39,6 +44,14 @@ struct FeatureServer : TestServer {
             return {obtained&&(!hard||remote_hardcore||(accepted&&expected_hardcore))?
                 R"({"Success":true,"UserUnlocks":[123]})":R"({"Success":true,"UserUnlocks":[]})",200};
         }
+        if(post.starts_with("r=startsession")&&session_refusal){
+            switch(session_refusal.load()){
+            case 1:return {R"({"Success":false,"Error":"Invalid user/token combination.","Code":"invalid_credentials","Status":401})",401};
+            case 2:return {R"({"Success":false,"Error":"Access denied.","Code":"access_denied","Status":403})",403};
+            case 3:return {R"({"Success":false,"Error":"Game session refused."})",200};
+            default:return {R"({"Success":false,"Error":"Service unavailable."})",503};
+            }
+        }
         if(post.starts_with("r=startsession"))return {!session_omits_unlocks&&(remote_unlock||accepted)?
             (expected_hardcore?R"({"Success":true,"HardcoreUnlocks":[{"ID":123,"When":1700000000}]})":
             R"({"Success":true,"Unlocks":[{"ID":123,"When":1700000000}],"HardcoreUnlocks":[]})"):
@@ -48,6 +61,7 @@ struct FeatureServer : TestServer {
             if(expire_once.exchange(false)){
                 token="RenewedSyntheticToken";return {R"({"Success":false,"Error":"Session expired"})",401};
             }
+            if(award_forbidden)return {R"({"Success":false,"Error":"Access denied.","Code":"access_denied","Status":403})",403};
             if(award_offline)return {"",-2};
             ++accepted;return {R"({"Success":true,"Score":12,"SoftcoreScore":8,"AchievementID":123,"AchievementsRemaining":0})",200};
         }
@@ -282,8 +296,62 @@ void previously_earned_achievements(){
     require(client.snapshot().achievements[0].unlocked&&offline.awards==0,"Account history did not recover after the outage");
     std::cout<<"Existing Softcore/Hardcore awards load before gameplay, never re-award, persist and recover from a sync outage\n";
 }
+std::size_t count(const std::vector<std::string>& posts,const char* operation){
+    return static_cast<std::size_t>(std::count_if(posts.begin(),posts.end(),[&](const auto& p){return p.starts_with(operation);}));
+}
+void refused_replay_does_not_block_games(){
+    for(bool started_first:{true,false}){
+        retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
+        Submission refused;refused.username="GameUser";refused.game_hash=std::string(32,'a');refused.object_id=999;refused.earned_at=1700000000;
+        require(!queue->put(refused).empty(),"Could not queue the refused submission");
+        FeatureServer server;server.award_forbidden=true;
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);Client client(nullptr,server.transport(),{}, {},queue);
+        if(started_first){client.start_game(RAVENEMU_GB,rom,core.handle);login(client);}
+        else{
+            login(client);client.start_game(RAVENEMU_GB,rom,core.handle);
+            require(client.snapshot().game_status==GameStatus::Loading&&client.snapshot().status.find("Connectez")==std::string::npos,
+                "A signed-in player waiting for queued unlocks was asked to sign in");
+        }
+        wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+        require(client.snapshot().pending_submissions==1&&queue->entries("GameUser").size()==1,"A refused submission must stay queued");
+        const auto posts=server.requests();std::size_t award=posts.size(),lookup=posts.size();
+        for(std::size_t i=0;i<posts.size();++i){
+            if(posts[i].starts_with("r=awardachievement")&&award==posts.size())award=i;
+            if(posts[i].starts_with("r=achievementsets"))lookup=i;
+        }
+        require(award<lookup,"Queued unlocks must still replay before the game loads");
+    }
+    std::cout<<"A replay refused by the service stays queued and no longer blocks game identification\n";
+}
+void refused_game_session_is_not_an_outage(){
+    struct Case{int refusal;bool token_refused;GameStatus status;const char* text;std::size_t logins,sessions;bool logged_in;};
+    for(const Case scenario:{Case{1,true,GameStatus::None,"Session expirée",2,1,false},
+                             Case{1,false,GameStatus::Error,"Session refusée",2,2,true},
+                             Case{2,false,GameStatus::Error,"Accès refusé",1,1,true},
+                             Case{3,false,GameStatus::Error,"refusé de charger",1,1,true}}){
+        FeatureServer server;server.session_refusal=scenario.refusal;server.token_login_refused=scenario.token_refused;
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);std::int64_t now=1000;
+        Client client(nullptr,server.transport(),{},[&]{return now;});login(client);
+        client.start_game(RAVENEMU_GB,rom,core.handle);
+        wait(client,[&]{return !client.snapshot().login_pending&&client.snapshot().game_status==scenario.status&&
+            client.snapshot().status.find(scenario.text)!=std::string::npos;});
+        for(int i=0;i<5;++i){now+=120000;for(int j=0;j<5;++j){client.pump(false);std::this_thread::sleep_for(std::chrono::milliseconds(1));}}
+        const auto posts=server.requests();
+        require(count(posts,"r=login")==scenario.logins&&count(posts,"r=startsession")==scenario.sessions,
+            "A refused game session must not be retried as an outage (refusal "+std::to_string(scenario.refusal)+")");
+        require(client.snapshot().logged_in==scenario.logged_in&&client.snapshot().status.find(scenario.text)!=std::string::npos,
+            "Refused game session ended in the wrong state: "+client.snapshot().status);
+    }
+    // A real outage keeps its automatic retry.
+    FeatureServer server;server.session_refusal=4;const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);std::int64_t now=1000;
+    Client client(nullptr,server.transport(),{},[&]{return now;});login(client);client.start_game(RAVENEMU_GB,rom,core.handle);
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::Offline;});
+    server.session_refusal=0;now+=5000;client.pump(false);wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+    std::cout<<"Refused game sessions renew once, expire or fail without retry loops; outages still retry\n";
+}
 int main(){
     restart_with_pending_award();restart_with_pending_score();softcore_states();
     for(const auto system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})hardcore_transitions(system);
     launcher_refresh_rankings_activity();hardcore_during_loading();expired_submission_session();previously_earned_achievements();
+    refused_replay_does_not_block_games();refused_game_session_is_not_an_outage();
 }

@@ -137,6 +137,26 @@ Reply session_reply(const ServerTransport& send,const std::string& url,const std
     }
     body<<'}';return {body.str(),reply.status};
 }
+bool loads_game(const std::string& operation) {
+    return operation=="achievementsets"||operation=="startsession"||operation=="gameid"||operation=="patch";
+}
+// rcheevos ignores the server's error code on some game-load calls, so a
+// final refusal would look like an outage and be retried forever. The login
+// parser reads the common Success/Error/Code envelope of any reply.
+int refusal(const Reply& reply) {
+    if(reply.status<0||reply.status==408||reply.status==429||reply.status>=500)return RC_OK;
+    const rc_api_server_response_t response{reply.body.c_str(),reply.body.size(),reply.status};
+    rc_api_login_response_t parsed{};
+    const int result=rc_api_process_login_server_response(&parsed,&response);
+    const bool failed=!parsed.response.succeeded;
+    rc_api_destroy_login_response(&parsed);
+    if(result==RC_INVALID_CREDENTIALS||result==RC_EXPIRED_TOKEN||result==RC_ACCESS_DENIED)return result;
+    if(reply.status==401)return RC_INVALID_CREDENTIALS;
+    if(reply.status==403)return RC_ACCESS_DENIED;
+    if(reply.status>=400||(failed&&result!=RC_INVALID_JSON&&result!=RC_NO_RESPONSE))return RC_API_FAILURE;
+    return RC_OK;
+}
+bool expired(int result){return result==RC_INVALID_CREDENTIALS||result==RC_EXPIRED_TOKEN;}
 }
 // Let the SDK build official image URLs if the server did not supply one.
 std::string image_url(const char* url, const rc_client_achievement_t& a, int state) {
@@ -156,7 +176,7 @@ struct Client::Impl {
         rc_client_server_callback_t callback{};
         void* userdata{};
         std::future<Reply> future;
-        std::string submission_id,username;
+        std::string submission_id,username,operation;
         bool replay=false,leaderboard=false;
     };
     rc_client_t* handle = nullptr;
@@ -184,6 +204,10 @@ struct Client::Impl {
     std::optional<std::pair<unsigned,unsigned>> award_scores;
     bool browsing=false,awaiting_outbox=false,preferred_hardcore=false;
     bool renew_session=false,hardcore_reset_required=false,hardcore_storage_failed=false;
+    // One token renewal per refusal streak: a token that still logs in but is
+    // refused again must not unload and reload the game forever.
+    bool renewal_spent=false;
+    int load_refusal=RC_OK;
     std::int64_t outbox_retry_at=0;
     unsigned outbox_failures=0;
     std::vector<std::uint8_t> deferred_progress;
@@ -256,10 +280,7 @@ struct Client::Impl {
         const auto records=outbox->entries(state.username);
         state.pending_submissions=static_cast<std::uint32_t>(records.size());
         state.durable_submissions=outbox->healthy();
-        if(records.empty()) {
-            if(awaiting_outbox){awaiting_outbox=false;if(!rom.empty()&&(memory||browsing))identify();}
-            return;
-        }
+        if(records.empty()){release_outbox_wait();return;}
         if(clock()<outbox_retry_at || replaying.size()>=2)return;
         const auto* user=rc_client_get_user_info(handle);
         if(!user||!user->token)return;
@@ -286,10 +307,24 @@ struct Client::Impl {
             if(replaying.size()>=2)break;
         }
     }
+    // Queued unlocks replay before the game loads, so its session lists them.
+    void identify_after_outbox() {
+        if (!awaiting_outbox) { identify(); return; }
+        state.game_status = GameStatus::Loading;
+        state.status = "Envoi des succès en attente avant la recherche du jeu…";
+    }
+    // A replay the service did not accept keeps retrying in the background:
+    // it must not keep the game's achievements unloaded meanwhile.
+    void release_outbox_wait() {
+        if (!awaiting_outbox) return;
+        awaiting_outbox = false;
+        if (!rom.empty() && (memory || browsing)) identify();
+    }
     void identify() {
         if (game_load) rc_client_abort_async(handle, game_load);
         game_load = nullptr;
         game_retry_at = 0;
+        load_refusal = RC_OK;
         state.game_status = GameStatus::Loading;
         state.status = "Recherche des succès officiels…";
         const uint32_t id = console == RAVENEMU_GB ? 4u : console == RAVENEMU_GBC ? 6u : 5u;
@@ -334,7 +369,7 @@ struct Client::Impl {
         Pending job{};job.callback=callback;job.userdata=userdata;
         const auto fields=form(post);
         const auto field=[&](const char* name){const auto at=fields.find(name);return at==fields.end()?std::string{}:at->second;};
-        const auto operation=field("r");
+        const auto operation=field("r");job.operation=operation;
         if(impl.outbox&&(operation=="awardachievement"||operation=="submitlbentry")){
             Submission s;s.username=impl.state.username;s.leaderboard=operation=="submitlbentry";
             s.object_id=number<std::uint32_t>(field(s.leaderboard?"i":"a"));s.score=number<std::int32_t>(field("s"));
@@ -382,9 +417,7 @@ struct Client::Impl {
             impl.state.durable_submissions=impl.durable();
             impl.awaiting_outbox=impl.outbox&&!impl.outbox->entries(impl.state.username).empty();
             // When the ROM was opened before authentication, identify it now.
-            if (!impl.awaiting_outbox && (impl.memory||impl.browsing) && !impl.rom.empty()) {
-                impl.identify();
-            }
+            if ((impl.memory||impl.browsing) && !impl.rom.empty()) impl.identify_after_outbox();
         } else {
             if (impl.token_login && (result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN)) {
                 const bool forgotten = !impl.storage || impl.storage->clear();
@@ -396,6 +429,8 @@ struct Client::Impl {
                 impl.state.reconnect_scheduled = false;
                 impl.state.status = forgotten ? "Session expirée : reconnectez votre compte" :
                     "Session expirée : la session enregistrée n'a pas pu être effacée dans le coffre du système";
+                // A game waiting for this renewal cannot load without a new sign-in.
+                if (impl.state.game_status == GameStatus::Loading) impl.state.game_status = GameStatus::None;
             } else {
                 // Keep a saved token on transient network errors so Retry (or
                 // the next launch) can reconnect without asking for a password.
@@ -410,11 +445,13 @@ struct Client::Impl {
             impl.events.push_back({"error", "Connexion RetroAchievements impossible", ""});
         }
     }
-    static void loaded(int result, const char*, rc_client_t* c, void*) {
+    static void loaded(int result, const char* message, rc_client_t* c, void*) {
         auto& impl = self(c);
         impl.game_load = nullptr;
+        const int refused = std::exchange(impl.load_refusal, RC_OK);
         const auto* game = rc_client_get_game_info(c);
         if (result == RC_OK && game && game->id) {
+            impl.renewal_spent = false;
             rc_client_user_game_summary_t summary{};
             rc_client_get_user_game_summary(c, &summary);
             impl.state.game_status = summary.num_core_achievements ? GameStatus::Ready : GameStatus::NoAchievements;
@@ -432,17 +469,32 @@ struct Client::Impl {
         } else if (result == RC_NO_GAME_LOADED) {
             impl.state.game_status = GameStatus::UnknownRom;
             impl.state.status = "ROM non reconnue par RetroAchievements";
-        } else if (transient(result)) {
+        } else if (expired(result) || expired(refused)) {
+            // The token no longer opens game sessions. Renew it once, as for a
+            // refused submission: a dead token then asks to sign in again.
+            if (!impl.renewal_spent) {
+                impl.renew_session = true;
+                impl.state.game_status = GameStatus::Loading;
+                impl.state.status = "Session à renouveler avant la recherche des succès…";
+                return;
+            }
+            impl.state.game_status = GameStatus::Error;
+            impl.state.status = "Session refusée par RetroAchievements : reconnectez votre compte";
+        } else if (transient(result) && refused == RC_OK) {
             impl.state.game_status = GameStatus::Offline;
             impl.state.online = false;
             impl.state.status = "Serveur indisponible : recherche des succès à réessayer automatiquement";
             if ((impl.memory || impl.browsing) && !impl.rom.empty()) impl.game_retry_at = impl.clock() + delay(impl.game_failures);
         } else {
             impl.state.game_status = GameStatus::Error;
-            impl.state.status = "Impossible d'identifier le jeu : ROM ou réponse du serveur invalide";
+            impl.state.status = result == RC_ACCESS_DENIED || refused == RC_ACCESS_DENIED ?
+                "Accès refusé par RetroAchievements pour ce jeu" :
+                refused != RC_OK ? "RetroAchievements a refusé de charger les succès de ce jeu" :
+                "Impossible d'identifier le jeu : ROM ou réponse du serveur invalide";
         }
         if (impl.state.game_status != GameStatus::Ready && impl.state.game_status != GameStatus::NoAchievements)
-            impl.events.push_back({"notice", impl.state.status, ""});
+            impl.events.push_back({"notice", impl.state.status,
+                impl.state.game_status == GameStatus::Error && message ? message : ""});
     }
 
     static void event(const rc_client_event_t* ev, rc_client_t* c) {
@@ -599,10 +651,12 @@ struct Client::Impl {
                 // The SDK treats an explicit authorization error as terminal.
                 // The durable journal must take ownership of its next attempt.
                 sdk_submissions.erase(job.submission_id);
-                if(reply.status==401)renew_session=true;
-                state.status=reply.status==401?"Session à renouveler : les envois restent conservés.":
-                    "Envoi non autorisé par RetroAchievements : les données restent conservées.";
+                if(reply.status==401)renew_session=!renewal_spent;
+                state.status=reply.status==403?"Envoi non autorisé par RetroAchievements : les données restent conservées.":
+                    renewal_spent?"Session refusée par RetroAchievements : reconnectez votre compte, les envois restent conservés.":
+                    "Session à renouveler : les envois restent conservés.";
             }
+            if(accepted)renewal_spent=false;
             if(accepted||permanent){
                 if(outbox)outbox->erase(job.username,job.submission_id);
                 sdk_submissions.erase(job.submission_id);profile_dirty=true;
@@ -610,10 +664,15 @@ struct Client::Impl {
             }
             if(job.replay){
                 replaying.erase(job.submission_id);
-                if(!accepted&&!permanent)outbox_retry_at=clock()+delay(outbox_failures);
+                if(!accepted&&!permanent){
+                    outbox_retry_at=clock()+delay(outbox_failures);
+                    // A renewal replays the queue with the new token first.
+                    if(!renew_session)release_outbox_wait();
+                }
                 else{outbox_failures=0;outbox_retry_at=0;}
             }
         }
+        if(!cancel&&loads_game(job.operation))load_refusal=refusal(reply);
         if(job.callback)job.callback(&response,job.userdata);
     }
     void begin_token_login(const char* status) {
@@ -713,7 +772,7 @@ struct Client::Impl {
             } else ++i;
         }
         if(renew_session&&!state.login_pending&&pending.empty()&&sdk_submissions.empty()&&!retry_token.empty()){
-            renew_session=false;
+            renew_session=false;renewal_spent=true;
             begin_token_login("Renouvellement de la session RetroAchievements…");
         }
         const auto now = clock();
@@ -754,6 +813,7 @@ void Client::login(const std::string& user, const std::string& password) {
     impl_->state.logged_in = false;
     impl_->state.login_pending = true;
     impl_->token_login = false;
+    impl_->renewal_spent = false;
     impl_->state.status = "Connexion en cours…";
     impl_->login_request = rc_client_begin_login_with_password(impl_->handle, user.c_str(), password.c_str(), Impl::logged, nullptr);
 }
@@ -783,6 +843,7 @@ void Client::disconnect() {
     impl_->state = Snapshot{};
     impl_->award_scores.reset();impl_->deferred_progress.clear();impl_->browsing=false;impl_->awaiting_outbox=false;
     impl_->renew_session=false;impl_->hardcore_reset_required=false;impl_->hardcore_storage_failed=false;
+    impl_->renewal_spent=false;impl_->load_refusal=RC_OK;
     impl_->state.hardcore_preferred=impl_->preferred_hardcore;
     if (!forgotten)
         impl_->state.status = "Déconnecté, mais le coffre du système n'a pas pu effacer la session enregistrée";
@@ -807,7 +868,7 @@ void Client::start_game(int console, const std::vector<std::uint8_t>& rom, raven
     impl_->state.cached_profile = !impl_->state.game_title.empty();
     impl_->state.game_status = GameStatus::None;
     impl_->game_failures = 0;
-    if (rc_client_get_user_info(impl_->handle) && !impl_->awaiting_outbox) impl_->identify();
+    if (rc_client_get_user_info(impl_->handle)) impl_->identify_after_outbox();
     else if (!impl_->state.login_pending) impl_->state.status = "Connectez votre compte pour activer les succès";
 }
 void Client::end_game() {
