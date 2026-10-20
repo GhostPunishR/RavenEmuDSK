@@ -11,11 +11,10 @@ struct LaunchRequest {
     std::string rom;  // UTF-8 path; native path conversion in the player.
     bool fullscreen = false;  // chosen from TV mode: play in full screen
 };
-// TV mode keeps one full-screen window from the launcher to the game and back,
-// so the desktop never shows in between: each side takes it, renders with its
-// own renderer, and keeps it again when it leaves. The video subsystem must
-// stay initialized while a window is kept.
-SDL_Window* take_screen();             // the kept window, or nullptr
+// TV mode: the side that leaves (launcher or game) keeps its full-screen
+// window, cleared to black, as a cover; the next side opens its own window and
+// closes the cover once its first frame is up, so the desktop never shows in
+// between. SDL must stay initialized meanwhile: entry() holds its subsystems.
 void keep_screen(SDL_Window* window);  // destroys any other kept window
 void close_screen();                   // destroys the kept window, if any
 // Shows the library until a game is chosen. `error` is displayed on open,

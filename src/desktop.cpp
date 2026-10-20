@@ -123,25 +123,16 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
     Sdl sdl;
     const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
-    // From TV mode the game takes over the launcher's full-screen window, so
-    // the desktop never shows in between, and hands it back afterwards.
+    // From TV mode the window opens directly in full screen over the
+    // launcher's black cover, and is left as a cover for the launcher in turn.
     // Leaving full screen later restores the usual size.
-    SDL_Window* screen=req.fullscreen?ravenemudsk_ui::take_screen():nullptr;
-    if(screen) {
-        SDL_SetWindowTitle(screen,("RavenEmu - "+title).c_str());
-        SDL_SetWindowBordered(screen,SDL_TRUE);
-        SDL_SetWindowMinimumSize(screen,160,144);
-        SDL_SetWindowSize(screen,std::max(640,w*4),std::max(520,h*4));
-        SDL_SetWindowFullscreen(screen,SDL_WINDOW_FULLSCREEN_DESKTOP);
-    } else {
-        screen=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
-            SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
-            SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
-    }
-    Ptr<SDL_Window,SDL_DestroyWindow> win(screen,req.fullscreen?ravenemudsk_ui::keep_screen:SDL_DestroyWindow);
+    Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmu - "+title).c_str(),
+        SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
+        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0)),
+        req.fullscreen?ravenemudsk_ui::keep_screen:SDL_DestroyWindow);
     if(!win)throw std::runtime_error(SDL_GetError());
     // Played from the couch: no mouse cursor over the game.
-    if(req.fullscreen)SDL_ShowCursor(SDL_DISABLE);
+    SDL_ShowCursor(req.fullscreen?SDL_DISABLE:SDL_ENABLE);
     if(char* base=SDL_GetBasePath()) {
         const auto path=ravenemudsk_ui::from_utf8(base)/"assets"/"ravenemu-logo.png";
         SDL_free(base);
@@ -154,8 +145,9 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     if(!sr)sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_SOFTWARE);
     Ptr<SDL_Renderer,SDL_DestroyRenderer> renderer(sr,SDL_DestroyRenderer);
     if(!renderer)throw std::runtime_error(SDL_GetError());
-    // Black at once, before the first emulated frame.
+    // Black at once, before the first emulated frame; the launcher's cover can go.
     SDL_SetRenderDrawColor(renderer.get(),0,0,0,255);SDL_RenderClear(renderer.get());SDL_RenderPresent(renderer.get());
+    ravenemudsk_ui::close_screen();
     Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer.get(),
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
@@ -324,6 +316,10 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         if(waiting||paused||overlay.menu_open())SDL_Delay(16);
         else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      if(req.fullscreen) {
+          // Left on screen, black, until the launcher's window is up.
+          SDL_SetRenderDrawColor(renderer.get(),0,0,0,255);SDL_RenderClear(renderer.get());SDL_RenderPresent(renderer.get());
+      }
       save_battery(core.get(),battery_path);
       if(!pixels.empty()) {
           SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(),w,h,32,
@@ -349,9 +345,13 @@ int entry(int argc,char** argv) {
             ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::hardcore_preference());
             play({argv[1],argv[2],false});return 0;
         }
-        // TV mode hands one window between the launcher and the game: the
-        // video subsystem stays up for the whole loop.
-        if(SDL_InitSubSystem(SDL_INIT_VIDEO)!=0)throw std::runtime_error(SDL_GetError());
+        // SDL stays up for the whole session: the launcher and the game never
+        // shut down and restart its subsystems (controller threads included),
+        // and a TV cover window survives from one to the other. Audio is
+        // optional here; the game still asks for it.
+        if(SDL_InitSubSystem(SDL_INIT_VIDEO|SDL_INIT_GAMECONTROLLER|SDL_INIT_EVENTS)!=0)
+            throw std::runtime_error(SDL_GetError());
+        (void)SDL_InitSubSystem(SDL_INIT_AUDIO);
         struct Screen{~Screen(){ravenemudsk_ui::close_screen();SDL_Quit();}} screen;
         std::string error;
         while(true) {

@@ -2349,12 +2349,13 @@ namespace {
 SDL_Window* kept_screen = nullptr;
 constexpr Uint32 launcher_systems = SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS;
 }
-SDL_Window* take_screen() { return std::exchange(kept_screen, nullptr); }
 void keep_screen(SDL_Window* window) {
     if (kept_screen && kept_screen != window) SDL_DestroyWindow(kept_screen);
     kept_screen = window;
 }
-void close_screen() { if (SDL_Window* window = take_screen()) SDL_DestroyWindow(window); }
+void close_screen() {
+    if (SDL_Window* window = std::exchange(kept_screen, nullptr)) SDL_DestroyWindow(window);
+}
 std::optional<LaunchRequest> run_launcher(const std::string& error) {
     // Subsystems are reference-counted: a window kept for TV mode survives.
     if (SDL_InitSubSystem(launcher_systems) != 0)
@@ -2380,23 +2381,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    // TV mode reopens in full screen at once. A game started from TV mode
-    // hands its full-screen window back, so the desktop never shows.
+    // TV mode reopens in full screen at once; the game's black cover, if
+    // any, is closed once the first launcher frame is up.
     const bool tv_start = state.settings.flag("tv_mode", false);
-    SDL_Window* window = take_screen();
-    if (window) {
-        SDL_SetWindowTitle(window, "RavenEmu");
-        SDL_SetWindowBordered(window, SDL_FALSE);
-        SDL_SetWindowSize(window, 1480, 900);  // the size used out of full screen
-        if (!tv_start) {
-            SDL_SetWindowFullscreen(window, 0);
-            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-        }
-    } else {
-        window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-            1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
-            (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
-    }
+    SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
+        (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!window) {
         const std::string reason = SDL_GetError();
         SDL_QuitSubSystem(launcher_systems);
@@ -2499,8 +2489,16 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
             if (!smoke_rendered) running = false;
         }
         SDL_RenderPresent(renderer);
+        close_screen();
         if (ci_smoke && ++frames >= 12) running = false;
         SDL_Delay(8);
+    }
+    const bool cover = state.launch && state.launch->fullscreen;
+    if (cover) {
+        // Left on screen, black, until the game's own window is up.
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+        SDL_RenderClear(renderer);
+        SDL_RenderPresent(renderer);
     }
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
@@ -2510,9 +2508,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     if (state.logo) SDL_DestroyTexture(state.logo);
     for (auto& [key, texture] : state.images) if (texture) SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
-    if (state.launch && state.launch->fullscreen) {
-        // The game takes this full-screen window over; the hit test points into `state`.
-        (void)SDL_SetWindowHitTest(window, nullptr, nullptr);
+    if (cover) {
+        (void)SDL_SetWindowHitTest(window, nullptr, nullptr);  // it points into `state`
         keep_screen(window);
     } else SDL_DestroyWindow(window);
     SDL_QuitSubSystem(launcher_systems);

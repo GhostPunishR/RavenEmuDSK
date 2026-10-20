@@ -192,15 +192,20 @@ int main() {
     set_tv(state, false, false);
     require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse) == 0, "Desktop mode must use the mouse again");
 
-    // One window passes from the launcher to the game and back in TV mode.
+    // In TV mode the side that leaves keeps its window as a cover until the
+    // next one is up; one cover at most.
     require(SDL_InitSubSystem(SDL_INIT_VIDEO) == 0, "SDL video unavailable");
-    SDL_Window* screen = SDL_CreateWindow("TV", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
-    require(screen != nullptr && take_screen() == nullptr, "No window is kept at first");
-    keep_screen(screen);
-    require(take_screen() == screen && take_screen() == nullptr, "A kept window is taken once");
-    keep_screen(screen);
+    SDL_Window* launcher = SDL_CreateWindow("Launcher", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
+    SDL_Window* game = SDL_CreateWindow("Game", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
+    require(launcher && game, "Cover fixture windows");
+    const Uint32 launcher_id = SDL_GetWindowID(launcher), game_id = SDL_GetWindowID(game);
+    keep_screen(launcher);
+    keep_screen(game);
+    require(!SDL_GetWindowFromID(launcher_id) && SDL_GetWindowFromID(game_id) == game,
+            "A new cover replaces and closes the previous one");
     close_screen();
-    require(take_screen() == nullptr, "Closing destroys the kept window");
+    close_screen();
+    require(!SDL_GetWindowFromID(game_id), "Closing destroys the cover");
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 
     ImGui::DestroyContext();
