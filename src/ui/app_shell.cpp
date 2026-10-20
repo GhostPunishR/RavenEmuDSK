@@ -10,6 +10,8 @@
 #include <ravenemudsk/ui/widgets.hpp>
 #include <ravenemudsk/ui/retro_widgets.hpp>
 #include <ravenemudsk/achievements/client.hpp>
+#include <ravenemudsk/achievements/achievement_list.hpp>
+#include <rc_client.h>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
 #include <imgui.h>
@@ -95,6 +97,9 @@ struct State {
     int ra_filter = 0;
     int ra_tab = 0;
     int ra_visible_count = 10;
+    int ra_sort = 0;
+    char ra_search[128]{};
+    bool ra_confirm_disconnect = false;
     std::string ra_selected_achievement;
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = nullptr;
@@ -810,213 +815,392 @@ void stat_card(State& s, const char* label, const std::string& value, float frac
     if (fraction >= 0.f) progress_bar(d, {p.x + 20.f, p.y + h - 26.f}, {p.x + w - 20.f, p.y + h - 18.f}, fraction, tint);
     ImGui::Dummy({w, h});
 }
-void achievements_view(State& s, Library&) {
-    auto& ra = retro_client(s);
-    const auto snap = profile_snapshot(s);
+// ---------------------------------------------------------------- RetroAchievements profile
+std::string ra_name(const ravenemudsk_ra::Snapshot& snap) {
+    return snap.display_name.empty() ? snap.username : snap.display_name;
+}
+void open_url(State& s, const std::string& url) {
+    if (SDL_OpenURL(url.c_str()) != 0)
+        notify(s, Toast::Kind::Error, "Ouverture du navigateur impossible", SDL_GetError());
+}
+// RetroAchievements user names are letters and digits: anything else is not
+// put into a URL.
+bool ra_public_name(const std::string& name) {
+    return !name.empty() && name.size() <= 64 && std::all_of(name.begin(), name.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_';
+    });
+}
+// Signing out also erases unsent unlocks: it is always confirmed, with their count.
+void ra_disconnect_dialog(State& s, ravenemudsk_ra::Client& ra) {
+    if (s.ra_confirm_disconnect) {
+        ImGui::OpenPopup("##ra-disconnect");
+        s.ra_confirm_disconnect = false;
+    }
+    if (!ImGui::BeginPopupModal("##ra-disconnect", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    const auto snap = ra.snapshot();
+    ImGui::PushFont(s.fonts.title);
+    ImGui::TextUnformatted("Se déconnecter de RetroAchievements ?");
+    ImGui::PopFont();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.f);
+    muted("La session et le profil mémorisés sur cet ordinateur seront effacés. "
+          "Les succès déjà envoyés restent sur votre compte.");
+    if (snap.pending_submissions) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::gold));
+        ImGui::TextWrapped("%u envoi%s pas encore transmis (succès ou scores) sera%s supprimé%s définitivement. "
+            "Pour %s garder, restez connecté jusqu'à leur envoi.", snap.pending_submissions,
+            snap.pending_submissions > 1 ? "s" : "", snap.pending_submissions > 1 ? "nt" : "",
+            snap.pending_submissions > 1 ? "s" : "", snap.pending_submissions > 1 ? "les" : "le");
+        ImGui::PopStyleColor();
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy({0.f, space::xs});
+    if (button("Annuler", Icon::Close, ButtonStyle::Secondary)) ImGui::CloseCurrentPopup();
+    ImGui::SameLine(0.f, space::sm);
+    if (button("Se déconnecter", Icon::Exit, ButtonStyle::Danger)) {
+        ra.disconnect();
+        s.ra_selected_achievement.clear();
+        s.ra_filter = 0;
+        s.ra_visible_count = 10;
+        s.ra_search[0] = '\0';
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+// Connection state and unsent submissions, as pills after the account name.
+void ra_status_pills(State& s, ImDrawList* d, ImVec2 p, const ravenemudsk_ra::Snapshot& snap) {
+    const char* state = snap.login_pending ? "Connexion…" : snap.online ? "Connecté" : "Hors ligne";
+    const ImU32 tint = snap.login_pending ? color::accent : snap.online ? color::success : color::gold;
+    pill(d, p, state, tint, s.fonts.caption);
+    if (!snap.pending_submissions) return;
+    const std::string pending = std::to_string(snap.pending_submissions) +
+        (snap.pending_submissions > 1 ? " envois en attente" : " envoi en attente");
+    pill(d, {p.x + pill_size(state, s.fonts.caption).x + space::sm, p.y}, pending.c_str(), color::gold, s.fonts.caption);
+}
+// Same header on every tab: avatar, name, points, state and account actions.
+void ra_account_header(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap) {
     begin_card("##ra-account");
-    // Official RA artwork stays visible as a small brand icon.
-    const ImVec2 title_pos=ImGui::GetCursorScreenPos();
-    draw_ra_brand(s,ImGui::GetWindowDrawList(),{title_pos.x+11.f,title_pos.y+12.f},24.f);
-    ImGui::SetCursorScreenPos({title_pos.x+31.f,title_pos.y});
+    auto* d = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    SDL_Texture* image = s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
+    draw_avatar(d, {p.x + 34.f, p.y + 34.f}, 34.f, ra_name(snap), 0, image, s.fonts);
+    const float x = p.x + 86.f;
+    // Account actions sit on the right when there is room, otherwise below.
+    const bool site = ra_public_name(snap.username);
+    const auto action_w = [](const char* label) { return ImGui::CalcTextSize(label).x + 16.f + space::sm + space::lg * 2.f; };
+    const float actions = (site ? action_w("Profil sur le site") + space::sm : 0.f) +
+        action_w("Actualiser") + space::sm + action_w("Déconnexion");
+    const bool inline_actions = w - 86.f - actions >= 260.f;
+    const float text_w = std::max(120.f, (inline_actions ? w - actions - space::lg : w) - 86.f);
+    text_at(d, s.fonts.title, {x, p.y + 2.f}, color::text, ellipsize(s.fonts.title, ra_name(snap), text_w));
+    const auto handle = ellipsize(s.fonts.caption, "@" + snap.username, text_w * .5f);
+    text_at(d, s.fonts.caption, {x, p.y + 30.f}, color::text_muted, handle);
+    ra_status_pills(s, d, {x + text_width(s.fonts.caption, handle.c_str()) + space::md, p.y + 27.f}, snap);
+    const std::string hardcore = std::to_string(snap.hardcore_points) + " points Hardcore";
+    const std::string softcore = std::to_string(snap.softcore_points) + " points Softcore";
+    pill(d, {x, p.y + 50.f}, hardcore.c_str(), color::gold, s.fonts.caption);
+    pill(d, {x + pill_size(hardcore.c_str(), s.fonts.caption).x + space::sm, p.y + 50.f}, softcore.c_str(),
+         color::accent, s.fonts.caption);
+    const ImVec2 after = {p.x, p.y + 82.f};
+    if (inline_actions) ImGui::SetCursorScreenPos({p.x + w - actions, p.y + 4.f});
+    else ImGui::SetCursorScreenPos(after);
+    if (site) {
+        if (button("Profil sur le site", Icon::Info, ButtonStyle::Ghost))
+            open_url(s, "https://retroachievements.org/user/" + snap.username);
+        ImGui::SameLine(0.f, space::sm);
+    }
+    ImGui::BeginDisabled(snap.login_pending);
+    if (button("Actualiser", Icon::Reset, ButtonStyle::Secondary))
+        ra.refresh_game(s.ra_game_path.empty() ? snap.rom_path : s.ra_game_path);
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.f, space::sm);
+    if (button("Déconnexion", Icon::Exit, ButtonStyle::Ghost)) s.ra_confirm_disconnect = true;
+    ImGui::SetCursorScreenPos(inline_actions ? after : ImVec2{p.x, ImGui::GetCursorScreenPos().y + space::xs});
+    muted(snap.status.c_str());
+    if (snap.pending_submissions)
+        muted(snap.durable_submissions ? "Les envois en attente sont conservés après fermeture." :
+              "Gardez l'application ouverte jusqu'à l'envoi des succès en attente.");
+    if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu'à une minute.");
+    if (!snap.online || snap.game_status == ravenemudsk_ra::GameStatus::Offline) {
+        if (button("Réessayer", Icon::Reset, ButtonStyle::Secondary)) ra.retry();
+    }
+    end_card();
+}
+void ra_sign_in_card(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap) {
+    begin_card("##ra-account");
+    const ImVec2 title_pos = ImGui::GetCursorScreenPos();
+    draw_ra_brand(s, ImGui::GetWindowDrawList(), {title_pos.x + 11.f, title_pos.y + 12.f}, 24.f);
+    ImGui::SetCursorScreenPos({title_pos.x + 31.f, title_pos.y});
     ImGui::PushFont(s.fonts.title);
     ImGui::TextUnformatted("RetroAchievements");
     ImGui::PopFont();
     ImGui::Dummy({0.f, 4.f});
     muted(snap.status.c_str());
-    if(snap.pending_submissions)ImGui::TextWrapped("%u envoi(s) en attente%s",snap.pending_submissions,
-        snap.durable_submissions?", conservés après fermeture.":" : gardez l’application ouverte pour synchroniser.");
-    if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu’à une minute.");
-    ImGui::Dummy({0.f, 8.f});
-    if (snap.cached_profile) muted("Profil et dernier jeu mémorisés : données à actualiser lors d'une connexion et d'une partie.");
-    if (!snap.logged_in) {
-        if (snap.cached_profile) ImGui::Text("@%s : %u points Softcore, %u points Hardcore", snap.username.c_str(), snap.softcore_points, snap.hardcore_points);
-        muted("Connectez votre compte pour obtenir les succès officiels pendant vos parties Game Boy, Game Boy Color et Game Boy Advance.");
-        ra_login_controls(s, ra);
-    } else if(s.ra_tab==0) {
-        // Account details stay on the achievement tab to leave room for rankings.
-        const ImVec2 avatar = ImGui::GetCursorScreenPos();
-        SDL_Texture* image = s.ra_images ? s.ra_images->image(snap.avatar_url) : nullptr;
-        draw_avatar(ImGui::GetWindowDrawList(), {avatar.x + 29.f,avatar.y + 29.f},
-                    29.f, snap.display_name, 0, image, s.fonts);
-        const float caption_x = avatar.x + 73.f;
-        text_at(ImGui::GetWindowDrawList(), s.fonts.title, {caption_x, avatar.y + 5.f},
-                color::text, snap.display_name.empty() ? snap.username : snap.display_name);
-        text_at(ImGui::GetWindowDrawList(), s.fonts.caption, {caption_x, avatar.y + 35.f},
-                color::text_muted, "@" + snap.username);
-        ImGui::Dummy({0.f, 66.f});
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::accent),
-                           "Softcore : %u points  |  Hardcore : %u points",
-                           snap.softcore_points, snap.hardcore_points);
-        if (snap.session_saved) muted("Connexion mémorisée pour les prochains lancements.");
-        ImGui::Dummy({0.f, 4.f});
-        if (!snap.game_title.empty()) {
-            ImGui::Separator();
-            ImGui::Dummy({0.f, 5.f});
-            ImGui::PushFont(s.fonts.strong);
-            ImGui::TextUnformatted(snap.game_title.c_str());
-            ImGui::PopFont();
-            ImGui::TextDisabled("%d/%d succès  |  %u/%u points",
-                                snap.unlocked_count, snap.total_count,
-                                snap.unlocked_points, snap.total_points);
-            muted(snap.game_hardcore?"Progression Hardcore":"Progression Softcore");
-        } else {
-            muted("Aucun jeu reconnu pour le moment.");
-        }
-    } else {
-        ImGui::TextUnformatted(snap.display_name.empty()?snap.username.c_str():snap.display_name.c_str());
-        if(!snap.game_title.empty())ImGui::TextWrapped("%s",snap.game_title.c_str());
-        muted(snap.game_hardcore?"Progression Hardcore":"Progression Softcore");
-    }
-    if(s.ra_tab==0||!snap.logged_in)ra_mode_controls(s);
-    if(snap.logged_in){
-        ImGui::BeginDisabled(snap.login_pending);
-        if(button("Actualiser le profil et les succès",Icon::Reset,ButtonStyle::Secondary))
-            ra.refresh_game(s.ra_game_path.empty()?snap.rom_path:s.ra_game_path);
-        ImGui::EndDisabled();
-    }
+    if (snap.pending_submissions) ImGui::TextWrapped("%u envoi(s) en attente%s", snap.pending_submissions,
+        snap.durable_submissions ? ", conservés après fermeture." : " : gardez l'application ouverte pour synchroniser.");
+    if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu'à une minute.");
+    if (snap.cached_profile)
+        ImGui::Text("@%s : %u points Hardcore, %u points Softcore (mémorisés)", snap.username.c_str(),
+                    snap.hardcore_points, snap.softcore_points);
+    ImGui::Dummy({0.f, space::xs});
+    muted("Connectez votre compte pour obtenir les succès officiels pendant vos parties Game Boy, Game Boy Color et Game Boy Advance.");
+    ra_login_controls(s, ra);
     end_card();
-
-    if (snap.logged_in) {
-        if (!snap.online || snap.game_status == ravenemudsk_ra::GameStatus::Offline) {
-            if (button("Réessayer", Icon::Reset, ButtonStyle::Secondary, {152.f, 40.f})) ra.retry();
-            ImGui::SameLine(0.f, 12.f);
-        }
-        if (button("Déconnexion", Icon::Exit, ButtonStyle::Secondary, {160.f, 40.f})) {
-            ra.disconnect();
-            s.ra_selected_achievement.clear();
-            s.ra_filter = 0;
-            s.ra_visible_count = 10;
-        }
-        ImGui::Dummy({0.f, 10.f});
+}
+void ra_game_card(State& s, const ravenemudsk_ra::Snapshot& snap, float width) {
+    begin_card("##ra-game", width);
+    card_title(s, Icon::Gamepad, "Jeu");
+    ImGui::Dummy({0.f, space::xs});
+    if (snap.game_title.empty()) {
+        muted(snap.logged_in || snap.cached_profile ? "Aucun jeu reconnu pour le moment." :
+              "Connectez-vous pour retrouver les succès officiels de vos jeux.");
+        muted("Lancez un jeu, ou actualisez ses succès depuis sa fiche dans la bibliothèque.");
+        end_card();
+        return;
     }
-
-    const char* tabs[]={"Succès","Classements","Activité"};
-    chips("##ra-sections",tabs,3,&s.ra_tab);
-    ImGui::Dummy({0.f,space::sm});
-    if(s.ra_tab==1){
-        begin_card("##ra-leaderboards");card_title(s,Icon::Trophy,"Classements");
-        draw_leaderboards(ra,snap,s.fonts);end_card();return;
+    ImGui::PushFont(s.fonts.strong);
+    ImGui::TextWrapped("%s", snap.game_title.c_str());
+    ImGui::PopFont();
+    auto* d = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    progress_bar(d, {p.x, p.y + 4.f}, {p.x + w, p.y + 10.f},
+                 snap.total_count ? static_cast<float>(snap.unlocked_count) / snap.total_count : 0.f, color::gold);
+    ImGui::Dummy({w, 16.f});
+    ImGui::Text("%d / %d succès", snap.unlocked_count, snap.total_count);
+    ImGui::TextDisabled("%u / %u points  |  %s", snap.unlocked_points, snap.total_points,
+                        snap.game_hardcore ? "Progression Hardcore" : "Progression Softcore");
+    if (snap.cached_profile) muted("Données mémorisées : lancez le jeu ou actualisez ses succès pour les mettre à jour.");
+    end_card();
+}
+void ra_mode_card(State& s, float width) {
+    begin_card("##ra-mode", width);
+    card_title(s, Icon::Lock, "Mode de jeu");
+    ImGui::Dummy({0.f, space::xs});
+    ra_mode_controls(s);
+    end_card();
+}
+// One row of the achievement list: badge, title and type, state or progress,
+// points and rarity. Locked achievements are dimmed.
+bool ra_achievement_row(State& s, const ravenemudsk_ra::Achievement& a, bool hardcore) {
+    constexpr float h = 78.f;
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    ImGui::PushID(a.id.c_str());
+    const bool clicked = ImGui::InvisibleButton("##ra-row", {width, h}, ImGuiButtonFlags_EnableNav);
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered && !a.description.empty()) {
+        // The description and the rarity in words, without opening the sheet.
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.f);
+        ImGui::TextUnformatted(a.description.c_str());
+        if (const auto rarity = ravenemudsk_ra::rarity_sentence(a); !rarity.empty()) muted(rarity.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
     }
-    if(s.ra_tab==2){
-        begin_card("##ra-presence");card_title(s,Icon::Gamepad,"Activité en cours");
-        muted(snap.cached_profile?"Dernière activité mémorisée : actualisez le jeu pour obtenir son état actuel.":
-              "Activité partagée avec RetroAchievements pendant la partie.");
-        ImGui::TextWrapped("%s",snap.rich_presence.empty()?"Aucune activité détaillée disponible pour ce jeu.":snap.rich_presence.c_str());
-        end_card();return;
-    }
-    if (!snap.game_title.empty() && !snap.achievements.empty()) {
-        ImGui::PushFont(s.fonts.title);
-        ImGui::TextUnformatted("Succès du jeu");
-        ImGui::PopFont();
-        const char* labels[] = {"Tous", "À obtenir", "Obtenus"};
-        for (int i=0;i<3;++i) {
-            if (i) ImGui::SameLine(0.f, 6.f);
-            ImGui::PushID(i);
-            if (button(labels[i], Icon::Check,
-                       s.ra_filter==i ? ButtonStyle::Primary : ButtonStyle::Ghost,
-                       {i==1 ? 128.f : 104.f, 36.f}, false)) {
-                s.ra_filter=i;
-                s.ra_visible_count=10;
-            }
-            ImGui::PopID();
-        }
-        ImGui::Dummy({0.f, 6.f});
-        int shown=0;
-        int total=0;
-        for (const auto& a : snap.achievements) {
-            if ((s.ra_filter==1 && a.unlocked) || (s.ra_filter==2 && !a.unlocked))
-                continue;
-            ++total;
-            if (shown++ >= s.ra_visible_count) continue;
-            const ImVec2 pos=ImGui::GetCursorScreenPos();
-            const float width=ImGui::GetContentRegionAvail().x;
-            ImGui::PushID(a.id.c_str());
-            const bool clicked=ImGui::InvisibleButton("##ra-row", {width,75.f});
-            const bool hovered=ImGui::IsItemHovered();
-            auto* d=ImGui::GetWindowDrawList();
-            d->AddRectFilled(pos,{pos.x+width,pos.y+75.f},
-                             hovered ? color::surface_hover : color::surface,radius::md);
-            const auto badge = s.ra_images ? s.ra_images->image(a.badge_url) : nullptr;
-            if (badge)
-                d->AddImageRounded(reinterpret_cast<ImTextureID>(badge),
-                                   {pos.x+12.f,pos.y+15.f},{pos.x+54.f,pos.y+57.f},
-                                   {0,0},{1,1},IM_COL32_WHITE,6.f);
-            else {
-                d->AddRectFilled({pos.x+12.f,pos.y+15.f},
-                                 {pos.x+54.f,pos.y+57.f},color::accent_soft,6.f);
-                draw_ra_brand(s,d,{pos.x+33.f,pos.y+36.f},30.f);
-            }
-            const float right=std::max(110.f,width-230.f);
-            text_at(d,s.fonts.strong,{pos.x+68.f,pos.y+14.f},color::text,
-                    ellipsize(s.fonts.strong,a.title,right));
-            const std::string status=a.unlocked ? "Débloqué" :
-                a.state==3 ? "Non pris en charge" :
-                !a.progress.empty() ? a.progress : "Verrouillé";
-            text_at(d,s.fonts.caption,{pos.x+68.f,pos.y+44.f},color::text_muted,
-                    ellipsize(s.fonts.caption,status,right));
-            const std::string points=std::to_string(a.points)+" pts";
-            text_at(d,s.fonts.caption,
-                    {pos.x+width-18.f-text_width(s.fonts.caption,points.c_str()),pos.y+23.f},
-                    color::accent,points);
-            ImGui::PopID();
-            if (clicked) {
-                s.ra_selected_achievement=a.id;
-                ImGui::OpenPopup("##ra-detail");
-            }
-            ImGui::Dummy({0.f,3.f});
-        }
-        if (total>s.ra_visible_count) {
-            const auto label="Afficher plus ("+std::to_string(total-s.ra_visible_count)+" restants)";
-            if (button(label.c_str(),Icon::Plus,ButtonStyle::Ghost))
-                s.ra_visible_count+=15;
-        }
+    ImGui::PopID();
+    auto* d = ImGui::GetWindowDrawList();
+    d->AddRectFilled(pos, {pos.x + width, pos.y + h}, hovered ? color::surface_hover :
+                     a.unlocked ? color::surface : with_alpha(color::surface, .55f), radius::md);
+    if (a.unlocked) d->AddRectFilled({pos.x, pos.y + 14.f}, {pos.x + 3.f, pos.y + h - 14.f}, color::gold, 2.f);
+    focus_ring(d, pos, {pos.x + width, pos.y + h}, radius::md);
+    const ImVec2 badge_min{pos.x + 14.f, pos.y + 15.f}, badge_max{pos.x + 62.f, pos.y + 63.f};
+    if (auto* badge = s.ra_images ? s.ra_images->image(a.badge_url) : nullptr) {
+        d->AddImageRounded(reinterpret_cast<ImTextureID>(badge), badge_min, badge_max, {0, 0}, {1, 1},
+                           a.unlocked ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 170), 6.f);
     } else {
+        d->AddRectFilled(badge_min, badge_max, a.unlocked ? color::gold_soft : color::elevated, 6.f);
+        draw_icon(d, a.unlocked ? Icon::Trophy : Icon::Lock, {pos.x + 38.f, pos.y + 39.f}, 22.f,
+                  a.unlocked ? color::gold : color::text_faint);
+    }
+    // Points and rarity on the right, then the title fills the remaining width.
+    const std::string points = std::to_string(a.points) + " pts";
+    const std::string rarity = ravenemudsk_ra::format_rarity(hardcore ? a.rarity_hardcore : a.rarity);
+    const float right_w = std::max(text_width(s.fonts.caption, points.c_str()),
+                                   rarity.empty() ? 0.f : text_width(s.fonts.caption, rarity.c_str()));
+    text_at(d, s.fonts.caption, {pos.x + width - 18.f - text_width(s.fonts.caption, points.c_str()), pos.y + 16.f},
+            color::accent, points);
+    if (!rarity.empty())
+        text_at(d, s.fonts.caption, {pos.x + width - 18.f - text_width(s.fonts.caption, rarity.c_str()), pos.y + 42.f},
+                color::text_faint, rarity);
+    const float x = pos.x + 76.f;
+    const float text_w = std::max(80.f, width - 76.f - right_w - 36.f);
+    const char* type = ravenemudsk_ra::achievement_type_label(a.type);
+    const float type_w = type ? pill_size(type, s.fonts.caption).x + space::sm : 0.f;
+    const auto title = ellipsize(s.fonts.strong, a.title, std::max(40.f, text_w - type_w));
+    text_at(d, s.fonts.strong, {x, pos.y + 14.f}, a.unlocked ? color::text : color::text_muted, title);
+    if (type)
+        pill(d, {x + text_width(s.fonts.strong, title.c_str()) + space::sm, pos.y + 14.f}, type,
+             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE ? color::danger :
+             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? color::gold : color::accent, s.fonts.caption);
+    std::string line;
+    if (a.unlocked) {
+        const auto date = ravenemudsk_ra::format_unlock_date(a.unlock_time);
+        line = date.empty() ? "Débloqué" : "Débloqué le " + date;
+    } else if (a.state == RC_CLIENT_ACHIEVEMENT_STATE_DISABLED) line = "Non pris en charge";
+    else if (!a.progress.empty()) line = a.progress;
+    else line = "Verrouillé";
+    line = ellipsize(s.fonts.caption, line, text_w);
+    text_at(d, s.fonts.caption, {x, pos.y + 46.f}, a.unlocked ? color::text_muted : color::text_faint, line);
+    if (!a.unlocked && !a.progress.empty() && a.measured_percent > 0.f) {
+        const float bar_x = x + text_width(s.fonts.caption, line.c_str()) + space::md;
+        const float bar_end = std::min(bar_x + 140.f, x + text_w);
+        if (bar_end - bar_x >= 40.f)
+            progress_bar(d, {bar_x, pos.y + 51.f}, {bar_end, pos.y + 57.f}, a.measured_percent / 100.f, color::accent);
+    }
+    return clicked;
+}
+void ra_achievement_detail(State& s, const ravenemudsk_ra::Snapshot& snap) {
+    if (!ImGui::BeginPopupModal("##ra-detail", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    const auto it = std::find_if(snap.achievements.begin(), snap.achievements.end(),
+        [&](const ravenemudsk_ra::Achievement& a) { return a.id == s.ra_selected_achievement; });
+    if (it == snap.achievements.end()) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const auto& a = *it;
+    ImGui::PushFont(s.fonts.title);
+    ImGui::TextUnformatted(a.title.c_str());
+    ImGui::PopFont();
+    if (const char* type = ravenemudsk_ra::achievement_type_label(a.type)) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        pill(ImGui::GetWindowDrawList(), p, type, a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE ? color::danger :
+             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? color::gold : color::accent, s.fonts.caption);
+        ImGui::Dummy(pill_size(type, s.fonts.caption));
+        if (a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE) muted("Peut devenir impossible à obtenir si un moment du jeu est passé.");
+    }
+    if (SDL_Texture* badge = s.ra_images ? s.ra_images->image(a.badge_url) : nullptr)
+        ImGui::Image(reinterpret_cast<ImTextureID>(badge), {88.f, 88.f});
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.f);
+    ImGui::TextWrapped("%s", a.description.c_str());
+    ImGui::Dummy({0.f, space::xs});
+    ImGui::Text("%d points", a.points);
+    if (a.unlocked) {
+        const auto date = ravenemudsk_ra::format_unlock_date(a.unlock_time);
+        ImGui::TextUnformatted(date.empty() ? "Débloqué" : ("Débloqué le " + date).c_str());
+    } else if (!a.progress.empty()) {
+        ImGui::Text("Progression : %s", a.progress.c_str());
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        progress_bar(ImGui::GetWindowDrawList(), p, {p.x + 260.f, p.y + 6.f}, a.measured_percent / 100.f, color::accent);
+        ImGui::Dummy({260.f, 12.f});
+    } else {
+        ImGui::TextUnformatted(a.state == RC_CLIENT_ACHIEVEMENT_STATE_DISABLED ? "Non pris en charge par l'émulateur" : "À obtenir");
+    }
+    if (const auto rarity = ravenemudsk_ra::rarity_sentence(a); !rarity.empty()) muted(rarity.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy({0.f, space::xs});
+    if (button("Fermer", Icon::Close, ButtonStyle::Secondary)) ImGui::CloseCurrentPopup();
+    ImGui::SameLine();
+    const bool digits = !a.id.empty() && std::all_of(a.id.begin(), a.id.end(), [](unsigned char c) { return c >= '0' && c <= '9'; });
+    if (digits && button("Voir sur le site", Icon::Info, ButtonStyle::Secondary))
+        open_url(s, "https://retroachievements.org/achievement/" + a.id);
+    ImGui::EndPopup();
+}
+void ra_achievement_list(State& s, const ravenemudsk_ra::Snapshot& snap) {
+    if (snap.game_title.empty() || snap.achievements.empty()) {
         begin_card("##ra-no-game");
-        card_title(s,Icon::Gamepad,"Succès du jeu");
-        muted(snap.logged_in ? "Aucun jeu reconnu pour le moment." :
+        card_title(s, Icon::Gamepad, "Succès du jeu");
+        muted(snap.logged_in || snap.cached_profile ? "Aucun jeu reconnu pour le moment." :
               "Connectez-vous pour retrouver les succès officiels.");
         end_card();
+        return;
     }
-    // One dialog for all achievements, like RavenEmu's detail sheet.
-    if (ImGui::BeginPopupModal("##ra-detail",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
-        const auto it=std::find_if(snap.achievements.begin(),snap.achievements.end(),
-            [&](const ravenemudsk_ra::Achievement& a){return a.id==s.ra_selected_achievement;});
-        if (it==snap.achievements.end()) {
-            ImGui::CloseCurrentPopup();
-        } else {
-            ImGui::PushFont(s.fonts.title);
-            ImGui::TextUnformatted(it->title.c_str());
-            ImGui::PopFont();
-            SDL_Texture* badge=s.ra_images ? s.ra_images->image(it->badge_url) : nullptr;
-            if (badge)ImGui::Image(reinterpret_cast<ImTextureID>(badge),{88.f,88.f});
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()+430.f);
-            ImGui::TextWrapped("%s",it->description.c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::Text("%d points  |  %s",it->points,it->unlocked ? "Débloqué" : "À obtenir");
-            if (button("Fermer",Icon::Close,ButtonStyle::Secondary))
-                ImGui::CloseCurrentPopup();
-            ImGui::SameLine();
-            const bool digits=!it->id.empty() && std::all_of(it->id.begin(),it->id.end(),
-                [](unsigned char c){return c>='0' && c<='9';});
-            if (digits && button("Voir sur le site",Icon::Info,ButtonStyle::Secondary)) {
-                const auto url="https://retroachievements.org/achievement/"+it->id;
-                if (SDL_OpenURL(url.c_str())!=0)
-                    notify(s,Toast::Kind::Error,"Ouverture du navigateur impossible",SDL_GetError());
+    // Search and sort on one line, then the filters with their counts.
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::SetNextItemWidth(std::clamp(w - 220.f - space::sm, 160.f, 360.f));
+    if (ImGui::InputTextWithHint("##ra-search", "Rechercher un succès", s.ra_search, sizeof(s.ra_search)))
+        s.ra_visible_count = 10;
+    ImGui::SameLine(0.f, space::sm);
+    ImGui::SetNextItemWidth(220.f);
+    s.ra_sort = std::clamp(s.ra_sort, 0, static_cast<int>(ravenemudsk_ra::achievement_sort_labels.size()) - 1);
+    const std::string sort_preview = std::string("Tri : ") + ravenemudsk_ra::achievement_sort_labels[static_cast<std::size_t>(s.ra_sort)];
+    if (ImGui::BeginCombo("##ra-sort", sort_preview.c_str())) {
+        for (int i = 0; i < static_cast<int>(ravenemudsk_ra::achievement_sort_labels.size()); ++i)
+            if (ImGui::Selectable(ravenemudsk_ra::achievement_sort_labels[static_cast<std::size_t>(i)], s.ra_sort == i)) {
+                s.ra_sort = i;
+                s.ra_visible_count = 10;
             }
-        }
-        ImGui::EndPopup();
+        ImGui::EndCombo();
     }
+    ImGui::Dummy({0.f, space::xs});
+    const auto counts = ravenemudsk_ra::count_achievements(snap.achievements, s.ra_search);
+    const std::array<std::string, 3> labels{"Tous (" + std::to_string(counts.all) + ")",
+        "À obtenir (" + std::to_string(counts.locked) + ")", "Obtenus (" + std::to_string(counts.unlocked) + ")"};
+    const char* filters[] = {labels[0].c_str(), labels[1].c_str(), labels[2].c_str()};
+    if (chips("##ra-filter", filters, 3, &s.ra_filter)) s.ra_visible_count = 10;
+    ImGui::Dummy({0.f, space::sm});
+    const auto list = ravenemudsk_ra::list_achievements(snap.achievements, s.ra_search,
+        static_cast<ravenemudsk_ra::AchievementFilter>(std::clamp(s.ra_filter, 0, 2)),
+        static_cast<ravenemudsk_ra::AchievementSort>(s.ra_sort), snap.game_hardcore);
+    if (list.empty()) muted("Aucun succès ne correspond à cette recherche.");
+    const int total = static_cast<int>(list.size());
+    for (int i = 0; i < std::min(total, s.ra_visible_count); ++i) {
+        if (ra_achievement_row(s, *list[static_cast<std::size_t>(i)], snap.game_hardcore)) {
+            s.ra_selected_achievement = list[static_cast<std::size_t>(i)]->id;
+            ImGui::OpenPopup("##ra-detail");
+        }
+    }
+    if (total > s.ra_visible_count) {
+        const auto label = "Afficher plus (" + std::to_string(total - s.ra_visible_count) + " restants)";
+        if (button(label.c_str(), Icon::Plus, ButtonStyle::Ghost)) s.ra_visible_count += 15;
+    }
+    ra_achievement_detail(s, snap);
+}
+void ra_sections(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap) {
+    const char* tabs[] = {"Succès", "Classements", "Activité"};
+    chips("##ra-sections", tabs, 3, &s.ra_tab);
+    ImGui::Dummy({0.f, space::sm});
+    if (s.ra_tab == 1) {
+        begin_card("##ra-leaderboards");
+        card_title(s, Icon::Trophy, "Classements");
+        muted("Les scores sont envoyés en mode Hardcore.");
+        draw_leaderboards(ra, snap, s.fonts);
+        end_card();
+    } else if (s.ra_tab == 2) {
+        begin_card("##ra-presence");
+        card_title(s, Icon::Gamepad, "Activité en cours");
+        muted(snap.cached_profile ? "Dernière activité mémorisée : actualisez le jeu pour obtenir son état actuel." :
+              "Activité partagée avec RetroAchievements pendant la partie.");
+        ImGui::TextWrapped("%s", snap.rich_presence.empty() ? "Aucune activité détaillée disponible pour ce jeu." :
+                           snap.rich_presence.c_str());
+        end_card();
+    } else {
+        ra_achievement_list(s, snap);
+    }
+}
+// The account stays on top; below, the game and the mode on the left and the
+// achievements on the right, side by side when the window is wide enough.
+void achievements_view(State& s, Library&) {
+    auto& ra = retro_client(s);
+    const auto snap = profile_snapshot(s);
+    if (snap.logged_in) ra_account_header(s, ra, snap);
+    else ra_sign_in_card(s, ra, snap);
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const bool columns = avail >= 900.f;
+    const float left = columns ? std::clamp(avail * .32f, 300.f, 380.f) : 0.f;
+    if (columns) ImGui::BeginGroup();
+    ra_game_card(s, snap, left);
+    ra_mode_card(s, left);
+    if (columns) {
+        ImGui::EndGroup();
+        ImGui::SameLine(0.f, space::lg);
+        ImGui::BeginGroup();
+    }
+    ra_sections(s, ra, snap);
+    if (columns) ImGui::EndGroup();
+    ra_disconnect_dialog(s, ra);
 }
 void ra_mode_controls(State& s) {
     auto& client=retro_client(s);const auto snap=client.snapshot();
     bool hardcore=snap.hardcore_preferred;
-    ImGui::PushStyleColor(ImGuiCol_FrameBg,ImGui::ColorConvertU32ToFloat4(color::elevated));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    if(ImGui::Checkbox("Mode Hardcore",&hardcore)){
+    if(toggle("##ra-hardcore",&hardcore)){
         client.set_hardcore(hardcore);
         s.settings.set_flag("ra_hardcore",client.snapshot().hardcore_preferred);save_settings(s);
     }
-    ImGui::PopStyleColor(2);
+    ImGui::SameLine(0.f,space::md);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Mode Hardcore");
     ImGui::PushFont(s.fonts.caption);
     if(snap.hardcore)ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::gold),"Hardcore actif");
     else if(snap.hardcore_preferred)muted("Hardcore sélectionné : une connexion et un coffre système sont nécessaires.");
@@ -1039,7 +1223,7 @@ void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     ImGui::EndDisabled();
     if (snap.can_retry) {
         if (!snap.login_pending && button("Réessayer", Icon::Reset, ButtonStyle::Secondary)) ra.retry();
-        if (button("Oublier la session", Icon::Exit, ButtonStyle::Ghost)) ra.disconnect();
+        if (button("Oublier la session", Icon::Exit, ButtonStyle::Ghost)) s.ra_confirm_disconnect = true;
     }
     muted("Le mot de passe n'est jamais enregistré. La session peut être mémorisée dans le coffre de votre système.");
 }

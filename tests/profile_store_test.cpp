@@ -23,6 +23,11 @@ int main() {
     require(loaded.achievements[0].progress.empty() && loaded.softcore_points==23);
     require(loaded.game_hardcore&&!loaded.hardcore&&loaded.game_hash==s.game_hash&&loaded.rich_presence==s.rich_presence);
     require(loaded.leaderboards.size()==1&&loaded.leaderboards[0].id==4401&&!loaded.hardcore_preferred);
+    // Version 4 keeps each achievement's unlock date, type and rarity.
+    s.achievements.push_back({"124","Missable","","","",10,2,0.f,true,1700000000,1,12.5f,3.25f});
+    require(store->save(s)&&store->load("TestUser",loaded)&&loaded.achievements.size()==2);
+    const auto& kept=loaded.achievements[1];
+    require(kept.unlocked&&kept.unlock_time==1700000000&&kept.type==1&&kept.rarity==12.5f&&kept.rarity_hardcore==3.25f);
     require(!store->load("AnotherUser",loaded));
     s.total_count=0;s.achievements.clear();s.game_title="Changed";require(store->save(s));
     require(store->load("TestUser",loaded) && loaded.game_title=="Changed");
@@ -46,6 +51,13 @@ int main() {
     for(const auto& entry:fs::directory_iterator(root)) if(entry.is_regular_file())file=entry.path();
     {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile1\n\"TestUser\" \"Legacy\" \"\" 0 0 \"Legacy game\" 0 0 0 0 0\n";}
     require(store->load("TestUser",loaded) && loaded.game_title=="Legacy game" && loaded.rom_path.empty());
+    {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile3\n\"TestUser\" \"Legacy\" \"\" 0 0 \"Legacy game\" 0 1 0 5 1 \"\" 0 \"\" \"\" 0\n"
+        "\"7\" \"Old\" \"Desc\" \"\" 5 0\n";}
+    require(store->load("TestUser",loaded) && loaded.achievements.size()==1 && loaded.achievements[0].unlock_time==0 &&
+        loaded.achievements[0].type==0 && loaded.achievements[0].rarity==0.f);
+    {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile4\n\"TestUser\" \"Bad\" \"\" 0 0 \"Game\" 0 1 0 5 1 \"\" 0 \"\" \"\" 0\n"
+        "\"7\" \"Old\" \"Desc\" \"\" 5 0 0 9 0 0\n";}
+    require(!store->load("TestUser",loaded)); // Unknown achievement type.
     {std::ofstream out(file,std::ios::trunc);out<<"RavenEmuProfile1\n\"OtherUser\"";}
     require(!store->load("TestUser",loaded));
     require(store->clear("TestUser") && store->clear("TestUser"));

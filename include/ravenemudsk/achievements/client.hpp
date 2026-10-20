@@ -20,6 +20,9 @@ struct Achievement {
     int state = 0;
     float measured_percent = 0.f;
     bool unlocked = false;
+    std::int64_t unlock_time = 0; // Unix seconds of the account's unlock; 0 when locked or unknown.
+    int type = 0;                 // RC_CLIENT_ACHIEVEMENT_TYPE_*: standard, missable, progression, win.
+    float rarity = 0.f, rarity_hardcore = 0.f; // Percent of players, as reported by the server.
 };
 struct Leaderboard { std::uint32_t id=0; std::string title,description; };
 struct RankingEntry { std::uint32_t rank=0; std::string username,score; bool current_user=false; };

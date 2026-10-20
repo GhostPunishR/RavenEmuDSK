@@ -756,7 +756,8 @@ struct Client::Impl {
                         a->measured_progress ? a->measured_progress : "",
                         badge(*a,unlocked), static_cast<int>(a->points),
                         unlocked?RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED:static_cast<int>(a->state), a->measured_percent,
-                        unlocked});
+                        unlocked, unlocked?static_cast<std::int64_t>(a->unlock_time):0,
+                        static_cast<int>(a->type), a->rarity, a->rarity_hardcore});
                 }
             }
             rc_client_destroy_achievement_list(list);

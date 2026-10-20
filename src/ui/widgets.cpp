@@ -283,6 +283,23 @@ bool chips(const char* id, const char* const* labels, int count, int* selected) 
     return changed;
 }
 
+bool toggle(const char* id, bool* value) {
+    constexpr float w = 44.f, h = 24.f;
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(id, {w, h}, ImGuiButtonFlags_EnableNav);
+    if (pressed) *value = !*value;
+    const bool hovered = ImGui::IsItemHovered();
+    auto* d = ImGui::GetWindowDrawList();
+    const ImVec2 max{pos.x + w, pos.y + h};
+    d->AddRectFilled(pos, max, *value ? color::accent : hovered ? color::surface_hover : color::elevated, h * .5f);
+    d->AddRect(pos, max, *value ? color::accent_hover : color::border_strong, h * .5f);
+    const float r = h * .5f - 4.f;
+    d->AddCircleFilled({*value ? max.x - 4.f - r : pos.x + 4.f + r, pos.y + h * .5f}, r,
+                       *value ? IM_COL32_WHITE : color::text_muted, 24);
+    focus_ring(d, pos, max, h * .5f);
+    return pressed;
+}
+
 ImVec2 pill_size(const char* text, ImFont* font) {
     const ImVec2 t = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.f, text);
     return {t.x + space::md * 1.5f, t.y + space::xs * 1.5f};
