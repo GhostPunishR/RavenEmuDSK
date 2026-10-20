@@ -873,16 +873,7 @@ void ra_disconnect_dialog(State& s, ravenemudsk_ra::Client& ra) {
     ImGui::EndPopup();
 }
 // Connection state and unsent submissions, as pills after the account name.
-void ra_status_pills(State& s, ImDrawList* d, ImVec2 p, const ravenemudsk_ra::Snapshot& snap) {
-    const char* state = snap.login_pending ? "Connexion…" : snap.online ? "Connecté" : "Hors ligne";
-    const ImU32 tint = snap.login_pending ? color::accent : snap.online ? color::success : color::gold;
-    pill(d, p, state, tint, s.fonts.caption);
-    if (!snap.pending_submissions) return;
-    const std::string pending = std::to_string(snap.pending_submissions) +
-        (snap.pending_submissions > 1 ? " envois en attente" : " envoi en attente");
-    pill(d, {p.x + pill_size(state, s.fonts.caption).x + space::sm, p.y}, pending.c_str(), color::gold, s.fonts.caption);
-}
-// Same header on every tab: avatar, name, points, state and account actions.
+// Same header on every tab: avatar, name, points and account actions, all as text.
 void ra_account_header(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap) {
     begin_card("##ra-account");
     auto* d = ImGui::GetWindowDrawList();
@@ -901,12 +892,10 @@ void ra_account_header(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_r
     text_at(d, s.fonts.title, {x, p.y + 2.f}, color::text, ellipsize(s.fonts.title, ra_name(snap), text_w));
     const auto handle = ellipsize(s.fonts.caption, "@" + snap.username, text_w * .5f);
     text_at(d, s.fonts.caption, {x, p.y + 30.f}, color::text_muted, handle);
-    ra_status_pills(s, d, {x + text_width(s.fonts.caption, handle.c_str()) + space::md, p.y + 27.f}, snap);
-    const std::string hardcore = std::to_string(snap.hardcore_points) + " points Hardcore";
-    const std::string softcore = std::to_string(snap.softcore_points) + " points Softcore";
-    pill(d, {x, p.y + 50.f}, hardcore.c_str(), color::gold, s.fonts.caption);
-    pill(d, {x + pill_size(hardcore.c_str(), s.fonts.caption).x + space::sm, p.y + 50.f}, softcore.c_str(),
-         color::accent, s.fonts.caption);
+    // Same wording and order as the home banner: Softcore, then Hardcore.
+    const auto points = std::to_string(snap.softcore_points) + " points Softcore  |  " +
+        std::to_string(snap.hardcore_points) + " points Hardcore";
+    text_at(d, s.fonts.caption, {x, p.y + 50.f}, color::text_muted, ellipsize(s.fonts.caption, points, text_w));
     const ImVec2 after = {p.x, p.y + 82.f};
     if (inline_actions) ImGui::SetCursorScreenPos({p.x + w - actions, p.y + 4.f});
     else ImGui::SetCursorScreenPos(after);
@@ -923,9 +912,13 @@ void ra_account_header(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_r
     if (button("Déconnexion", Icon::Exit, ButtonStyle::Ghost)) s.ra_confirm_disconnect = true;
     ImGui::SetCursorScreenPos(inline_actions ? after : ImVec2{p.x, ImGui::GetCursorScreenPos().y + space::xs});
     muted(snap.status.c_str());
-    if (snap.pending_submissions)
-        muted(snap.durable_submissions ? "Les envois en attente sont conservés après fermeture." :
-              "Gardez l'application ouverte jusqu'à l'envoi des succès en attente.");
+    if (snap.pending_submissions) {
+        const auto n = snap.pending_submissions;
+        const auto pending = std::to_string(n) + (n > 1 ? " envois en attente" : " envoi en attente") +
+            (snap.durable_submissions ? (n > 1 ? " : ils sont conservés après fermeture." : " : il est conservé après fermeture.") :
+             " : gardez l'application ouverte jusqu'à leur envoi.");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::gold), "%s", pending.c_str());
+    }
     if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu'à une minute.");
     if (!snap.online || snap.game_status == ravenemudsk_ra::GameStatus::Offline) {
         if (button("Réessayer", Icon::Reset, ButtonStyle::Secondary)) ra.retry();
@@ -946,8 +939,8 @@ void ra_sign_in_card(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra:
         snap.durable_submissions ? ", conservés après fermeture." : " : gardez l'application ouverte pour synchroniser.");
     if (snap.reconnect_scheduled) muted("Nouvelle tentative automatique, avec un délai croissant jusqu'à une minute.");
     if (snap.cached_profile)
-        ImGui::Text("@%s : %u points Hardcore, %u points Softcore (mémorisés)", snap.username.c_str(),
-                    snap.hardcore_points, snap.softcore_points);
+        ImGui::Text("@%s : %u points Softcore, %u points Hardcore (mémorisés)", snap.username.c_str(),
+                    snap.softcore_points, snap.hardcore_points);
     ImGui::Dummy({0.f, space::xs});
     muted("Connectez votre compte pour obtenir les succès officiels pendant vos parties Game Boy, Game Boy Color et Game Boy Advance.");
     ra_login_controls(s, ra);
@@ -1042,14 +1035,8 @@ bool ra_achievement_row(State& s, const ravenemudsk_ra::Achievement& a, bool har
                 color::text_faint, rarity);
     const float x = pos.x + 76.f;
     const float text_w = std::max(80.f, width - 76.f - right_w - 36.f);
-    const char* type = ravenemudsk_ra::achievement_type_label(a.type);
-    const float type_w = type ? pill_size(type, s.fonts.caption).x + space::sm : 0.f;
-    const auto title = ellipsize(s.fonts.strong, a.title, std::max(40.f, text_w - type_w));
+    const auto title = ellipsize(s.fonts.strong, a.title, std::max(40.f, text_w));
     text_at(d, s.fonts.strong, {x, pos.y + 14.f}, a.unlocked ? color::text : color::text_muted, title);
-    if (type)
-        pill(d, {x + text_width(s.fonts.strong, title.c_str()) + space::sm, pos.y + 14.f}, type,
-             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE ? color::danger :
-             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? color::gold : color::accent, s.fonts.caption);
     std::string line;
     ImU32 line_color = a.unlocked ? color::text_muted : color::text_faint;
     if (a.unlocked) {
@@ -1089,10 +1076,7 @@ void ra_achievement_detail(State& s, const ravenemudsk_ra::Snapshot& snap) {
     ImGui::TextUnformatted(a.title.c_str());
     ImGui::PopFont();
     if (const char* type = ravenemudsk_ra::achievement_type_label(a.type)) {
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        pill(ImGui::GetWindowDrawList(), p, type, a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE ? color::danger :
-             a.type == RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? color::gold : color::accent, s.fonts.caption);
-        ImGui::Dummy(pill_size(type, s.fonts.caption));
+        muted((std::string("Type : ") + type).c_str());
         if (a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE) muted("Peut devenir impossible à obtenir si un moment du jeu est passé.");
     }
     if (SDL_Texture* badge = s.ra_images ? s.ra_images->image(a.badge_url) : nullptr)
@@ -1243,12 +1227,12 @@ bool ra_game_row(State& s, const ravenemudsk_ra::GameProgress& g) {
             color::text_faint, mode);
     const float x = pos.x + 76.f;
     const float text_w = std::max(80.f, width - 76.f - right_w - 36.f);
-    const float done_w = done ? pill_size(done, s.fonts.caption).x + space::sm : 0.f;
+    const float done_w = done ? text_width(s.fonts.caption, done) + space::md : 0.f;
     const auto title = ellipsize(s.fonts.strong, g.title, std::max(40.f, text_w - done_w));
     text_at(d, s.fonts.strong, {x, pos.y + 10.f}, color::text, title);
     if (done)
-        pill(d, {x + text_width(s.fonts.strong, title.c_str()) + space::sm, pos.y + 10.f}, done,
-             g.hardcore ? color::gold : color::accent, s.fonts.caption);
+        text_at(d, s.fonts.caption, {x + text_width(s.fonts.strong, title.c_str()) + space::md, pos.y + 12.f},
+                g.hardcore ? color::gold : color::accent, done);
     const auto line = ellipsize(s.fonts.caption, std::to_string(g.unlocked) + " / " + std::to_string(g.total) +
         " succès \xC2\xB7 " + std::to_string(g.points) + " / " + std::to_string(g.total_points) + " points", text_w);
     text_at(d, s.fonts.caption, {x, pos.y + 34.f}, color::text_muted, line);
