@@ -224,22 +224,18 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                     default:break;
                 }
             }
-            // Back and Start together open or close the menu, and neither reaches
-            // the game. The Guide button stays with the system: Windows opens
-            // the Xbox Game Bar on it (Steam its overlay), which would show too.
-            if(pad && e.type==SDL_CONTROLLERBUTTONDOWN &&
-               SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cbutton.which &&
-               (e.cbutton.button==SDL_CONTROLLER_BUTTON_START||e.cbutton.button==SDL_CONTROLLER_BUTTON_BACK) &&
-               SDL_GameControllerGetButton(pad.get(),e.cbutton.button==SDL_CONTROLLER_BUTTON_START?
-                   SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START)) {
+            // Back and Start together, in either order, open or close the menu,
+            // and neither reaches the game. The Guide button stays with the
+            // system: Windows opens the Xbox Game Bar on it (Steam its overlay),
+            // which would show too.
+            input.set_menu_open(overlay.menu_open()||paused);
+            if(input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
                 if(overlay.menu_open())overlay.close_menu();
                 else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())overlay.open_menu(true);
                 input.release_all();
-                continue;
             }
-            input.set_menu_open(overlay.menu_open()||paused);
-            input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
         }
+        input.update(SDL_GetTicks());
         const auto now=Clock::now();
         const auto ra_status=ravenemudsk_ra::client().snapshot();
         const bool waiting=ra_status.hardcore_preferred && (!ra_status.logged_in ||

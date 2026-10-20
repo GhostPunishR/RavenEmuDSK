@@ -64,6 +64,54 @@ int main() {
     input.process_event(event);
     require(!buttons[RAVENEMU_A], "Losing focus must release held input");
 
+    // Select + Start, in either order, is the menu chord: the game sees neither.
+    {
+        std::array<bool, RAVENEMU_R + 1> game{};
+        ravenemudsk_ui::GameInput chord([&](int button, bool pressed) { game.at(button) = pressed; });
+        auto pad = [&](Uint8 button, bool down, Uint32 at) {
+            SDL_Event e{};
+            e.type = down ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+            e.cbutton.which = 3;
+            e.cbutton.button = button;
+            e.cbutton.timestamp = at;
+            return chord.process_event(e, 3);
+        };
+        constexpr Uint8 start = SDL_CONTROLLER_BUTTON_START, select = SDL_CONTROLLER_BUTTON_BACK;
+        require(!pad(start, true, 1000), "Start alone is not the chord");
+        chord.update(1100);
+        require(!game[RAVENEMU_START], "Start reached the game before Select could join it");
+        require(pad(select, true, 1120), "Start then Select must open the menu");
+        chord.update(1400);
+        require(!game[RAVENEMU_START] && !game[RAVENEMU_SELECT], "The chord's buttons reached the game");
+        require(!pad(start, false, 1500) && !pad(select, false, 1510), "Releasing the chord is not a chord");
+        chord.update(1700);
+        require(!game[RAVENEMU_START] && !game[RAVENEMU_SELECT], "Releasing the chord sent a button to the game");
+
+        require(!pad(select, true, 2000) && pad(start, true, 2040), "Select then Start must open the menu");
+        pad(select, false, 2100); pad(start, false, 2110);
+        chord.update(2400);
+        require(!game[RAVENEMU_START] && !game[RAVENEMU_SELECT], "Select then Start reached the game");
+
+        // A Start held on its own reaches the game once the window has passed.
+        pad(start, true, 3000);
+        chord.update(3000 + ravenemudsk_ui::GameInput::chord_window_ms - 1);
+        require(!game[RAVENEMU_START], "Start was sent before the end of the chord window");
+        chord.update(3000 + ravenemudsk_ui::GameInput::chord_window_ms);
+        require(game[RAVENEMU_START], "A held Start never reached the game");
+        // Select joining late still opens the menu and takes Start back.
+        require(pad(select, true, 3600) && !game[RAVENEMU_START], "A late chord left Start held in the game");
+        pad(start, false, 3700); pad(select, false, 3710);
+
+        // A quick tap is sent on release and kept long enough for a frame.
+        pad(start, true, 4000);
+        pad(start, false, 4060);
+        require(game[RAVENEMU_START], "A quick Start tap was lost");
+        chord.update(4060 + ravenemudsk_ui::GameInput::tap_ms - 1);
+        require(game[RAVENEMU_START], "A quick tap was released before the game could see it");
+        chord.update(4060 + ravenemudsk_ui::GameInput::tap_ms);
+        require(!game[RAVENEMU_START], "A quick tap stayed held");
+    }
+
     using namespace ravenemudsk_ui;
     const auto file=std::filesystem::temp_directory_path()/("raven-keys-"+
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".txt");

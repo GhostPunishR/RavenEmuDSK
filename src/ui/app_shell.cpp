@@ -90,6 +90,7 @@ struct State {
     int tv_category = 0;
     int tv_index = 0;
     float tv_scroll = 0.f;    // animated towards tv_index
+    int tv_menu = -1;         // TV menu: highlighted entry, -1 while closed
     bool focus_search = false;
     std::optional<LaunchRequest> launch;
     Fonts fonts;
@@ -1508,6 +1509,7 @@ std::vector<int> tv_games(const Library& lib, int category) {
 // `remember` stores the mode so that the next launch reopens it.
 void set_tv(State& s, bool on, bool remember) {
     s.tv = on;
+    s.tv_menu = -1;
     if (s.window) SDL_SetWindowFullscreen(s.window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
     // TV mode is driven by the controller or the keyboard: no mouse, no cursor.
     if (ImGui::GetCurrentContext()) {
@@ -1551,26 +1553,78 @@ float hint_key(ImDrawList* d, float x, float cy, const std::optional<PadFamily>&
     if (!d) return std::max(ts.y + 10.f, ts.x + 20.f);
     return key_glyph(d, {x, cy - (ts.y + 10.f) * .5f}, key, fonts.caption);
 }
+// TV menu over the carousel: back to it, desktop mode, or quit.
+void tv_menu_panel(State& s, ImDrawList* d, ImVec2 screen, bool input) {
+    struct Entry { Icon icon; const char* label; };
+    static constexpr Entry entries[] = {
+        {Icon::Play, "Reprendre"}, {Icon::Restore, "Mode bureau"}, {Icon::Exit, "Quitter RavenEmu"}};
+    constexpr int count = static_cast<int>(sizeof(entries) / sizeof(entries[0]));
+    if (input) {
+        if (pressed({ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadLStickUp}, true))
+            s.tv_menu = (s.tv_menu + count - 1) % count;
+        if (pressed({ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadLStickDown}, true))
+            s.tv_menu = (s.tv_menu + 1) % count;
+        if (pressed({ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadStart, ImGuiKey_Escape, ImGuiKey_Backspace}, false)) {
+            s.tv_menu = -1;
+            return;
+        }
+        if (pressed({ImGuiKey_GamepadFaceDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter}, false)) {
+            const int choice = s.tv_menu;
+            s.tv_menu = -1;
+            if (choice == 1) set_tv(s, false);
+            if (choice == 2) { s.launch.reset(); s.done = true; }
+            return;
+        }
+    }
+    d->AddRectFilled({0, 0}, screen, with_alpha(color::background, .78f));
+    const float w = std::min(560.f, screen.x - 64.f), row = 68.f;
+    const float h = 104.f + count * row + 76.f;
+    const ImVec2 a{(screen.x - w) * .5f, (screen.y - h) * .5f}, b{a.x + w, a.y + h};
+    d->AddRectFilled({a.x, a.y + 12.f}, {b.x, b.y + 12.f}, color::shadow, radius::lg);
+    d->AddRectFilled(a, b, color::elevated, radius::lg);
+    d->AddRect(a, b, color::border_strong, radius::lg);
+    text_at(d, s.fonts.tv_title, {a.x + 36.f, a.y + 32.f}, color::text, "Menu");
+    for (int i = 0; i < count; ++i) {
+        const ImVec2 ra{a.x + 20.f, a.y + 100.f + i * row}, rb{b.x - 20.f, a.y + 100.f + i * row + row - 8.f};
+        const bool on = i == s.tv_menu;
+        if (on) d->AddRectFilled(ra, rb, color::accent, radius::md);
+        const float mid = (ra.y + rb.y) * .5f;
+        draw_icon(d, entries[i].icon, {ra.x + 36.f, mid}, 24.f, on ? IM_COL32_WHITE : color::accent_hover);
+        text_at(d, s.fonts.tv_body, {ra.x + 68.f, mid - s.fonts.tv_body->FontSize * .5f - 2.f},
+                on ? IM_COL32_WHITE : color::text, entries[i].label);
+    }
+    const auto controller = connected_pad();
+    float hx = a.x + 36.f;
+    const float hy = b.y - 52.f;
+    hx += hint_key(d, hx, hy + 14.f, controller, PadButton::South, "Entrée", s.fonts) + 8.f;
+    text_at(d, s.fonts.tv_body, {hx + 4.f, hy + 2.f}, color::text_muted, "Choisir");
+    hx += text_width(s.fonts.tv_body, "Choisir") + 44.f;
+    hx += hint_key(d, hx, hy + 14.f, controller, PadButton::East, "Échap", s.fonts) + 8.f;
+    text_at(d, s.fonts.tv_body, {hx + 4.f, hy + 2.f}, color::text_muted, "Retour");
+}
 void tv_view(State& s, Library& lib) {
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 screen = io.DisplaySize;
     auto* d = ImGui::GetWindowDrawList();
-    if (pressed({ImGuiKey_GamepadStart, ImGuiKey_Escape}, false)) {
-        set_tv(s, false);
-        return;
-    }
+    // Start opens the TV menu, also with Select held as in a game; leaving TV
+    // mode is one of its entries, never a single press.
+    const bool menu_was_open = s.tv_menu >= 0;
+    if (!menu_was_open && pressed({ImGuiKey_GamepadStart, ImGuiKey_Escape}, false)) s.tv_menu = 0;
+    const bool browsing = s.tv_menu < 0;
     const int previous = s.tv_category;
-    if (pressed({ImGuiKey_GamepadL1, ImGuiKey_Q, ImGuiKey_PageUp}, false))
+    if (browsing && pressed({ImGuiKey_GamepadL1, ImGuiKey_Q, ImGuiKey_PageUp}, false))
         s.tv_category = (s.tv_category + tv_category_count - 1) % tv_category_count;
-    if (pressed({ImGuiKey_GamepadR1, ImGuiKey_E, ImGuiKey_PageDown}, false))
+    if (browsing && pressed({ImGuiKey_GamepadR1, ImGuiKey_E, ImGuiKey_PageDown}, false))
         s.tv_category = (s.tv_category + 1) % tv_category_count;
     if (s.tv_category != previous) { s.tv_index = 0; s.tv_scroll = 0.f; }
     const auto ids = tv_games(lib, s.tv_category);
     const int count = static_cast<int>(ids.size());
-    if (pressed({ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadLStickLeft}, true)) --s.tv_index;
-    if (pressed({ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadLStickRight}, true)) ++s.tv_index;
-    if (io.MouseWheel > 0.f) --s.tv_index;
-    if (io.MouseWheel < 0.f) ++s.tv_index;
+    if (browsing) {
+        if (pressed({ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadLStickLeft}, true)) --s.tv_index;
+        if (pressed({ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadLStickRight}, true)) ++s.tv_index;
+        if (io.MouseWheel > 0.f) --s.tv_index;
+        if (io.MouseWheel < 0.f) ++s.tv_index;
+    }
     s.tv_index = std::clamp(s.tv_index, 0, std::max(0, count - 1));
     s.tv_scroll += (static_cast<float>(s.tv_index) - s.tv_scroll) * std::min(1.f, io.DeltaTime * 12.f);
     const Game* game = count ? &lib.games()[static_cast<std::size_t>(ids[static_cast<std::size_t>(s.tv_index)])] : nullptr;
@@ -1626,7 +1680,7 @@ void tv_view(State& s, Library& lib) {
         if (on) d->AddRectFilled({tx, ty}, {tx + w, ty + 44.f}, color::accent, 22.f);
         text_at(d, s.fonts.tv_body, {tx + tab_pad, ty + 9.f}, on ? IM_COL32_WHITE : color::text_muted,
                 tv_categories[i]);
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+        if (browsing && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
             ImGui::IsMouseHoveringRect({tx, ty}, {tx + w, ty + 44.f})) {
             s.tv_category = i; s.tv_index = 0; s.tv_scroll = 0.f;
         }
@@ -1667,7 +1721,7 @@ void tv_view(State& s, Library& lib) {
         } else {
             d->AddRectFilled(a, b, with_alpha(color::background, .5f * (1.f - t)), radius::lg);
         }
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(a, b)) {
+        if (browsing && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsMouseHoveringRect(a, b)) {
             if (i == s.tv_index) launch_now = true;
             else s.tv_index = i;
         }
@@ -1690,7 +1744,7 @@ void tv_view(State& s, Library& lib) {
     const Hint hints[] = {
         {1, {PadButton::South, PadButton::South}, {"Entrée", nullptr}, "Jouer"},
         {2, {PadButton::LeftShoulder, PadButton::RightShoulder}, {"Q", "E"}, "Catégorie"},
-        {1, {PadButton::Start, PadButton::Start}, {"Échap", nullptr}, "Mode bureau"}};
+        {1, {PadButton::Start, PadButton::Start}, {"Échap", nullptr}, "Menu"}};
     float hint_w = -40.f;
     for (const auto& h : hints) {
         for (int k = 0; k < h.count; ++k) hint_w += hint_key(nullptr, 0.f, 0.f, controller, h.buttons[k], h.keys[k], s.fonts) + 8.f;
@@ -1702,6 +1756,11 @@ void tv_view(State& s, Library& lib) {
         for (int k = 0; k < h.count; ++k) hx += hint_key(d, hx, hy + 14.f, controller, h.buttons[k], h.keys[k], s.fonts) + 8.f;
         text_at(d, s.fonts.tv_body, {hx + 4.f, hy + 2.f}, color::text_muted, h.action);
         hx += text_width(s.fonts.tv_body, h.action) + 44.f;
+    }
+    if (!browsing) {
+        // The press that opened the menu does not act in it.
+        tv_menu_panel(s, d, screen, menu_was_open);
+        return;
     }
     if (game && (launch_now || pressed({ImGuiKey_GamepadFaceDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter}, false)))
         launch(s, *game);
@@ -1857,7 +1916,7 @@ void settings_display(State& s) {
     card_title(s, Icon::Gamepad, "Mode TV / manette");
     const char* start = pad_button_name(connected_pad().value_or(PadFamily::Generic), PadButton::Start);
     muted((std::string("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé, sans curseur de souris. ") +
-           start + " ou Échap revient au mode bureau ; RavenEmu s'en souvient au prochain lancement.").c_str());
+           start + " ou Échap ouvre son menu, qui ramène au mode bureau ; RavenEmu s'en souvient au prochain lancement.").c_str());
     ImGui::Dummy({0.f, space::xs});
     if (button("Passer en mode TV", Icon::Fullscreen, ButtonStyle::Primary)) set_tv(s, true);
     end_card();

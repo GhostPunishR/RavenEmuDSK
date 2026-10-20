@@ -9,7 +9,7 @@ Le projet est en développement. La compatibilité des jeux et le comportement s
 ## Fonctionnalités
 
 - Bibliothèque de jeux avec import de fichiers ou de dossiers, glisser-déposer et jeux récents.
-- Jaquettes locales et mode TV avec navigation au clavier ou à la manette, sans curseur de souris. Les indications montrent les boutons de la manette branchée (Xbox, PlayStation, Nintendo ou générique). Le mode TV garde le même écran plein du lanceur au jeu et retour, sans passage par le bureau, et les notifications de succès, de progression et de défis sont agrandies pour être lues à distance, dans une marge de sécurité de l'écran.
+- Jaquettes locales et mode TV avec navigation au clavier ou à la manette, sans curseur de souris. Les indications montrent les boutons de la manette branchée (Xbox, PlayStation, Nintendo ou générique). Dans le mode TV, Start (ou Échap) ouvre un menu : **Reprendre**, **Mode bureau** ou **Quitter RavenEmu** ; une simple pression ne ramène plus au mode bureau. Le mode TV garde le même écran plein du lanceur au jeu et retour, sans passage par le bureau, et les notifications de succès, de progression et de défis sont agrandies pour être lues à distance, dans une marge de sécurité de l'écran.
 - Audio, commandes clavier/manette et plein écran pendant le jeu.
 - Sauvegardes de progression et sauvegarde/chargement rapide d'un état.
 - Profil RetroAchievements, consultation des succès et notifications en jeu.
@@ -110,7 +110,7 @@ Aucune ROM commerciale n'est fournie. L'émulation ne nécessite pas de compte R
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration. Les commandes à la manette sont également indiquées dans cette catégorie, avec les noms de la manette branchée.
 
-À la manette, **Select + Start** pressés ensemble (Affichage + Menu sur Xbox, Share/Create + Options sur PlayStation, − + + sur Nintendo) ouvrent ou ferment le menu en jeu, sans que le jeu reçoive ces boutons. Le bouton Xbox, PS ou Home reste au système : Windows y ouvre la Xbox Game Bar et Steam son interface, qui s'afficheraient en même temps. Un menu ouvert à la manette n'affiche pas les raccourcis clavier.
+À la manette, **Select + Start** pressés ensemble, dans un ordre ou dans l'autre (Affichage + Menu sur Xbox, Share/Create + Options sur PlayStation, − + + sur Nintendo), ouvrent ou ferment le menu en jeu, sans que le jeu reçoive ces boutons. Pour cela, un Select ou un Start seul n'est transmis au jeu qu'après 150 ms, ou dès qu'il est relâché. Le bouton Xbox, PS ou Home reste au système : Windows y ouvre la Xbox Game Bar et Steam son interface, qui s'afficheraient en même temps. Un menu ouvert à la manette n'affiche pas les raccourcis clavier.
 
 ### Sauvegardes et jaquettes
 
