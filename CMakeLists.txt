@@ -110,7 +110,7 @@ add_executable(RavenEmuDSK
   src/ui/badge_cache.cpp
   src/ui/app_shell.cpp src/ui/game_overlay.cpp
   src/ui/image_loader.cpp src/ui/theme.cpp
-  src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+  src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
 target_compile_definitions(RavenEmuDSK PRIVATE
   RAVENEMUDSK_VERSION="${PROJECT_VERSION}" RAVENEMUDSK_HAVE_CURL)
@@ -200,6 +200,11 @@ add_executable(ravenemudsk_library_progress_test tests/library_progress_test.cpp
   src/achievements/library_progress.cpp src/achievements/achievement_list.cpp)
 target_include_directories(ravenemudsk_library_progress_test PRIVATE include "${rcheevos_SOURCE_DIR}/include")
 add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
+  add_executable(ravenemudsk_icons_test tests/icons_test.cpp src/ui/icons.cpp)
+  target_include_directories(ravenemudsk_icons_test PRIVATE include)
+  target_link_libraries(ravenemudsk_icons_test PRIVATE ravenemudsk_imgui)
+  target_compile_definitions(ravenemudsk_icons_test PRIVATE SDL_MAIN_HANDLED)
+  add_test(NAME icons COMMAND ravenemudsk_icons_test)
   add_executable(ravenemudsk_library_test tests/library_test.cpp)
   target_link_libraries(ravenemudsk_library_test PRIVATE ravenemudsk_ui_library)
   add_test(NAME library COMMAND ravenemudsk_library_test)
@@ -212,7 +217,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
   add_executable(ravenemudsk_home_grid_test tests/home_grid_test.cpp
     src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+    src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
   target_include_directories(ravenemudsk_home_grid_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_home_grid_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
   target_link_libraries(ravenemudsk_home_grid_test PRIVATE ravenemudsk_ui_library
@@ -224,7 +229,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   set_tests_properties(home_grid PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
   add_executable(ravenemudsk_profile_view_test tests/profile_view_test.cpp
     src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+    src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
   target_include_directories(ravenemudsk_profile_view_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_profile_view_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
   target_link_libraries(ravenemudsk_profile_view_test PRIVATE ravenemudsk_ui_library
@@ -247,7 +252,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   set_tests_properties(retro_features PROPERTIES TIMEOUT 30)
   add_executable(ravenemudsk_game_overlay_test tests/game_overlay_test.cpp
     src/achievements/client.cpp src/achievements/notifications.cpp src/achievements/progress.cpp
-    src/ui/game_overlay.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/theme.cpp
+    src/ui/game_overlay.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/theme.cpp
     src/ui/badge_cache.cpp src/ui/image_loader.cpp)
   target_include_directories(ravenemudsk_game_overlay_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_game_overlay_test PRIVATE SDL_MAIN_HANDLED)
