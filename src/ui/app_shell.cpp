@@ -2333,8 +2333,11 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+    // TV mode reopens in full screen at once, e.g. when a game returns to the launcher.
+    const bool tv_start = state.settings.flag("tv_mode", false);
     SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN);
+        1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
+        (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     if (!window) {
         const std::string reason = SDL_GetError();
         SDL_Quit();
@@ -2383,7 +2386,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         updates().start(RAVENEMUDSK_VERSION);
     }
     const char* smoke_name = SDL_getenv("RAVENEMUDSK_UI_SMOKE_PAGE");
-    if (state.settings.flag("tv_mode", false) || (ci_smoke && smoke_name && std::string(smoke_name) == "tv"))
+    if (tv_start || (ci_smoke && smoke_name && std::string(smoke_name) == "tv"))
         set_tv(state, true, false);
     int frames = 0;
     bool smoke_rendered = false;

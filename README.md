@@ -9,7 +9,7 @@ Le projet est en développement. La compatibilité des jeux et le comportement s
 ## Fonctionnalités
 
 - Bibliothèque de jeux avec import de fichiers ou de dossiers, glisser-déposer et jeux récents.
-- Jaquettes locales et mode TV avec navigation au clavier ou à la manette.
+- Jaquettes locales et mode TV avec navigation au clavier ou à la manette. Un jeu lancé depuis le mode TV s'ouvre directement en plein écran, et ses notifications de succès, de progression et de défis sont agrandies pour être lues à distance, dans une marge de sécurité de l'écran.
 - Audio, commandes clavier/manette et plein écran pendant le jeu.
 - Sauvegardes de progression et sauvegarde/chargement rapide d'un état.
 - Profil RetroAchievements, consultation des succès et notifications en jeu.

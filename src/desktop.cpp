@@ -117,9 +117,11 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
     Sdl sdl;
     const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
+    // From TV mode the window opens directly in full screen: no desktop window
+    // appears first. Leaving full screen later restores the usual size.
     Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmu - "+title).c_str(),
         SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
-        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE),SDL_DestroyWindow);
+        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0)),SDL_DestroyWindow);
     if(!win)throw std::runtime_error(SDL_GetError());
     if(char* base=SDL_GetBasePath()) {
         const auto path=ravenemudsk_ui::from_utf8(base)/"assets"/"ravenemu-logo.png";
@@ -133,10 +135,11 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     if(!sr)sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_SOFTWARE);
     Ptr<SDL_Renderer,SDL_DestroyRenderer> renderer(sr,SDL_DestroyRenderer);
     if(!renderer)throw std::runtime_error(SDL_GetError());
+    // Black at once, before the first emulated frame.
+    SDL_SetRenderDrawColor(renderer.get(),0,0,0,255);SDL_RenderClear(renderer.get());SDL_RenderPresent(renderer.get());
     Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer.get(),
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
-    if(req.fullscreen)SDL_SetWindowFullscreen(win.get(),SDL_WINDOW_FULLSCREEN_DESKTOP);
     SDL_AudioSpec spec{};
     spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
     SDL_AudioDeviceID audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
@@ -148,7 +151,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
-    ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get());
+    ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get(),&ravenemudsk_ra::client(),req.fullscreen);
     const auto keyboard=ravenemudsk_ui::keyboard_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
