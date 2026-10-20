@@ -144,6 +144,47 @@ int main() {
     saved.load();
     require(!saved.flag("ra_hardcore", true), "A refused Hardcore preference must be saved as Softcore");
 
+    // "Mes jeux" reads the per-ROM cache, offline: a saved session whose reconnection fails.
+    auto profiles = ravenemudsk_ra::make_profile_store(root.path / "profiles");
+    Library games(root.path / "games.txt");
+    std::vector<std::filesystem::path> roms;
+    for (const char* name : {"Mastered.gb", "Started.gb", "Never synced.gb"}) {
+        roms.push_back(root.path / name);
+        { std::ofstream out(roms.back(), std::ios::binary); out << "Library fixture " << name; }
+        require(games.add(roms.back()), "Could not add a library fixture");
+    }
+    games.mark_played(roms[1], 60);
+    const auto cache = [&](const std::filesystem::path& rom, const char* title, int unlocked, int total, bool hardcore) {
+        ravenemudsk_ra::Snapshot game;
+        game.username = "GameUser"; game.rom_path = ravenemudsk_ra::rom_identity(rom); game.game_title = title;
+        game.unlocked_count = unlocked; game.total_count = total; game.game_hardcore = hardcore;
+        game.unlocked_points = unlocked * 5; game.total_points = total * 5;
+        for (int i = 0; i < total; ++i)
+            game.achievements.push_back({title + std::to_string(i), "Goal", "", "", "", 5, 1, 0.f, i < unlocked});
+        require(profiles->save(game), "Could not cache a library game");
+    };
+    cache(roms[0], "Jeu maîtrisé", 3, 3, true);
+    cache(roms[1], "Jeu commencé", 1, 4, false);
+    auto saved_session = std::make_shared<retro_test::Vault>();
+    saved_session->value = ravenemudsk_ra::SessionCredentials{"GameUser", "Token"};
+    ravenemudsk_ra::Client offline(saved_session, [](const std::string&, const std::string&, const std::string&) {
+        return ravenemudsk_ra::ServerReply{"", -2};
+    }, profiles);
+    state.retro = &offline;
+    state.ra_tab = 3;
+    logged = frame(state, games, {1280.f, 1000.f});
+    require(!offline.snapshot().logged_in && logged.find("Mes jeux RetroAchievements") != std::string::npos &&
+            logged.find("2 jeux \xC2\xB7 1 maîtrisé \xC2\xB7 4 / 7 succès") != std::string::npos &&
+            logged.find("1 jeu de la bibliothèque n'a pas de succès mémorisés") != std::string::npos,
+            "My games must summarise the cached library offline");
+    require(state.ra_games.size() == 2 && state.ra_games[0].title == "Jeu commencé" &&
+            std::string(ravenemudsk_ra::completion_label(state.ra_games[1])) == "Maîtrisé",
+            "My games must list recognized games, most recently played first");
+    ra_open_game(state, state.ra_games[1].path);
+    logged = frame(state, games, {1280.f, 1000.f});
+    require(state.ra_tab == 0 && logged.find("Jeu maîtrisé") != std::string::npos && logged.find("3 / 3 succès") != std::string::npos,
+            "Opening a game from My games must show its achievements");
+
     ImGui::DestroyContext();
-    std::cout << "Profile columns, tabs, search, sign-out confirmation and Hardcore refusal passed\n";
+    std::cout << "Profile columns, tabs, search, sign-out confirmation, Hardcore refusal and My games passed\n";
 }

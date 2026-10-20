@@ -11,6 +11,7 @@
 #include <ravenemudsk/ui/retro_widgets.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/achievements/achievement_list.hpp>
+#include <ravenemudsk/achievements/library_progress.hpp>
 #include <rc_client.h>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
@@ -100,6 +101,11 @@ struct State {
     int ra_sort = 0;
     char ra_search[128]{};
     bool ra_confirm_disconnect = false;
+    // "Mes jeux": progress read from the per-ROM cache, rebuilt only when its key changes.
+    int ra_games_sort = 0, ra_games_visible = 20;
+    std::vector<ravenemudsk_ra::GameProgress> ra_games;
+    std::size_t ra_games_unsynced = 0;
+    std::string ra_games_key;
     std::string ra_selected_achievement;
     SDL_Renderer* renderer = nullptr;
     SDL_Window* window = nullptr;
@@ -1171,9 +1177,137 @@ void ra_achievement_list(State& s, const ravenemudsk_ra::Snapshot& snap) {
     }
     ra_achievement_detail(s, snap);
 }
-void ra_sections(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap) {
-    const char* tabs[] = {"Succès", "Classements", "Activité"};
-    chips("##ra-sections", tabs, 3, &s.ra_tab);
+// The library's recognized games with their cached progress for the current account.
+// `unsynced` counts the others: unknown ROMs, games without achievements, never synced.
+std::vector<ravenemudsk_ra::GameProgress> ra_library_progress(State& s, const Library& lib, std::size_t* unsynced = nullptr) {
+    std::vector<ravenemudsk_ra::GameProgress> games;
+    std::size_t missing = 0;
+    auto& ra = retro_client(s);
+    for (const auto& game : lib.games()) {
+        const auto path = utf8(game.path);
+        const auto info = ra.game_snapshot(path);
+        if (!info || info->game_title.empty() || info->total_count <= 0) {
+            ++missing;
+            continue;
+        }
+        games.push_back({path, info->game_title, info->unlocked_count, info->total_count,
+                         info->unlocked_points, info->total_points, info->game_hardcore, game.last_played});
+    }
+    if (unsynced) *unsynced = missing;
+    return games;
+}
+// Shows a library game's achievements in the profile.
+void ra_open_game(State& s, const std::string& path) {
+    s.ra_game_path = path;
+    s.ra_tab = 0;
+    s.ra_filter = 0;
+    s.ra_visible_count = 10;
+    s.ra_search[0] = '\0';
+    s.ra_selected_achievement.clear();
+}
+bool ra_game_row(State& s, const ravenemudsk_ra::GameProgress& g) {
+    constexpr float h = 68.f;
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float width = ImGui::GetContentRegionAvail().x;
+    ImGui::PushID(g.path.c_str());
+    const bool clicked = ImGui::InvisibleButton("##ra-game-row", {width, h}, ImGuiButtonFlags_EnableNav);
+    const bool hovered = ImGui::IsItemHovered();
+    if (hovered) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("Voir les succès de ce jeu");
+        muted((ago(g.last_played) + (g.hardcore ? " \xC2\xB7 compteurs Hardcore" : " \xC2\xB7 compteurs Softcore")).c_str());
+        ImGui::EndTooltip();
+    }
+    ImGui::PopID();
+    const char* done = ravenemudsk_ra::completion_label(g);
+    auto* d = ImGui::GetWindowDrawList();
+    d->AddRectFilled(pos, {pos.x + width, pos.y + h}, hovered ? color::surface_hover : color::surface, radius::md);
+    if (done) d->AddRectFilled({pos.x, pos.y + 12.f}, {pos.x + 3.f, pos.y + h - 12.f}, color::gold, 2.f);
+    focus_ring(d, pos, {pos.x + width, pos.y + h}, radius::md);
+    const ImVec2 cover_min{pos.x + 14.f, pos.y + 10.f}, cover_max{pos.x + 62.f, pos.y + 58.f};
+    Game game;
+    game.path = from_utf8(g.path);
+    if (SDL_Texture* cover = cover_for(s, game))
+        d->AddImageRounded(reinterpret_cast<ImTextureID>(cover), cover_min, cover_max, {0, 0}, {1, 1}, IM_COL32_WHITE, 6.f);
+    else {
+        d->AddRectFilled(cover_min, cover_max, color::elevated, 6.f);
+        draw_icon(d, Icon::Gamepad, {pos.x + 38.f, pos.y + 34.f}, 22.f, color::text_faint);
+    }
+    const int percent = g.total ? g.unlocked * 100 / g.total : 0;
+    const std::string share = std::to_string(percent) + " %";
+    const char* mode = g.hardcore ? "Hardcore" : "Softcore";
+    const float right_w = std::max(text_width(s.fonts.caption, share.c_str()), text_width(s.fonts.caption, mode));
+    text_at(d, s.fonts.caption, {pos.x + width - 18.f - text_width(s.fonts.caption, share.c_str()), pos.y + 14.f},
+            done ? color::gold : color::accent, share);
+    text_at(d, s.fonts.caption, {pos.x + width - 18.f - text_width(s.fonts.caption, mode), pos.y + 38.f},
+            color::text_faint, mode);
+    const float x = pos.x + 76.f;
+    const float text_w = std::max(80.f, width - 76.f - right_w - 36.f);
+    const float done_w = done ? pill_size(done, s.fonts.caption).x + space::sm : 0.f;
+    const auto title = ellipsize(s.fonts.strong, g.title, std::max(40.f, text_w - done_w));
+    text_at(d, s.fonts.strong, {x, pos.y + 10.f}, color::text, title);
+    if (done)
+        pill(d, {x + text_width(s.fonts.strong, title.c_str()) + space::sm, pos.y + 10.f}, done,
+             g.hardcore ? color::gold : color::accent, s.fonts.caption);
+    const auto line = ellipsize(s.fonts.caption, std::to_string(g.unlocked) + " / " + std::to_string(g.total) +
+        " succès \xC2\xB7 " + std::to_string(g.points) + " / " + std::to_string(g.total_points) + " points", text_w);
+    text_at(d, s.fonts.caption, {x, pos.y + 34.f}, color::text_muted, line);
+    progress_bar(d, {x, pos.y + 54.f}, {x + std::min(text_w, 260.f), pos.y + 58.f},
+                 g.total ? static_cast<float>(g.unlocked) / g.total : 0.f, color::gold);
+    return clicked;
+}
+void ra_my_games(State& s, Library& lib) {
+    // Rebuild only when the account, the library, the live game or the sort change.
+    const auto live = retro_client(s).snapshot();
+    std::int64_t played = 0;
+    for (const auto& game : lib.games()) played += game.last_played;
+    s.ra_games_sort = std::clamp(s.ra_games_sort, 0, static_cast<int>(ravenemudsk_ra::game_sort_labels.size()) - 1);
+    const auto key = live.username + '\n' + std::to_string(lib.games().size()) + '/' + std::to_string(played) + '\n' +
+        live.rom_path + '\n' + std::to_string(live.unlocked_count) + '/' + std::to_string(live.total_count) +
+        (live.game_hardcore ? 'h' : 's') + std::to_string(s.ra_games_sort);
+    if (key != s.ra_games_key) {
+        s.ra_games = ra_library_progress(s, lib, &s.ra_games_unsynced);
+        ravenemudsk_ra::sort_games(s.ra_games, static_cast<ravenemudsk_ra::GameSort>(s.ra_games_sort));
+        s.ra_games_key = key;
+    }
+    begin_card("##ra-my-games");
+    card_title(s, Icon::Trophy, "Mes jeux RetroAchievements");
+    if (s.ra_games.empty()) {
+        muted(live.username.empty() ? "Connectez votre compte pour suivre la progression de vos jeux." :
+              "Aucun jeu de la bibliothèque n'a encore de succès mémorisés. Lancez un jeu, ou actualisez ses succès depuis sa fiche.");
+        end_card();
+        return;
+    }
+    ImGui::TextUnformatted(ravenemudsk_ra::summary_text(ravenemudsk_ra::summarize(s.ra_games)).c_str());
+    muted("Progression mémorisée sur cet ordinateur, consultable hors ligne. Chaque jeu garde le mode de sa dernière synchronisation.");
+    if (s.ra_games_unsynced == 1)
+        muted("1 jeu de la bibliothèque n'a pas de succès mémorisés : ROM non reconnue, jeu sans succès ou jamais synchronisé.");
+    else if (s.ra_games_unsynced > 1)
+        muted((std::to_string(s.ra_games_unsynced) + " jeux de la bibliothèque n'ont pas de succès mémorisés : "
+               "ROM non reconnues, jeux sans succès ou jamais synchronisés.").c_str());
+    end_card();
+    ImGui::SetNextItemWidth(240.f);
+    const std::string preview = std::string("Tri : ") + ravenemudsk_ra::game_sort_labels[static_cast<std::size_t>(s.ra_games_sort)];
+    if (ImGui::BeginCombo("##ra-games-sort", preview.c_str())) {
+        for (int i = 0; i < static_cast<int>(ravenemudsk_ra::game_sort_labels.size()); ++i)
+            if (ImGui::Selectable(ravenemudsk_ra::game_sort_labels[static_cast<std::size_t>(i)], s.ra_games_sort == i))
+                s.ra_games_sort = i;
+        ImGui::EndCombo();
+    }
+    ImGui::Dummy({0.f, space::xs});
+    const int total = static_cast<int>(s.ra_games.size());
+    std::string opened;
+    for (int i = 0; i < std::min(total, s.ra_games_visible); ++i)
+        if (ra_game_row(s, s.ra_games[static_cast<std::size_t>(i)])) opened = s.ra_games[static_cast<std::size_t>(i)].path;
+    if (total > s.ra_games_visible) {
+        const auto label = "Afficher plus (" + std::to_string(total - s.ra_games_visible) + " restants)";
+        if (button(label.c_str(), Icon::Plus, ButtonStyle::Ghost)) s.ra_games_visible += 20;
+    }
+    if (!opened.empty()) ra_open_game(s, opened);
+}
+void ra_sections(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Snapshot& snap, Library& lib) {
+    const char* tabs[] = {"Succès", "Classements", "Activité", "Mes jeux"};
+    chips("##ra-sections", tabs, 4, &s.ra_tab);
     ImGui::Dummy({0.f, space::sm});
     if (s.ra_tab == 1) {
         begin_card("##ra-leaderboards");
@@ -1189,13 +1323,15 @@ void ra_sections(State& s, ravenemudsk_ra::Client& ra, const ravenemudsk_ra::Sna
         ImGui::TextWrapped("%s", snap.rich_presence.empty() ? "Aucune activité détaillée disponible pour ce jeu." :
                            snap.rich_presence.c_str());
         end_card();
+    } else if (s.ra_tab == 3) {
+        ra_my_games(s, lib);
     } else {
         ra_achievement_list(s, snap);
     }
 }
 // The account stays on top; below, the game and the mode on the left and the
 // achievements on the right, side by side when the window is wide enough.
-void achievements_view(State& s, Library&) {
+void achievements_view(State& s, Library& lib) {
     auto& ra = retro_client(s);
     const auto snap = profile_snapshot(s);
     if (snap.logged_in) ra_account_header(s, ra, snap);
@@ -1211,7 +1347,7 @@ void achievements_view(State& s, Library&) {
         ImGui::SameLine(0.f, space::lg);
         ImGui::BeginGroup();
     }
-    ra_sections(s, ra, snap);
+    ra_sections(s, ra, snap, lib);
     if (columns) ImGui::EndGroup();
     ra_disconnect_dialog(s, ra);
 }
