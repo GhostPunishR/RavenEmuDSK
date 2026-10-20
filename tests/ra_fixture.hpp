@@ -41,6 +41,7 @@ struct TestServer {
                 R"(,"ImageIconUrl":"https://media.retroachievements.org/Images/1.png","RichPresenceGameId":1234,"RichPresencePatch":"Display:\nSynthetic test","Sets":[{"AchievementSetId":1111,"GameId":1234,"Title":null,"Type":"core","ImageIconUrl":"https://media.retroachievements.org/Images/1.png","Achievements":[)"+a+R"(],"Leaderboards":[]}]})",200};
         }
         if(post.starts_with("r=startsession"))return {R"({"Success":true,"Unlocks":[],"HardcoreUnlocks":[]})",200};
+        if(post.starts_with("r=unlocks"))return {R"({"Success":true,"UserUnlocks":[]})",200};
         if(post.starts_with("r=awardachievement")){
             ++awards;require(post.find("&h=0")!=std::string::npos,"Public client must stay in Softcore");
             if(award_offline)return {"",-2};

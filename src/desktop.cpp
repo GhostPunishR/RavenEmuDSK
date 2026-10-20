@@ -149,11 +149,13 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
     ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get());
+    const auto keyboard=ravenemudsk_ui::keyboard_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
-    });
+    },keyboard);
     ravenemudsk_ui::OverlayInfo info{};
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
+    info.keyboard=keyboard;
     auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
         overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
     };
@@ -175,29 +177,32 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
                 { input.release_all(); pad.reset(); }
             if(e.type==SDL_KEYDOWN && !e.key.repeat) {
-                switch(e.key.keysym.sym) {
-                    case SDLK_ESCAPE:
+                using Key=ravenemudsk_ui::KeyAction;
+                const auto action=overlay.menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
+                    Key::Count:keyboard.action(e.key.keysym.sym);
+                switch(action) {
+                    case Key::Menu:
                         if(overlay.menu_open())overlay.close_menu();
                         else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())
                             overlay.open_menu();
                         break;
-                    case SDLK_p:
+                    case Key::Pause:
                         if(paused || !ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()) {
                             paused=!paused;input.release_all();
                         }
                         break;
-                    case SDLK_F4:
+                    case Key::Reset:
                         input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
-                    case SDLK_F5:
+                    case Key::SaveState:
                         save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
                         break;
-                    case SDLK_F9:
+                    case Key::LoadState:
                         if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
                         else if(fs::exists(state_path)){
-                            const bool restored=load_state(core.get(),state_path);overlay.clear_retro();
+                            const bool restored=load_state(core.get(),state_path);input.release_all();overlay.clear_retro();
                             toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
                         break;
-                    case SDLK_F11:
+                    case Key::Fullscreen:
                         SDL_SetWindowFullscreen(win.get(),(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
                         break;
                     default:break;
@@ -208,7 +213,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE &&
                (!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()))
                 overlay.open_menu();
-            input.set_menu_open(overlay.menu_open());
+            input.set_menu_open(overlay.menu_open()||paused);
             input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
         }
         const auto now=Clock::now();
@@ -265,7 +270,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                 overlay.close_menu();break;
             case Action::LoadState:
                 if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && fs::exists(state_path)){
-                    load_state(core.get(),state_path);overlay.clear_retro();}
+                    load_state(core.get(),state_path);input.release_all();overlay.clear_retro();}
                 overlay.close_menu();break;
             case Action::ToggleHardcore:
                 input.release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);

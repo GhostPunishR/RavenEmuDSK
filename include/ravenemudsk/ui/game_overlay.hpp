@@ -4,6 +4,7 @@
 #include <ravenemudsk/ui/widgets.hpp>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <ravenemudsk/achievements/notifications.hpp>
+#include <ravenemudsk/ui/keyboard_bindings.hpp>
 #include <deque>
 #include <optional>
 #include <utility>
@@ -12,6 +13,7 @@
 #include <vector>
 namespace ravenemudsk_ui {
 struct OverlayInfo {
+    KeyboardBindings keyboard;
     std::string game_title;
     std::string system;
     bool hardcore = false;

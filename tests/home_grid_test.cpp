@@ -121,7 +121,31 @@ void exercise_detail_achievements(ravenemudsk_ui::State& state, const std::files
         "Logout must remove the former account's cached achievements from the panel");
     state.retro=nullptr;state.ra_game_path.clear();
 }
-
+void exercise_keyboard_capture(ravenemudsk_ui::State& state,const std::filesystem::path& root){
+    using namespace ravenemudsk_ui;
+    state.settings=Settings(root/"keyboard-settings.txt");state.settings.set("pseudo","Local profile");
+    const auto render_capture=[&]{
+        ImGui::GetIO().DisplaySize={1024,680};ImGui::NewFrame();
+        ImGui::SetNextWindowSize({900,620});ImGui::Begin("Keyboard settings",nullptr,ImGuiWindowFlags_NoSavedSettings);
+        settings_controls(state);ImGui::End();key_capture_dialog(state);ImGui::Render();
+    };
+    state.editing_key=static_cast<int>(KeyAction::A);render_capture();render_capture();
+    auto* popup=ImGui::FindWindowByName("##key-capture");
+    require(popup&&popup->Active&&!popup->Hidden,"Key capture dialog did not open");
+    SDL_Event event{};event.type=SDL_KEYDOWN;event.key.keysym.sym=SDLK_c;event.key.repeat=1;
+    require(capture_keyboard_event(state,event)&&state.editing_key>=0,"Held key repeat must not assign a binding");
+    event.key.repeat=0;require(capture_keyboard_event(state,event)&&state.editing_key==-1,"New key was not captured exclusively");
+    render_capture();Settings saved(state.settings.file());saved.load();KeyboardBindings bindings;bindings.load(saved);
+    require(bindings.key(KeyAction::A)==SDLK_c&&saved.get("pseudo")=="Local profile","Capture did not persist the key or changed the profile");
+    state.editing_key=static_cast<int>(KeyAction::LoadState);render_capture();
+    event.key.keysym.sym=SDLK_ESCAPE;require(capture_keyboard_event(state,event)&&state.editing_key==-1,"Escape did not cancel capture");
+    render_capture();saved.load();bindings.load(saved);require(bindings.key(KeyAction::LoadState)==SDLK_F9,"Cancelled key capture changed the shortcut");
+    state.editing_key=static_cast<int>(KeyAction::B);render_capture();
+    event.type=SDL_KEYUP;event.key.keysym.sym=SDLK_RETURN;
+    require(!capture_keyboard_event(state,event)&&state.editing_key>=0,"Key releases must reach ImGui so activation keys cannot remain held");
+    event.type=SDL_WINDOWEVENT;event.window.event=SDL_WINDOWEVENT_FOCUS_LOST;capture_keyboard_event(state,event);
+    require(state.editing_key==-1,"Focus loss must cancel key capture");render_capture();
+}
 }
 int main() {
     using namespace ravenemudsk_ui;
@@ -193,6 +217,7 @@ int main() {
             exercise_title_tooltip(state, single, region);
     }
     exercise_detail_achievements(state, tmp.path);
+    exercise_keyboard_capture(state,tmp.path);
     ImGui::DestroyContext();
     std::cout << "Home hover, selection and full title tooltips passed without ID conflicts\n";
 }

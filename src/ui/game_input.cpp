@@ -5,21 +5,6 @@
 
 namespace ravenemudsk_ui {
 namespace {
-int key_of(SDL_Keycode key) {
-    switch (key) {
-    case SDLK_UP: return RAVENEMU_UP;
-    case SDLK_DOWN: return RAVENEMU_DOWN;
-    case SDLK_LEFT: return RAVENEMU_LEFT;
-    case SDLK_RIGHT: return RAVENEMU_RIGHT;
-    case SDLK_z: return RAVENEMU_A;
-    case SDLK_x: return RAVENEMU_B;
-    case SDLK_RETURN: return RAVENEMU_START;
-    case SDLK_BACKSPACE: return RAVENEMU_SELECT;
-    case SDLK_a: return RAVENEMU_L;
-    case SDLK_s: return RAVENEMU_R;
-    default: return -1;
-    }
-}
 int pad_of(Uint8 button) {
     switch (button) {
     case SDL_CONTROLLER_BUTTON_A: return RAVENEMU_A;
@@ -36,10 +21,11 @@ int pad_of(Uint8 button) {
     }
 }
 }
-GameInput::GameInput(std::function<void(int, bool)> set_button)
-    : set_button_(std::move(set_button)) {}
+GameInput::GameInput(std::function<void(int, bool)> set_button,KeyboardBindings keys)
+    : set_button_(std::move(set_button)),keys_(std::move(keys)) {}
 
 void GameInput::release_all() {
+    keyboard_held_.fill(false);controller_held_.fill(false);
     for (int button = RAVENEMU_UP; button <= RAVENEMU_R; ++button)
         set_button_(button, false);
 }
@@ -54,15 +40,19 @@ void GameInput::process_event(const SDL_Event& event, SDL_JoystickID controller)
         release_all();
     if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && !event.key.repeat) {
         const bool pressed = event.type == SDL_KEYDOWN;
-        const int button = key_of(event.key.keysym.sym);
+        const int button = keys_.button(event.key.keysym.sym);
         // Releases must always reach the core, including while a menu is open.
-        if (button >= 0 && (!pressed || !menu_open_)) set_button_(button, pressed);
+        if (button >= 0 && (!pressed || !menu_open_)) {
+            keyboard_held_[button]=pressed;set_button_(button,pressed||controller_held_[button]);
+        }
     }
     if ((event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) &&
         controller >= 0 && event.cbutton.which == controller) {
         const bool pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
         const int button = pad_of(event.cbutton.button);
-        if (button >= 0 && (!pressed || !menu_open_)) set_button_(button, pressed);
+        if (button >= 0 && (!pressed || !menu_open_)) {
+            controller_held_[button]=pressed;set_button_(button,pressed||keyboard_held_[button]);
+        }
     }
 }
 } // namespace ravenemudsk_ui

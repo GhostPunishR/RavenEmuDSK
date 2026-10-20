@@ -11,6 +11,7 @@ struct FeatureServer : TestServer {
     std::string token="SyntheticToken",condition;
     bool boards=false;
     std::atomic<bool> remote_unlock{false},ranking_offline{false},expire_once{false};
+    std::atomic<bool> session_omits_unlocks{false},unlock_fetch_offline{false},remote_hardcore{false};
     std::atomic<int> expected_hardcore{0},scores{0};
     ServerTransport transport(){auto basic=TestServer::transport();return [this,basic](const auto& url,const std::string& post,const auto& type)->ServerReply{
         std::lock_guard guard(mutex);posts.push_back(post);
@@ -31,7 +32,14 @@ struct FeatureServer : TestServer {
             }
             return reply;
         }
-        if(post.starts_with("r=startsession"))return {remote_unlock||accepted?
+        if(post.starts_with("r=unlocks")){
+            if(unlock_fetch_offline)return {"",-2};
+            const bool hard=post.find("&h=1")!=std::string::npos;
+            const bool obtained=remote_unlock||accepted;
+            return {obtained&&(!hard||remote_hardcore||(accepted&&expected_hardcore))?
+                R"({"Success":true,"UserUnlocks":[123]})":R"({"Success":true,"UserUnlocks":[]})",200};
+        }
+        if(post.starts_with("r=startsession"))return {!session_omits_unlocks&&(remote_unlock||accepted)?
             (expected_hardcore?R"({"Success":true,"HardcoreUnlocks":[{"ID":123,"When":1700000000}]})":
             R"({"Success":true,"Unlocks":[{"ID":123,"When":1700000000}],"HardcoreUnlocks":[]})"):
             R"({"Success":true,"Unlocks":[],"HardcoreUnlocks":[]})",200};
@@ -189,6 +197,9 @@ void launcher_refresh_rankings_activity(){
     server.remote_unlock=true;require(client.refresh_game(file.generic_string()),"Launcher metadata refresh refused");
     wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready&&!client.snapshot().login_pending;});
     require(client.snapshot().unlocked_count==1&&client.snapshot().softcore_points==8,"Launcher refresh did not retrieve remote unlocks/profile points");
+    require(client.snapshot().achievements.size()==1&&client.snapshot().achievements[0].unlocked&&
+        client.snapshot().achievements[0].badge_url.find("_lock")==std::string::npos,
+        "Already-earned achievement must remain marked as unlocked after a launcher-only refresh");
     require(client.snapshot().leaderboards.size()==1&&client.snapshot().leaderboards[0].id==4401,"Leaderboard list missing from game metadata");
     client.fetch_ranking(4401);wait(client,[&]{return !client.ranking().loading;});
     auto ranking=client.ranking();require(ranking.error.empty()&&ranking.total==10&&ranking.entries.size()==2,"Leaderboard records failed to load");
@@ -241,8 +252,38 @@ void expired_submission_session(){
     }
     std::cout<<"Expired award token is renewed without losing the submission; Hardcore resets before resuming\n";
 }
+void previously_earned_achievements(){
+    for(bool hard_earned:{false,true}){
+        retro_test::Directory root;FeatureServer server;server.remote_unlock=true;
+        server.remote_hardcore=hard_earned;server.session_omits_unlocks=true;
+        auto profiles=make_profile_store(root.path/"profiles");
+        const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);
+        Client client(nullptr,server.transport(),profiles);login(client);
+        const auto path=(root.path/"Previously played.gb").generic_string();
+        start(client,core,rom,RAVENEMU_GB,path);
+        require(client.snapshot().unlocked_count==1&&client.snapshot().achievements[0].unlocked,
+            "Dedicated account unlocks were not applied before gameplay");
+        client.drain_events();client.pump(true);frame(core);for(int i=0;i<10;++i)client.pump(true);
+        require(server.awards==0,"A previously earned achievement was submitted again for zero points");
+        const auto events=client.drain_events();require(std::none_of(events.begin(),events.end(),[](const auto& e){return e.kind=="achievement";}),
+            "Previously earned achievement produced a fresh unlock notification");
+        client.end_game();Snapshot cached;require(profiles->load_game("GameUser",rom_identity(path),cached)&&cached.achievements[0].unlocked,
+            "Account unlock status was lost in the launcher cache");
+        start(client,core,rom,RAVENEMU_GB,path);require(client.snapshot().achievements[0].unlocked,"Reopening a game discarded account progress");
+    }
+    // If the empty history could not be verified, do not activate a false-zero runtime.
+    FeatureServer offline;offline.remote_unlock=true;offline.session_omits_unlocks=true;offline.unlock_fetch_offline=true;
+    const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);std::int64_t now=1000;
+    Client client(nullptr,offline.transport(),{},[&]{return now;});login(client);
+    client.start_game(RAVENEMU_GB,rom,core.handle);wait(client,[&]{return client.snapshot().game_status==GameStatus::Offline;});
+    client.pump(true);frame(core);client.pump(true);require(offline.awards==0,"Unverified history must not trigger duplicate unlocks during a sync outage");
+    offline.unlock_fetch_offline=false;now+=5000;client.pump(false);
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+    require(client.snapshot().achievements[0].unlocked&&offline.awards==0,"Account history did not recover after the outage");
+    std::cout<<"Existing Softcore/Hardcore awards load before gameplay, never re-award, persist and recover from a sync outage\n";
+}
 int main(){
     restart_with_pending_award();restart_with_pending_score();softcore_states();
     for(const auto system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})hardcore_transitions(system);
-    launcher_refresh_rankings_activity();hardcore_during_loading();expired_submission_session();
+    launcher_refresh_rankings_activity();hardcore_during_loading();expired_submission_session();previously_earned_achievements();
 }

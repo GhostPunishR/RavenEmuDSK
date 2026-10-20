@@ -3,8 +3,10 @@
 #include <ravenemu/bridge.h>
 #include <rc_client.h>
 #include <rc_api_runtime.h>
+#include <rc_api_user.h>
 #include <curl/curl.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -94,6 +96,47 @@ template<typename T> T number(const std::string& value,T fallback={}) {
 }
 std::int64_t wall_time(){return std::chrono::duration_cast<std::chrono::seconds>(
     std::chrono::system_clock::now().time_since_epoch()).count();}
+Reply session_reply(const ServerTransport& send,const std::string& url,const std::string& post,const std::string& type){
+    auto reply=send(url,post,type);
+    if(reply.status<200||reply.status>=300)return reply;
+    const rc_api_server_response_t response{reply.body.c_str(),reply.body.size(),reply.status};
+    rc_api_start_session_response_t session{};
+    const auto result=rc_api_process_start_session_server_response(&session,&response);
+    const bool empty=result==RC_OK&&session.response.succeeded&&!session.num_unlocks&&!session.num_hardcore_unlocks;
+    const auto server_now=session.server_now;rc_api_destroy_start_session_response(&session);
+    if(!empty)return reply;
+    // Confirm an empty session against the account's dedicated unlock endpoint
+    // before the SDK activates triggers. Only server-reported IDs are applied.
+    const auto fields=form(post);
+    if(!fields.contains("u")||!fields.contains("t")||!fields.contains("g"))return reply;
+    std::array<std::vector<std::uint32_t>,2> unlocked;
+    for(unsigned mode=0;mode<2;++mode){
+        rc_api_fetch_user_unlocks_request_t params{};
+        params.username=fields.at("u").c_str();params.api_token=fields.at("t").c_str();
+        params.game_id=number<std::uint32_t>(fields.at("g"));params.hardcore=mode;
+        rc_api_request_t req{};
+        const auto built=rc_api_init_fetch_user_unlocks_request(&req,&params);
+        if(built!=RC_OK){rc_api_destroy_request(&req);return {"",-2};}
+        const std::string target=req.url,payload=req.post_data,content=req.content_type;
+        rc_api_destroy_request(&req);
+        const auto account=send(target,payload,content);
+        const rc_api_server_response_t account_response{account.body.c_str(),account.body.size(),account.status};
+        rc_api_fetch_user_unlocks_response_t parsed{};
+        const auto parsed_result=rc_api_process_fetch_user_unlocks_server_response(&parsed,&account_response);
+        const bool ok=account.status>=200&&account.status<300&&parsed_result==RC_OK&&parsed.response.succeeded;
+        if(ok&&parsed.num_achievement_ids)unlocked[mode].assign(parsed.achievement_ids,parsed.achievement_ids+parsed.num_achievement_ids);
+        rc_api_destroy_fetch_user_unlocks_response(&parsed);
+        if(!ok)return {"",-2}; // Never turn an unverified outage into an empty account history.
+    }
+    if(unlocked[0].empty()&&unlocked[1].empty())return reply;
+    std::ostringstream body;body<<"{\"Success\":true,\"ServerNow\":"<<server_now;
+    for(unsigned mode=0;mode<2;++mode){
+        body<<(mode?",\"HardcoreUnlocks\":[":",\"Unlocks\":[");bool comma=false;
+        for(const auto id:unlocked[mode]){if(comma)body<<',';comma=true;body<<"{\"ID\":"<<id<<",\"When\":0}";}
+        body<<']';
+    }
+    body<<'}';return {body.str(),reply.status};
+}
 }
 // Let the SDK build official image URLs if the server did not supply one.
 std::string image_url(const char* url, const rc_client_achievement_t& a, int state) {
@@ -304,7 +347,9 @@ struct Client::Impl {
                 impl.events.push_back({"notice","Envoi non mémorisé","Gardez l’application ouverte jusqu’à la fin de la synchronisation."});
             }
         }
-        job.future=std::async(std::launch::async,[send=impl.transport,url,post,type]{return send(url,post,type);});
+        job.future=std::async(std::launch::async,[send=impl.transport,url,post,type,session=operation=="startsession"]{
+            return session?session_reply(send,url,post,type):send(url,post,type);
+        });
         impl.pending.push_back(std::move(job));
     }
     static void logged(int result, const char*, rc_client_t* c, void*) {
@@ -643,12 +688,16 @@ struct Client::Impl {
                 for (uint32_t j=0; j<bucket.num_achievements; ++j) {
                     const auto* a = bucket.achievements[j];
                     if (!a) continue;
+                    // Runtime state can be DISABLED while browsing without a core.
+                    // Earned status belongs to the account flags, not the runtime.
+                    const bool unlocked=(a->unlocked & (state.hardcore?
+                        RC_CLIENT_ACHIEVEMENT_UNLOCKED_HARDCORE:RC_CLIENT_ACHIEVEMENT_UNLOCKED_SOFTCORE))!=0;
                     state.achievements.push_back({std::to_string(a->id),
                         a->title ? a->title : "", a->description ? a->description : "",
                         a->measured_progress ? a->measured_progress : "",
-                        badge(*a), static_cast<int>(a->points),
-                        static_cast<int>(a->state), a->measured_percent,
-                        a->state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED});
+                        badge(*a,unlocked), static_cast<int>(a->points),
+                        unlocked?RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED:static_cast<int>(a->state), a->measured_percent,
+                        unlocked});
                 }
             }
             rc_client_destroy_achievement_list(list);

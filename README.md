@@ -108,7 +108,7 @@ Aucune ROM commerciale n'est fournie. L'émulation ne nécessite pas de compte R
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 
-Les commandes à la manette sont indiquées dans **Réglages**.
+Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration. Les commandes à la manette sont également indiquées dans cette catégorie.
 
 ### Sauvegardes et jaquettes
 
@@ -130,6 +130,7 @@ L'intégration repose sur le SDK [rcheevos](https://github.com/RetroAchievements
 - En cas de panne réseau, la reconnexion par jeton et la recherche du jeu sont réessayées après 5, 10, 20, 40 puis 60 secondes au maximum. **Réessayer** permet une tentative immédiate. Un jeton expiré demande une nouvelle connexion.
 - Les messages distinguent une ROM inconnue, un jeu reconnu sans succès et un serveur indisponible. Avec un coffre disponible, les succès et scores en attente sont conservés après fermeture dans un journal authentifié, puis repris avec le jeton actuel. Le profil indique le nombre d'envois en attente. Sans coffre, les reprises sont limitées à l'exécution en cours : gardez l'application ouverte jusqu'à la synchronisation.
 - Les états Softcore conservent ensemble l'état de la console et les compteurs de conditions des succès, liés au compte et à l'empreinte de la ROM. Les anciens états restent lisibles ; leurs compteurs RetroAchievements sont réinitialisés.
+- Les succès déjà obtenus sur votre compte sont récupérés avant le suivi de la partie, y compris ceux gagnés sur un autre émulateur. Si la vérification initiale échoue, le statut indique la panne et la synchronisation est réessayée ; une panne ne doit pas être présentée comme un historique vide. **Actualiser les succès** permet aussi de remettre à jour une ancienne fiche mémorisée.
 - Le profil public et les succès des ROMs déjà reconnues sont mémorisés par compte et indiqués comme données mémorisées. Le panneau de droite, le résumé d'accueil et le mode TV affichent les compteurs du jeu sélectionné ; **Voir tous les succès** ouvre sa liste dans Profil. Ces données seules ne permettent ni de se connecter ni de débloquer un succès. **Déconnexion** efface le jeton, le cache, les envois encore en attente et leur clé de protection.
 - **Classements** présente le top 20 ou les joueurs autour de votre position, avec votre rang et votre score. Les scores sont soumis en Hardcore. **Activité** affiche la Rich Presence calculée pendant la partie ; après fermeture du jeu, les données sont indiquées comme mémorisées.
 - Les badges verrouillés et débloqués utilisent leurs images respectives. Les téléchargements échoués sont réessayés et le cache évince les anciennes images. Les notifications de succès s'affichent successivement ; leur durée est suspendue pendant le menu de pause.

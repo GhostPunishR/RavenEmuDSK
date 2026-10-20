@@ -78,6 +78,8 @@ struct State {
     char ra_password[128]{};
     char pseudo[128]{};  // 24 characters of up to 4 UTF-8 bytes each
     Settings settings;
+    int editing_key=-1;
+    std::string key_error;
     Library* library = nullptr;
     bool tv = false;          // full screen TV / gamepad mode
     int tv_category = 0;
@@ -1487,8 +1489,11 @@ void settings_display(State& s) {
 }
 
 void settings_controls(State& s) {
+    KeyboardBindings keys;keys.load(s.settings);
     begin_card("##controls");
     card_title(s, Icon::Gamepad, "Commandes en jeu");
+    muted("Cliquez sur une touche pour la modifier. Les changements sont enregistrés automatiquement.");
+    muted("Les touches déjà utilisées sont échangées. Échap reste toujours disponible pour ouvrir le menu.");
     if (ImGui::BeginTable("##keys", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX |
                           ImGuiTableFlags_SizingStretchProp)) {
         ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImVec4(0, 0, 0, 0));
@@ -1503,30 +1508,71 @@ void settings_controls(State& s) {
             ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(color::text_faint), "%s", label);
         }
         ImGui::PopFont();
-        const char* rows[][3] = {
-            {"Croix directionnelle", "Flèches", "Croix / stick gauche"},
-            {"Boutons A / B", "Z / X", "A / B"},
-            {"Start / Select", "Entrée / Retour arrière", "Start / Back"},
-            {"Gâchettes L / R (GBA)", "A / S", "LB / RB"},
-            {"Menu de pause", "Échap", "Guide ou Back + Start"},
-            {"Pause rapide", "P", "-"},
-            {"Sauvegarder / charger l'état", "F5 / F9", "Menu de pause"},
-            {"Réinitialiser", "F4", "Menu de pause"},
-            {"Plein écran", "F11", "Menu de pause"}};
-        for (const auto& r : rows) {
-            ImGui::TableNextRow(0, 34.f);
-            for (int i = 0; i < 3; ++i) {
-                ImGui::TableNextColumn();
-                ImGui::AlignTextToFramePadding();
-                if (i) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::text_muted));
-                ImGui::TextWrapped("%s", r[i]);
-                if (i) ImGui::PopStyleColor();
+        for (std::size_t i=0;i<key_commands().size();++i) {
+            const auto& command=key_commands()[i];ImGui::PushID(static_cast<int>(i));
+            ImGui::TableNextRow(0,42.f);
+            ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();ImGui::TextWrapped("%s",command.label);
+            ImGui::TableNextColumn();
+            const auto key_name=keys.label(static_cast<KeyAction>(i));
+            const float key_width=ImGui::GetContentRegionAvail().x;
+            const auto key_caption=ellipsize(s.fonts.body,key_name,std::max(16.f,key_width-64.f));
+            if(button(key_caption.c_str(),Icon::Keyboard,ButtonStyle::Secondary,{key_width,34.f})){
+                s.editing_key=static_cast<int>(i);s.key_error.clear();
             }
+            if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",key_name.c_str());
+            ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();ImGui::TextDisabled("%s",command.controller);
+            ImGui::PopID();
         }
         ImGui::PopStyleColor(2);
         ImGui::EndTable();
     }
+    if(button("Rétablir les touches par défaut",Icon::Reset,ButtonStyle::Secondary)){
+        auto settings=s.settings;KeyboardBindings{}.store(settings);
+        try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Touches réinitialisées");}
+        catch(const std::exception& e){notify(s,Toast::Kind::Error,"Touches non enregistrées",e.what());}
+    }
     end_card();
+}
+
+void key_capture_dialog(State& s){
+    // One stable popup ID, independent of the edited row/category scroll.
+    if(s.editing_key>=0&&!ImGui::IsPopupOpen("##key-capture"))ImGui::OpenPopup("##key-capture");
+    ImGui::SetNextWindowSize({std::min(500.f,ImGui::GetIO().DisplaySize.x-48.f),0.f});
+    if(ImGui::BeginPopupModal("##key-capture",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_AlwaysAutoResize)){
+        if(s.editing_key<0)ImGui::CloseCurrentPopup();
+        else{
+            ImGui::TextWrapped("Nouvelle touche : %s",key_commands()[s.editing_key].label);
+            ImGui::TextWrapped("Appuyez sur une touche du clavier, sans combinaison. Échap annule.");
+            if(!s.key_error.empty())ImGui::TextWrapped("%s",s.key_error.c_str());
+            if(button("Non attribuée",Icon::Close,ButtonStyle::Secondary)){
+                auto settings=s.settings;KeyboardBindings keys;keys.load(settings);
+                keys.assign(static_cast<KeyAction>(s.editing_key),SDLK_UNKNOWN);keys.store(settings);
+                try{settings.save();s.settings=std::move(settings);s.editing_key=-1;ImGui::CloseCurrentPopup();}
+                catch(const std::exception& e){s.key_error=e.what();}
+            }
+            ImGui::SameLine();
+            if(button("Annuler",Icon::Close,ButtonStyle::Ghost)){s.editing_key=-1;ImGui::CloseCurrentPopup();}
+        }
+        ImGui::EndPopup();
+    }
+}
+bool capture_keyboard_event(State& s,const SDL_Event& event){
+    if(s.editing_key<0)return false;
+    if(event.type==SDL_WINDOWEVENT&&event.window.event==SDL_WINDOWEVENT_FOCUS_LOST){s.editing_key=-1;return false;}
+    if(event.type==SDL_KEYDOWN&&!event.key.repeat){
+        if(event.key.keysym.sym==SDLK_ESCAPE)s.editing_key=-1;
+        else{
+            auto settings=s.settings;KeyboardBindings keys;keys.load(settings);
+            if(!keys.assign(static_cast<KeyAction>(s.editing_key),event.key.keysym.sym))
+                s.key_error="Touche indisponible. Choisissez une autre touche ou libérez son affectation.";
+            else{
+                keys.store(settings);
+                try{settings.save();s.settings=std::move(settings);s.editing_key=-1;}
+                catch(const std::exception& e){s.key_error=e.what();}
+            }
+        }
+    }
+    return event.type==SDL_KEYDOWN||event.type==SDL_TEXTINPUT||event.type==SDL_TEXTEDITING;
 }
 
 void settings_about(State& s) {
@@ -2004,6 +2050,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     while (running && !state.done) {
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
+            if(capture_keyboard_event(state,event))continue;
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) running = false;
             if (event.type == SDL_DROPFILE && event.drop.file) {
@@ -2040,6 +2087,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
                 notify(state, event.kind == "error" ? Toast::Kind::Error : Toast::Kind::Info, event.title, event.detail);
         }
         render(state, lib);
+        key_capture_dialog(state);
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 11, 12, 18, 255);
         SDL_RenderClear(renderer);
@@ -2093,6 +2141,12 @@ bool remember_hardcore(bool enabled){
 bool hardcore_preference(){
     try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_hardcore",false);}
     catch(...){return false;}
+}
+KeyboardBindings keyboard_preferences(){
+    KeyboardBindings keys;
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();keys.load(settings);}
+    catch(...){ }
+    return keys;
 }
 void record_session(const LaunchRequest& request, unsigned long long seconds) {
     if (SDL_Init(0) != 0) return;

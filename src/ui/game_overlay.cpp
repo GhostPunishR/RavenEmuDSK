@@ -32,10 +32,11 @@ bool menu_item(const Fonts& fonts, const char* label, Icon icon, const char* sho
               enabled ? color::accent_hover : color::text_faint);
     d->AddText(fonts.body, fonts.body->FontSize, {p.x + 48.f, p.y + 13.f}, fg, label);
     if (shortcut) {
-        const float sw = text_width(fonts.caption, shortcut);
+        const auto caption=ellipsize(fonts.caption,shortcut,std::max(16.f,w-text_width(fonts.body,label)-92.f));
+        const float sw = text_width(fonts.caption, caption.c_str());
         const ImVec2 k{max.x - sw - 26.f, p.y + 12.f};
         d->AddRectFilled(k, {k.x + sw + 14.f, k.y + 22.f}, color::surface, radius::sm);
-        d->AddText(fonts.caption, fonts.caption->FontSize, {k.x + 7.f, k.y + 3.f}, color::text_muted, shortcut);
+        d->AddText(fonts.caption, fonts.caption->FontSize, {k.x + 7.f, k.y + 3.f}, color::text_muted, caption.c_str());
     }
     focus_ring(d, p, max, radius::md);
     return pressed;
@@ -59,7 +60,7 @@ void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
                done ? "Succès débloqué !" : "Débloquez votre premier succès");
     const std::string line = done ? info.achievement_title + "  \xC2\xB7  " +
                                         std::to_string(info.achievement_points) + " points"
-                                  : "Appuyez sur Z (bouton A) ou cliquez sur l'écran.";
+                                  : "Appuyez sur "+info.keyboard.label(KeyAction::A)+" (bouton A) ou cliquez sur l'écran.";
     d->AddText(fonts.body, fonts.body->FontSize, {x, a.y + 84.f}, color::text_muted,
                ellipsize(fonts.body, line, b.x - x - 24.f).c_str());
     const char* hint = done ? "Échap ouvre le menu pour revenir à la bibliothèque."
@@ -221,7 +222,8 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
 
     if (info.demo && !menu_open_) demo_panel(fonts_, info);
     if (info.paused && !menu_open_) {
-        const char* label = "Pause  \xC2\xB7  P pour reprendre";
+        const auto pause_label="Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre";
+        const char* label=pause_label.c_str();
         const ImVec2 size{text_width(fonts_.body, label) + 56.f, 40.f};
         const float top=info.hardcore_waiting?76.f:info.hardcore_preferred?54.f:16.f;
         bg->AddRectFilled({16,top}, {16+size.x,top+size.y}, with_alpha(color::elevated,.95f),20.f);
@@ -231,7 +233,11 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     if (time < 6.f && !menu_open_) {
         // Short reminder of the essential keys when a game starts.
         const float alpha = std::clamp(6.f - time, 0.f, 1.f) * std::clamp(time * 2.f, 0.f, 1.f);
-        const char* hint = info.hardcore ? "Hardcore actif - chargement des états désactivé" : "Échap : menu   \xC2\xB7   F11 : plein écran   \xC2\xB7   F5 / F9 : états";
+        const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+            "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
+            info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
+        const auto fitted=ellipsize(fonts_.caption,hint_text,std::max(40.f,screen.x-64.f));
+        const char* hint=fitted.c_str();
         const float w = text_width(fonts_.caption, hint) + 32.f;
         const ImVec2 a{(screen.x - w) * .5f, screen.y - 52.f};
         bg->AddRectFilled(a, {a.x + w, a.y + 32.f}, with_alpha(color::elevated, .92f * alpha), 16.f);
@@ -266,14 +272,14 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             focus_first_ = false;
         }
         if (menu_item(fonts_, "Reprendre la partie", Icon::Play, "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, "F5")) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, "Charger l'état", Icon::Load, "F9", info.has_state && !info.hardcore_preferred))
+        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, info.keyboard.label(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
+        if (menu_item(fonts_, "Charger l'état", Icon::Load, info.keyboard.label(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
             action = OverlayAction::LoadState;
         if(menu_item(fonts_,"Succès et classements",Icon::Trophy,nullptr))retro_open_=true;
         if(menu_item(fonts_,info.hardcore_preferred?"Passer en Softcore":"Activer Hardcore (réinitialise)",Icon::Lock,nullptr))
             action=OverlayAction::ToggleHardcore;
-        if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, "F4")) action = OverlayAction::Reset;
-        if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, "F11"))
+        if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, info.keyboard.label(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
+        if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, info.keyboard.label(KeyAction::Fullscreen).c_str()))
             action = OverlayAction::ToggleFullscreen;
         ImGui::Dummy({inner, space::sm});
         p = ImGui::GetCursorScreenPos();

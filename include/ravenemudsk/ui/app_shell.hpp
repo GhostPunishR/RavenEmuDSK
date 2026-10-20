@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 #include <ravenemudsk/ui/storage.hpp>
+#include <ravenemudsk/ui/keyboard_bindings.hpp>
 #include <optional>
 #include <string>
 namespace ravenemudsk_ui {
@@ -18,4 +19,5 @@ void record_session(const LaunchRequest& selection, unsigned long long seconds);
 Folders app_folders();
 bool remember_hardcore(bool enabled);
 bool hardcore_preference();
+KeyboardBindings keyboard_preferences();
 } // namespace ravenemudsk_ui
