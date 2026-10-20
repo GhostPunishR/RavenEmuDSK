@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/achievements/client.hpp>
+#include <algorithm>
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -109,6 +110,33 @@ void network_failure_and_retry() {
     finish_login(client);
     require(client.snapshot().logged_in, "Retry should reconnect with the retained token");
 }
+// A wrong password and an outage do not read the same: the service's reason is shown.
+void password_login_reasons() {
+    Server server;
+    server.reply({R"({"Success":false,"Error":"Invalid User/Password combination. Please try again","Code":"invalid_credentials","Status":401})", 401});
+    Client client(std::make_shared<MemoryStore>(), server.transport());
+    client.login("SessionUser", "WrongPassword");
+    finish_login(client);
+    auto status = client.snapshot().status;
+    require(!client.snapshot().logged_in && status.find("refusée") != std::string::npos &&
+            status.find("Invalid User/Password combination") != std::string::npos, "A refused password must show the service's reason");
+    const auto events = client.drain_events();
+    require(std::any_of(events.begin(), events.end(), [](const Event& e) {
+        return e.kind == "error" && e.detail.find("Invalid User/Password") != std::string::npos; }),
+        "The refusal toast must carry the service's reason");
+    server.reply({"", -2});
+    client.login("SessionUser", "FakePassword");
+    finish_login(client);
+    status = client.snapshot().status;
+    require(status.find("ne répond pas") != std::string::npos && status.find("refusée") == std::string::npos,
+            "An outage must not read as a refused password");
+    server.reply({R"({"Success":false,"Error":"Line one\nLine two","Code":"access_denied","Status":403})", 403});
+    client.login("SessionUser", "FakePassword");
+    finish_login(client);
+    status = client.snapshot().status;
+    require(status.find("Line one Line two") != std::string::npos && status.find('\n') == std::string::npos,
+            "Server text must stay on one line");
+}
 void automatic_backoff_and_cached_profile() {
     auto store = std::make_shared<MemoryStore>();
     store->session = SessionCredentials{"SessionUser", "FakeSessionToken"};
@@ -187,6 +215,7 @@ void storage_failure_is_visible() {
 int main() {
     saved_session_lifecycle();
     network_failure_and_retry();
+    password_login_reasons();
     expired_session();
     automatic_backoff_and_cached_profile();
     logout_during_automatic_login();

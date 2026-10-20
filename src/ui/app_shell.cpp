@@ -982,6 +982,15 @@ void ra_mode_card(State& s, float width) {
 }
 // One row of the achievement list: badge, title and type, state or progress,
 // points and rarity. Locked achievements are dimmed.
+// Where the unlock stands with RetroAchievements; empty when the service reports it.
+const char* ra_sync_sentence(const ravenemudsk_ra::Achievement& a) {
+    switch (a.sync) {
+    case ravenemudsk_ra::AchievementSync::Pending:
+        return "Obtenu sur cet ordinateur, pas encore confirmé par RetroAchievements.";
+    case ravenemudsk_ra::AchievementSync::Refused: return "RetroAchievements a refusé cet envoi.";
+    default: return a.unlocked ? "Confirmé par RetroAchievements." : "";
+    }
+}
 bool ra_achievement_row(State& s, const ravenemudsk_ra::Achievement& a, bool hardcore) {
     constexpr float h = 78.f;
     const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -989,12 +998,14 @@ bool ra_achievement_row(State& s, const ravenemudsk_ra::Achievement& a, bool har
     ImGui::PushID(a.id.c_str());
     const bool clicked = ImGui::InvisibleButton("##ra-row", {width, h}, ImGuiButtonFlags_EnableNav);
     const bool hovered = ImGui::IsItemHovered();
-    if (hovered && !a.description.empty()) {
-        // The description and the rarity in words, without opening the sheet.
+    const bool synced = a.sync == ravenemudsk_ra::AchievementSync::Server;
+    if (hovered && (!a.description.empty() || !synced)) {
+        // The description, the rarity and the sync state in words, without opening the sheet.
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.f);
         ImGui::TextUnformatted(a.description.c_str());
         if (const auto rarity = ravenemudsk_ra::rarity_sentence(a); !rarity.empty()) muted(rarity.c_str());
+        if (!synced) muted(ra_sync_sentence(a));
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
@@ -1034,15 +1045,23 @@ bool ra_achievement_row(State& s, const ravenemudsk_ra::Achievement& a, bool har
              a.type == RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE ? color::danger :
              a.type == RC_CLIENT_ACHIEVEMENT_TYPE_WIN ? color::gold : color::accent, s.fonts.caption);
     std::string line;
+    ImU32 line_color = a.unlocked ? color::text_muted : color::text_faint;
     if (a.unlocked) {
         const auto date = ravenemudsk_ra::format_unlock_date(a.unlock_time);
         line = date.empty() ? "Débloqué" : "Débloqué le " + date;
     } else if (a.state == RC_CLIENT_ACHIEVEMENT_STATE_DISABLED) line = "Non pris en charge";
     else if (!a.progress.empty()) line = a.progress;
     else line = "Verrouillé";
+    if (a.sync == ravenemudsk_ra::AchievementSync::Pending) {
+        line = a.unlocked ? line + " \xC2\xB7 envoi en attente" : "Obtenu, envoi en attente";
+        line_color = color::gold;
+    } else if (a.sync == ravenemudsk_ra::AchievementSync::Refused) {
+        line = "Envoi refusé par RetroAchievements";
+        line_color = color::danger;
+    }
     line = ellipsize(s.fonts.caption, line, text_w);
-    text_at(d, s.fonts.caption, {x, pos.y + 46.f}, a.unlocked ? color::text_muted : color::text_faint, line);
-    if (!a.unlocked && !a.progress.empty() && a.measured_percent > 0.f) {
+    text_at(d, s.fonts.caption, {x, pos.y + 46.f}, line_color, line);
+    if (synced && !a.unlocked && !a.progress.empty() && a.measured_percent > 0.f) {
         const float bar_x = x + text_width(s.fonts.caption, line.c_str()) + space::md;
         const float bar_end = std::min(bar_x + 140.f, x + text_w);
         if (bar_end - bar_x >= 40.f)
@@ -1088,6 +1107,11 @@ void ra_achievement_detail(State& s, const ravenemudsk_ra::Snapshot& snap) {
         ImGui::TextUnformatted(a.state == RC_CLIENT_ACHIEVEMENT_STATE_DISABLED ? "Non pris en charge par l'émulateur" : "À obtenir");
     }
     if (const auto rarity = ravenemudsk_ra::rarity_sentence(a); !rarity.empty()) muted(rarity.c_str());
+    if (const char* sync = ra_sync_sentence(a); *sync) {
+        if (a.sync == ravenemudsk_ra::AchievementSync::Server) muted(sync);
+        else ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(
+            a.sync == ravenemudsk_ra::AchievementSync::Pending ? color::gold : color::danger), "%s", sync);
+    }
     ImGui::PopTextWrapPos();
     ImGui::Dummy({0.f, space::xs});
     if (button("Fermer", Icon::Close, ButtonStyle::Secondary)) ImGui::CloseCurrentPopup();
@@ -1264,6 +1288,20 @@ void draw_ra_identity(State& s, ImDrawList* d, ImVec2 center, float radius) {
         draw_avatar(d,center,radius,name,0,avatar,s.fonts);
     } else {
         draw_ra_brand(s,d,center,radius*2.f);
+    }
+}
+// RetroAchievements events become toasts; a Hardcore refusal also updates the setting.
+void retro_events(State& s) {
+    for (const auto& event : retro_client(s).drain_events()) {
+        if (event.kind == "hardcore_refused") {
+            // Keep the setting in line, so the refusal is not repeated at every launch.
+            s.settings.set_flag("ra_hardcore", false);
+            save_settings(s);
+            continue;
+        }
+        if (event.kind == "login" || event.kind == "info" || event.kind == "notice" ||
+            event.kind == "offline" || event.kind == "online" || event.kind == "error")
+            notify(s, event.kind == "error" ? Toast::Kind::Error : Toast::Kind::Info, event.title, event.detail);
     }
 }
 void save_settings(State& s) {
@@ -2265,11 +2303,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
         retro_client(state).pump(false);
-        for (const auto& event : retro_client(state).drain_events()) {
-            if (event.kind == "login" || event.kind == "info" || event.kind == "notice" ||
-                event.kind == "offline" || event.kind == "online" || event.kind == "error")
-                notify(state, event.kind == "error" ? Toast::Kind::Error : Toast::Kind::Info, event.title, event.detail);
-        }
+        retro_events(state);
         render(state, lib);
         key_capture_dialog(state);
         ImGui::Render();

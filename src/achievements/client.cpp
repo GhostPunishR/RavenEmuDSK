@@ -96,6 +96,42 @@ template<typename T> T number(const std::string& value,T fallback={}) {
 }
 std::int64_t wall_time(){return std::chrono::duration_cast<std::chrono::seconds>(
     std::chrono::system_clock::now().time_since_epoch()).count();}
+using UnlockIds=std::array<std::vector<std::uint32_t>,2>; // Softcore, then Hardcore.
+// The account's unlocks for a game, read from the dedicated endpoint, which
+// opens no game session. On failure, `failure` holds the reply to report.
+bool account_unlocks(const ServerTransport& send,const std::map<std::string,std::string>& fields,
+                     UnlockIds& unlocked,Reply& failure){
+    if(!fields.contains("u")||!fields.contains("t")||!fields.contains("g")){failure={"",-2};return false;}
+    for(unsigned mode=0;mode<2;++mode){
+        rc_api_fetch_user_unlocks_request_t params{};
+        params.username=fields.at("u").c_str();params.api_token=fields.at("t").c_str();
+        params.game_id=number<std::uint32_t>(fields.at("g"));params.hardcore=mode;
+        rc_api_request_t req{};
+        const auto built=rc_api_init_fetch_user_unlocks_request(&req,&params);
+        if(built!=RC_OK){rc_api_destroy_request(&req);failure={"",-2};return false;}
+        const std::string target=req.url,payload=req.post_data,content=req.content_type;
+        rc_api_destroy_request(&req);
+        const auto account=send(target,payload,content);
+        const rc_api_server_response_t account_response{account.body.c_str(),account.body.size(),account.status};
+        rc_api_fetch_user_unlocks_response_t parsed{};
+        const auto parsed_result=rc_api_process_fetch_user_unlocks_server_response(&parsed,&account_response);
+        const bool ok=account.status>=200&&account.status<300&&parsed_result==RC_OK&&parsed.response.succeeded;
+        if(ok&&parsed.num_achievement_ids)unlocked[mode].assign(parsed.achievement_ids,parsed.achievement_ids+parsed.num_achievement_ids);
+        rc_api_destroy_fetch_user_unlocks_response(&parsed);
+        if(!ok){failure=account;return false;}
+    }
+    return true;
+}
+// A start-session reply listing these unlocks. Their dates are unknown (0).
+std::string session_body(std::int64_t server_now,const UnlockIds& unlocked){
+    std::ostringstream body;body<<"{\"Success\":true,\"ServerNow\":"<<server_now;
+    for(unsigned mode=0;mode<2;++mode){
+        body<<(mode?",\"HardcoreUnlocks\":[":",\"Unlocks\":[");bool comma=false;
+        for(const auto id:unlocked[mode]){if(comma)body<<',';comma=true;body<<"{\"ID\":"<<id<<",\"When\":0}";}
+        body<<']';
+    }
+    body<<'}';return body.str();
+}
 Reply session_reply(const ServerTransport& send,const std::string& url,const std::string& post,const std::string& type){
     auto reply=send(url,post,type);
     if(reply.status<200||reply.status>=300)return reply;
@@ -109,33 +145,32 @@ Reply session_reply(const ServerTransport& send,const std::string& url,const std
     // before the SDK activates triggers. Only server-reported IDs are applied.
     const auto fields=form(post);
     if(!fields.contains("u")||!fields.contains("t")||!fields.contains("g"))return reply;
-    std::array<std::vector<std::uint32_t>,2> unlocked;
-    for(unsigned mode=0;mode<2;++mode){
-        rc_api_fetch_user_unlocks_request_t params{};
-        params.username=fields.at("u").c_str();params.api_token=fields.at("t").c_str();
-        params.game_id=number<std::uint32_t>(fields.at("g"));params.hardcore=mode;
-        rc_api_request_t req{};
-        const auto built=rc_api_init_fetch_user_unlocks_request(&req,&params);
-        if(built!=RC_OK){rc_api_destroy_request(&req);return {"",-2};}
-        const std::string target=req.url,payload=req.post_data,content=req.content_type;
-        rc_api_destroy_request(&req);
-        const auto account=send(target,payload,content);
-        const rc_api_server_response_t account_response{account.body.c_str(),account.body.size(),account.status};
-        rc_api_fetch_user_unlocks_response_t parsed{};
-        const auto parsed_result=rc_api_process_fetch_user_unlocks_server_response(&parsed,&account_response);
-        const bool ok=account.status>=200&&account.status<300&&parsed_result==RC_OK&&parsed.response.succeeded;
-        if(ok&&parsed.num_achievement_ids)unlocked[mode].assign(parsed.achievement_ids,parsed.achievement_ids+parsed.num_achievement_ids);
-        rc_api_destroy_fetch_user_unlocks_response(&parsed);
-        if(!ok)return {"",-2}; // Never turn an unverified outage into an empty account history.
-    }
+    UnlockIds unlocked;Reply failure;
+    // Never turn an unverified outage into an empty account history.
+    if(!account_unlocks(send,fields,unlocked,failure))return {"",-2};
     if(unlocked[0].empty()&&unlocked[1].empty())return reply;
-    std::ostringstream body;body<<"{\"Success\":true,\"ServerNow\":"<<server_now;
-    for(unsigned mode=0;mode<2;++mode){
-        body<<(mode?",\"HardcoreUnlocks\":[":",\"Unlocks\":[");bool comma=false;
-        for(const auto id:unlocked[mode]){if(comma)body<<',';comma=true;body<<"{\"ID\":"<<id<<",\"When\":0}";}
-        body<<']';
+    return {session_body(server_now,unlocked),reply.status};
+}
+// A launcher refresh only reads the account's unlocks: opening a game session
+// would list the game as being played, in Hardcore when it is selected.
+Reply browse_reply(const ServerTransport& send,const std::string& post){
+    UnlockIds unlocked;Reply failure;
+    if(!account_unlocks(send,form(post),unlocked,failure))
+        return failure.status>0?failure:Reply{"",-2}; // A refused token still renews or expires.
+    return {session_body(wall_time(),unlocked),200};
+}
+// Server text shown in the interface: one line, bounded, never cut inside a character.
+std::string server_message(const char* message){
+    std::string text=message?message:"";
+    for(auto& c:text)if(static_cast<unsigned char>(c)<0x20||c==0x7f)c=' ';
+    if(text.size()>200){
+        std::size_t cut=200;
+        while(cut&&(static_cast<unsigned char>(text[cut])&0xC0)==0x80)--cut;
+        text=text.substr(0,cut)+"…";
     }
-    body<<'}';return {body.str(),reply.status};
+    const auto first=text.find_first_not_of(' ');
+    if(first==std::string::npos)return {};
+    return text.substr(first,text.find_last_not_of(' ')-first+1);
 }
 bool loads_game(const std::string& operation) {
     return operation=="achievementsets"||operation=="startsession"||operation=="gameid"||operation=="patch";
@@ -176,7 +211,7 @@ struct Client::Impl {
         rc_client_server_callback_t callback{};
         void* userdata{};
         std::future<Reply> future;
-        std::string submission_id,username,operation;
+        std::string submission_id,username,operation,achievement;
         bool replay=false,leaderboard=false;
     };
     rc_client_t* handle = nullptr;
@@ -201,6 +236,9 @@ struct Client::Impl {
     Ranking ranks;
     std::shared_ptr<Outbox> outbox;
     std::unordered_set<std::string> sdk_submissions,replaying;
+    // Achievements of the journal, and SDK submissions not yet accepted.
+    std::unordered_set<std::string> queued_ids;
+    std::unordered_map<std::string,AchievementSync> unconfirmed;
     std::optional<std::pair<unsigned,unsigned>> award_scores;
     bool browsing=false,awaiting_outbox=false,preferred_hardcore=false;
     bool renew_session=false,hardcore_reset_required=false,hardcore_storage_failed=false;
@@ -237,7 +275,8 @@ struct Client::Impl {
         if(memory && !ravenemu_reset(memory)) {
             rc_client_set_hardcore_enabled(handle,0);
             preferred_hardcore=false;state.hardcore_preferred=false;
-            events.push_back({"error","Hardcore non activé","La réinitialisation de la console a échoué."});
+            events.push_back({"error","Hardcore non activé","La réinitialisation de la console a échoué. Le réglage repasse en Softcore."});
+            events.push_back({"hardcore_refused","",""});
             return false;
         }
         rc_client_reset(handle);
@@ -249,7 +288,8 @@ struct Client::Impl {
         if(on && state.logged_in && !durable()) {
             preferred_hardcore=false;state.hardcore_preferred=false;
             state.status="Hardcore non activé : un coffre système est nécessaire pour protéger les envois hors ligne";
-            events.push_back({"error",state.status,""});
+            events.push_back({"error",state.status,"Le réglage repasse en Softcore."});
+            events.push_back({"hardcore_refused","",""});
             rc_client_set_hardcore_enabled(handle,0);
             return;
         }
@@ -275,9 +315,38 @@ struct Client::Impl {
         if(list)rc_client_destroy_leaderboard_entry_list(list);
     }
     void cancel_ranking(){if(ranking_request)rc_client_abort_async(handle,ranking_request);ranking_request=nullptr;ranks={};}
+    void note_queue(const std::vector<Submission>& records) {
+        queued_ids.clear();
+        for(const auto& s:records)if(!s.leaderboard)queued_ids.insert(std::to_string(s.object_id));
+    }
+    // The live sync state of each listed achievement.
+    void mark_sync(std::vector<Achievement>& list) const {
+        for(auto& a:list){
+            const auto found=unconfirmed.find(a.id);
+            a.sync=queued_ids.contains(a.id)?AchievementSync::Pending:
+                found!=unconfirmed.end()?found->second:AchievementSync::Server;
+        }
+    }
+    // Until a ROM's own data loads, show its cached summary or nothing:
+    // never the title, achievements or activity of the previous game.
+    void show_game(const std::string& key) {
+        if(!key.empty()&&key==state.rom_path)return;
+        Snapshot cached;
+        if(!key.empty()&&!state.username.empty()){
+            if(const auto found=game_cache.find(key);found!=game_cache.end()){if(found->second)cached=*found->second;}
+            else if(profiles)profiles->load_game(state.username,key,cached);
+        }
+        state.rom_path=std::move(cached.rom_path);state.game_title=std::move(cached.game_title);
+        state.unlocked_count=cached.unlocked_count;state.total_count=cached.total_count;
+        state.unlocked_points=cached.unlocked_points;state.total_points=cached.total_points;
+        state.achievements=std::move(cached.achievements);state.game_hash=std::move(cached.game_hash);
+        state.rich_presence=std::move(cached.rich_presence);state.leaderboards=std::move(cached.leaderboards);
+        state.game_hardcore=cached.game_hardcore;
+    }
     void recover_outbox() {
         if(!state.logged_in || !outbox || !outbox->available(state.username))return;
         const auto records=outbox->entries(state.username);
+        note_queue(records);
         state.pending_submissions=static_cast<std::uint32_t>(records.size());
         state.durable_submissions=outbox->healthy();
         if(records.empty()){release_outbox_wait();return;}
@@ -300,6 +369,7 @@ struct Client::Impl {
             if(result==RC_OK&&req.post_data){
                 const std::string url=req.url,post=req.post_data,type=req.content_type?req.content_type:"application/x-www-form-urlencoded";
                 Pending job{};job.submission_id=s.id;job.username=s.username;job.replay=true;job.leaderboard=s.leaderboard;
+                if(!s.leaderboard)job.achievement=std::to_string(s.object_id);
                 job.future=std::async(std::launch::async,[send=transport,url,post,type]{return send(url,post,type);});
                 replaying.insert(s.id);pending.push_back(std::move(job));
             }
@@ -382,12 +452,17 @@ struct Client::Impl {
                 impl.events.push_back({"notice","Envoi non mémorisé","Gardez l’application ouverte jusqu’à la fin de la synchronisation."});
             }
         }
-        job.future=std::async(std::launch::async,[send=impl.transport,url,post,type,session=operation=="startsession"]{
-            return session?session_reply(send,url,post,type):send(url,post,type);
+        if(operation=="awardachievement"){
+            job.achievement=field("a");
+            if(!job.achievement.empty())impl.unconfirmed[job.achievement]=AchievementSync::Pending;
+        }
+        const bool browse=operation=="startsession"&&impl.browsing&&!impl.memory;
+        job.future=std::async(std::launch::async,[send=impl.transport,url,post,type,session=operation=="startsession",browse]{
+            return browse?browse_reply(send,post):session?session_reply(send,url,post,type):send(url,post,type);
         });
         impl.pending.push_back(std::move(job));
     }
-    static void logged(int result, const char*, rc_client_t* c, void*) {
+    static void logged(int result, const char* message, rc_client_t* c, void*) {
         auto& impl = self(c);
         impl.login_request = nullptr;
         impl.state.login_pending = false;
@@ -431,18 +506,26 @@ struct Client::Impl {
                     "Session expirée : la session enregistrée n'a pas pu être effacée dans le coffre du système";
                 // A game waiting for this renewal cannot load without a new sign-in.
                 if (impl.state.game_status == GameStatus::Loading) impl.state.game_status = GameStatus::None;
-            } else {
+            } else if (impl.token_login) {
                 // Keep a saved token on transient network errors so Retry (or
                 // the next launch) can reconnect without asking for a password.
-                impl.state.status = impl.token_login ? "Reconnexion impossible : réessayez lorsque le réseau est disponible" :
-                    "Connexion impossible : vérifiez votre compte et le réseau";
+                impl.state.status = "Reconnexion impossible : réessayez lorsque le réseau est disponible";
+            } else if (result == RC_NO_RESPONSE || result == RC_INVALID_JSON) {
+                impl.state.status = "Connexion impossible : RetroAchievements ne répond pas, vérifiez le réseau";
+            } else {
+                // A wrong password and an outage must not read the same: show the service's reason.
+                const auto reason = server_message(message);
+                const bool refused = result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN || result == RC_ACCESS_DENIED;
+                impl.state.status = std::string(refused ? "Connexion refusée par RetroAchievements" : "Connexion impossible") +
+                    (reason.empty() ? refused ? " : identifiant ou mot de passe incorrect" : " : vérifiez votre compte et le réseau" :
+                     " : " + reason);
             }
             if (impl.token_login && !impl.retry_token.empty() && transient(result)) {
                 impl.login_retry_at = impl.clock() + delay(impl.login_failures);
                 impl.state.reconnect_scheduled = true;
                 impl.state.status = "Hors ligne : reconnexion automatique programmée";
             }
-            impl.events.push_back({"error", "Connexion RetroAchievements impossible", ""});
+            impl.events.push_back({"error", "Connexion RetroAchievements impossible", server_message(message)});
         }
     }
     static void loaded(int result, const char* message, rc_client_t* c, void*) {
@@ -587,7 +670,8 @@ struct Client::Impl {
                 if (profiles) profiles->load(retry_user, state);
                 if(state.username.empty())state.username=retry_user;
                 if(outbox){
-                    state.pending_submissions=static_cast<std::uint32_t>(outbox->entries(retry_user).size());
+                    const auto records=outbox->entries(retry_user);note_queue(records);
+                    state.pending_submissions=static_cast<std::uint32_t>(records.size());
                     state.durable_submissions=outbox->available(retry_user)&&outbox->healthy();
                 }
                 state.session_saved = true;
@@ -672,6 +756,18 @@ struct Client::Impl {
                 else{outbox_failures=0;outbox_retry_at=0;}
             }
         }
+        if(!cancel&&!job.achievement.empty()) {
+            // Same verdict as the journal: retryable failures stay pending.
+            rc_api_award_achievement_response_t parsed{};
+            const int result=rc_api_process_award_achievement_server_response(&parsed,&response);
+            const bool ok=result==RC_OK&&parsed.response.succeeded&&reply.status>=200&&reply.status<300;
+            const bool refused=!parsed.response.succeeded&&parsed.response.error_message&&
+                result!=RC_INVALID_JSON&&result!=RC_NO_RESPONSE&&reply.status>0&&reply.status!=401&&
+                reply.status!=403&&reply.status!=429&&reply.status<500;
+            rc_api_destroy_award_achievement_response(&parsed);
+            if(ok)unconfirmed.erase(job.achievement);
+            else if(refused)unconfirmed[job.achievement]=AchievementSync::Refused;
+        }
         if(!cancel&&loads_game(job.operation))load_refusal=refusal(reply);
         if(job.callback)job.callback(&response,job.userdata);
     }
@@ -728,6 +824,10 @@ struct Client::Impl {
                     if(l)state.leaderboards.push_back({l->id,l->title?l->title:"",l->description?l->description:""});}}
             rc_client_destroy_leaderboard_list(leaderboards);
         }
+        // Unlocks read without a game session carry no date: keep the ones
+        // already known. Achievement IDs are unique across all games.
+        std::unordered_map<std::string,std::int64_t> dates;
+        for(const auto& a:state.achievements)if(a.unlocked&&a.unlock_time>0)dates.emplace(a.id,a.unlock_time);
         state.achievements.clear();
         state.unlocked_count = 0;
         state.total_count = 0;
@@ -751,13 +851,15 @@ struct Client::Impl {
                     // Earned status belongs to the account flags, not the runtime.
                     const bool unlocked=(a->unlocked & (state.hardcore?
                         RC_CLIENT_ACHIEVEMENT_UNLOCKED_HARDCORE:RC_CLIENT_ACHIEVEMENT_UNLOCKED_SOFTCORE))!=0;
-                    state.achievements.push_back({std::to_string(a->id),
+                    const auto id=std::to_string(a->id);
+                    std::int64_t when=unlocked?static_cast<std::int64_t>(a->unlock_time):0;
+                    if(unlocked&&when<=0)if(const auto known=dates.find(id);known!=dates.end())when=known->second;
+                    state.achievements.push_back({id,
                         a->title ? a->title : "", a->description ? a->description : "",
                         a->measured_progress ? a->measured_progress : "",
                         badge(*a,unlocked), static_cast<int>(a->points),
                         unlocked?RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED:static_cast<int>(a->state), a->measured_percent,
-                        unlocked, unlocked?static_cast<std::int64_t>(a->unlock_time):0,
-                        static_cast<int>(a->type), a->rarity, a->rarity_hardcore});
+                        unlocked, when, static_cast<int>(a->type), a->rarity, a->rarity_hardcore});
                 }
             }
             rc_client_destroy_achievement_list(list);
@@ -787,8 +889,10 @@ struct Client::Impl {
             hardcore_storage_failed=false;preferred_hardcore=false;state.hardcore_preferred=false;
             rc_client_set_hardcore_enabled(handle,0);
             events.push_back({"error","Hardcore interrompu","La file hors ligne n’a pas pu être protégée. La partie continue en Softcore."});
+            events.push_back({"hardcore_refused","",""});
         }
         refresh();
+        mark_sync(state.achievements);
         persist();
     }
 };
@@ -809,7 +913,7 @@ void Client::login(const std::string& user, const std::string& password) {
     impl_->retry_user.clear(); impl_->retry_token.clear();
     impl_->state = Snapshot{};
     impl_->state.hardcore_preferred=impl_->preferred_hardcore;
-    impl_->game_cache.clear();
+    impl_->game_cache.clear();impl_->queued_ids.clear();impl_->unconfirmed.clear();
     if (impl_->profiles) impl_->profiles->load(user, impl_->state);
     impl_->state.logged_in = false;
     impl_->state.login_pending = true;
@@ -840,7 +944,7 @@ void Client::disconnect() {
     const bool forgotten = !impl_->storage || impl_->storage->clear();
     impl_->retry_user.clear();
     impl_->retry_token.clear();
-    impl_->game_cache.clear();
+    impl_->game_cache.clear();impl_->queued_ids.clear();impl_->unconfirmed.clear();
     impl_->state = Snapshot{};
     impl_->award_scores.reset();impl_->deferred_progress.clear();impl_->browsing=false;impl_->awaiting_outbox=false;
     impl_->renew_session=false;impl_->hardcore_reset_required=false;impl_->hardcore_storage_failed=false;
@@ -866,6 +970,7 @@ void Client::start_game(int console, const std::vector<std::uint8_t>& rom, raven
     impl_->game_load = nullptr;
     impl_->game_retry_at = 0;
     rc_client_unload_game(impl_->handle);
+    impl_->show_game(impl_->active_rom_path);
     impl_->state.cached_profile = !impl_->state.game_title.empty();
     impl_->state.game_status = GameStatus::None;
     impl_->game_failures = 0;
@@ -915,6 +1020,7 @@ bool Client::refresh_game(const std::string& value) {
     if(impl_->retry_user.empty()||impl_->retry_token.empty()){
         impl_->state.status="Connectez votre compte pour actualiser les succès.";return false;
     }
+    impl_->show_game(impl_->active_rom_path);
     impl_->state.cached_profile=!impl_->state.game_title.empty();
     impl_->begin_token_login("Actualisation du profil et des succès…");return true;
 }
@@ -971,7 +1077,7 @@ std::optional<Snapshot> Client::game_snapshot(const std::string& path) {
         found = impl_->game_cache.emplace(key, loaded ? std::optional<Snapshot>(std::move(cached)) : std::nullopt).first;
     }
     auto result = found->second;
-    if (result) result->cached_profile = true;
+    if (result) { result->cached_profile = true; impl_->mark_sync(result->achievements); }
     return result;
 }
 std::vector<Event> Client::drain_events() {

@@ -21,8 +21,10 @@ ravenemudsk_ra::ServerReply serve(const std::string& post) {
                 R"({"ID":11,"Title":"Premier pas","Description":"Commencer","Flags":3,"Points":5,"MemAddr":"0xH00c001=1","Author":"T","BadgeName":"1","Created":1,"Modified":1,"Type":"progression","Rarity":80.5,"RarityHardcore":40.2},)"
                 R"({"ID":12,"Title":"Pêcheur confirmé","Description":"Pêcher","Flags":3,"Points":10,"MemAddr":"0xH00c001=2","Author":"T","BadgeName":"2","Created":1,"Modified":1,"Type":"missable","Rarity":12.3,"RarityHardcore":3.1},)"
                 R"({"ID":13,"Title":"Maître","Description":"Gagner","Flags":3,"Points":25,"MemAddr":"0xH00c001=3","Author":"T","BadgeName":"3","Created":1,"Modified":1,"Type":"win_condition"}],"Leaderboards":[]}]})", 200};
-    if (post.starts_with("r=startsession"))
-        return {R"({"Success":true,"Unlocks":[{"ID":11,"When":1700049600}],"HardcoreUnlocks":[]})", 200};
+    // The profile refresh reads unlocks without opening a game session.
+    if (post.starts_with("r=unlocks"))
+        return {post.find("&h=1") != std::string::npos ? R"({"Success":true,"UserUnlocks":[]})" :
+                R"({"Success":true,"UserUnlocks":[11]})", 200};
     if (post.starts_with("r=awardachievement"))
         return {R"({"Success":false,"Error":"Access denied.","Code":"access_denied","Status":403})", 403};
     return {R"({"Success":true})", 200};
@@ -126,6 +128,22 @@ int main() {
     require(client.snapshot().logged_in && queue->entries("GameUser").size() == 1,
             "Asking to sign out must not sign out before confirmation");
 
+    // A Hardcore preference the client refuses (no journal here) is saved as Softcore,
+    // so the refusal is not repeated at every launch.
+    ravenemudsk_ra::Client plain(std::make_shared<retro_test::Vault>(), [](const std::string&, const std::string& post,
+                                 const std::string&) { return serve(post); });
+    plain.login("GameUser", "Password");
+    pump_until(plain, [&] { return plain.snapshot().logged_in; }, "login without journal");
+    state.retro = &plain;
+    state.settings = Settings(root.path / "reglages.txt");
+    state.settings.set_flag("ra_hardcore", true);
+    plain.drain_events();
+    plain.set_hardcore(true);
+    retro_events(state);
+    Settings saved(state.settings.file());
+    saved.load();
+    require(!saved.flag("ra_hardcore", true), "A refused Hardcore preference must be saved as Softcore");
+
     ImGui::DestroyContext();
-    std::cout << "Profile columns, tabs, search and sign-out confirmation passed\n";
+    std::cout << "Profile columns, tabs, search, sign-out confirmation and Hardcore refusal passed\n";
 }

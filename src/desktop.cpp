@@ -235,6 +235,11 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         } else ravenemudsk_ra::client().pump(false);
         auto& retro=ravenemudsk_ra::client();
         for(const auto& event:retro.drain_events()) {
+            if(event.kind=="hardcore_refused"){
+                if(!ravenemudsk_ui::remember_hardcore(false))
+                    toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le Hardcore reste sélectionné dans les réglages.");
+                continue;
+            }
             if(event.kind=="hardcore_reset"){
                 input.release_all();paused=false;next=Clock::now();
                 overlay.clear_retro();overlay.close_menu();
