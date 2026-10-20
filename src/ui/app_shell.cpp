@@ -1237,9 +1237,15 @@ void tv_view(State& s, Library& lib) {
     float rx = screen.x - pad - text_width(s.fonts.tv_title, clock.data());
     text_at(d, s.fonts.tv_title, {rx, 42.f}, color::text, clock.data());
     rx -= 48.f;
-    const std::string name = player_name(s);
+    const auto account = retro_client(s).snapshot();
+    const std::string full_name = account.logged_in ?
+        (account.display_name.empty() ? account.username : account.display_name) : player_name(s);
+    const float brand_right = pad + 72.f + text_width(s.fonts.tv_title, "RAVENEMU");
+    const std::string name = ellipsize(s.fonts.tv_body, full_name,
+        std::max(0.f, rx - 56.f - brand_right - 32.f));
     const float nw = text_width(s.fonts.tv_body, name.c_str());
-    draw_player_avatar(s, d, {rx - 22.f, 58.f}, 22.f);
+    if (account.logged_in) draw_ra_identity(s, d, {rx - 22.f, 58.f}, 22.f);
+    else draw_player_avatar(s, d, {rx - 22.f, 58.f}, 22.f);
     text_at(d, s.fonts.tv_body, {rx - 56.f - nw, 45.f}, color::text_muted, name);
 
     // Category tabs between LB and RB.
