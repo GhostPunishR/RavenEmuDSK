@@ -5,6 +5,7 @@
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <ravenemudsk/achievements/notifications.hpp>
 #include <ravenemudsk/ui/keyboard_bindings.hpp>
+#include <ravenemudsk/ui/pad_glyphs.hpp>
 #include <deque>
 #include <optional>
 #include <utility>
@@ -28,6 +29,7 @@ struct OverlayInfo {
     int achievement_points = 0;
     bool achievement_unlocked = false;
     bool demo = false;            // bundled demo ROM: show the guided panel
+    std::optional<PadFamily> pad; // controller in use: hints show its buttons
 };
 // Top-center RetroAchievements cards (unlocks, progress) and the challenge
 // list: desktop sizes, or larger ones read from a couch in TV mode, inside a
@@ -55,7 +57,8 @@ public:
     // True while the overlay uses the mouse, so clicks must not reach the game.
     bool wants_mouse() const;
     bool menu_open() const { return menu_open_; }
-    void open_menu();
+    // `from_pad`: opened with the controller, so keyboard shortcuts are not listed.
+    void open_menu(bool from_pad = false);
     void close_menu();
     void notify(Toast toast) { toasts_.push_back(std::move(toast)); }
     bool has_toast(Toast::Kind kind) const;
@@ -73,6 +76,7 @@ private:
     Fonts fonts_;
     std::vector<Toast> toasts_;
     bool menu_open_ = false;
+    bool pad_menu_ = false;
     bool focus_first_ = false;
     bool retro_open_ = false;
     BadgeCache badges_;

@@ -185,6 +185,24 @@ int main() {
     require(state.ra_tab == 0 && logged.find("Jeu maîtrisé") != std::string::npos && logged.find("3 / 3 succès") != std::string::npos,
             "Opening a game from My games must show its achievements");
 
+    // TV mode is driven by the controller: no mouse while it lasts.
+    state.library = &games;
+    set_tv(state, true, false);
+    require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse) != 0, "TV mode must ignore the mouse");
+    set_tv(state, false, false);
+    require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse) == 0, "Desktop mode must use the mouse again");
+
+    // One window passes from the launcher to the game and back in TV mode.
+    require(SDL_InitSubSystem(SDL_INIT_VIDEO) == 0, "SDL video unavailable");
+    SDL_Window* screen = SDL_CreateWindow("TV", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
+    require(screen != nullptr && take_screen() == nullptr, "No window is kept at first");
+    keep_screen(screen);
+    require(take_screen() == screen && take_screen() == nullptr, "A kept window is taken once");
+    keep_screen(screen);
+    close_screen();
+    require(take_screen() == nullptr, "Closing destroys the kept window");
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+
     ImGui::DestroyContext();
-    std::cout << "Profile columns, tabs, search, sign-out confirmation, Hardcore refusal and My games passed\n";
+    std::cout << "Profile columns, tabs, search, sign-out confirmation, Hardcore refusal, My games, TV mouse and window handover passed\n";
 }

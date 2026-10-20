@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -37,11 +38,16 @@ using Clock=std::chrono::steady_clock;
 using Core=std::unique_ptr<ravenemu_bridge, decltype(&ravenemu_destroy)>;
 template<class T, void(*Free)(T*)>
 using Ptr=std::unique_ptr<T, decltype(Free)>;
+// Reference-counted, so that a window kept for TV mode survives the game.
 struct Sdl {
-    Sdl() { if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER) != 0)
-        throw std::runtime_error(SDL_GetError()); }
-    ~Sdl() { SDL_Quit(); }
+    static constexpr Uint32 systems=SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_GAMECONTROLLER;
+    Sdl() { if (SDL_InitSubSystem(systems) != 0) throw std::runtime_error(SDL_GetError()); }
+    ~Sdl() { SDL_QuitSubSystem(systems); }
 };
+std::optional<ravenemudsk_ui::PadFamily> family_of(SDL_GameController* pad) {
+    if(!pad)return std::nullopt;
+    return ravenemudsk_ui::pad_family(SDL_GameControllerGetType(pad));
+}
 void verify(bool ok, const char* message) {
     if (!ok) throw std::runtime_error(std::string(message)+": "+ravenemu_last_error());
 }
@@ -117,12 +123,25 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
     Sdl sdl;
     const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
-    // From TV mode the window opens directly in full screen: no desktop window
-    // appears first. Leaving full screen later restores the usual size.
-    Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmu - "+title).c_str(),
-        SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
-        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0)),SDL_DestroyWindow);
+    // From TV mode the game takes over the launcher's full-screen window, so
+    // the desktop never shows in between, and hands it back afterwards.
+    // Leaving full screen later restores the usual size.
+    SDL_Window* screen=req.fullscreen?ravenemudsk_ui::take_screen():nullptr;
+    if(screen) {
+        SDL_SetWindowTitle(screen,("RavenEmu - "+title).c_str());
+        SDL_SetWindowBordered(screen,SDL_TRUE);
+        SDL_SetWindowMinimumSize(screen,160,144);
+        SDL_SetWindowSize(screen,std::max(640,w*4),std::max(520,h*4));
+        SDL_SetWindowFullscreen(screen,SDL_WINDOW_FULLSCREEN_DESKTOP);
+    } else {
+        screen=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
+            SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
+            SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
+    }
+    Ptr<SDL_Window,SDL_DestroyWindow> win(screen,req.fullscreen?ravenemudsk_ui::keep_screen:SDL_DestroyWindow);
     if(!win)throw std::runtime_error(SDL_GetError());
+    // Played from the couch: no mouse cursor over the game.
+    if(req.fullscreen)SDL_ShowCursor(SDL_DISABLE);
     if(char* base=SDL_GetBasePath()) {
         const auto path=ravenemudsk_ui::from_utf8(base)/"assets"/"ravenemu-logo.png";
         SDL_free(base);
@@ -140,6 +159,8 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer.get(),
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
+    // Sharp pixels whatever scaling hint the launcher left behind.
+    SDL_SetTextureScaleMode(texture.get(),SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
     spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
     SDL_AudioDeviceID audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
@@ -158,7 +179,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     },keyboard);
     ravenemudsk_ui::OverlayInfo info{};
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
-    info.keyboard=keyboard;
+    info.keyboard=keyboard;info.pad=family_of(pad.get());
     auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
         overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
     };
@@ -175,10 +196,10 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             overlay.process_event(e);
             if(e.type==SDL_QUIT)running=false;
             if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
-                pad.reset(SDL_GameControllerOpen(e.cdevice.which));
+                { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
             if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-                { input.release_all(); pad.reset(); }
+                { input.release_all(); pad.reset(); info.pad.reset(); }
             if(e.type==SDL_KEYDOWN && !e.key.repeat) {
                 using Key=ravenemudsk_ui::KeyAction;
                 const auto action=overlay.menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
@@ -211,11 +232,19 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                     default:break;
                 }
             }
+            // Back and Start together open or close the menu, and neither reaches
+            // the game. The Guide button stays with the system: Windows opens
+            // the Xbox Game Bar on it (Steam its overlay), which would show too.
             if(pad && e.type==SDL_CONTROLLERBUTTONDOWN &&
                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cbutton.which &&
-               e.cbutton.button==SDL_CONTROLLER_BUTTON_GUIDE &&
-               (!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()))
-                overlay.open_menu();
+               (e.cbutton.button==SDL_CONTROLLER_BUTTON_START||e.cbutton.button==SDL_CONTROLLER_BUTTON_BACK) &&
+               SDL_GameControllerGetButton(pad.get(),e.cbutton.button==SDL_CONTROLLER_BUTTON_START?
+                   SDL_CONTROLLER_BUTTON_BACK:SDL_CONTROLLER_BUTTON_START)) {
+                if(overlay.menu_open())overlay.close_menu();
+                else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())overlay.open_menu(true);
+                input.release_all();
+                continue;
+            }
             input.set_menu_open(overlay.menu_open()||paused);
             input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1);
         }
@@ -320,6 +349,10 @@ int entry(int argc,char** argv) {
             ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::hardcore_preference());
             play({argv[1],argv[2],false});return 0;
         }
+        // TV mode hands one window between the launcher and the game: the
+        // video subsystem stays up for the whole loop.
+        if(SDL_InitSubSystem(SDL_INIT_VIDEO)!=0)throw std::runtime_error(SDL_GetError());
+        struct Screen{~Screen(){ravenemudsk_ui::close_screen();SDL_Quit();}} screen;
         std::string error;
         while(true) {
             const auto req=ravenemudsk_ui::run_launcher(error);

@@ -9,7 +9,7 @@ Le projet est en développement. La compatibilité des jeux et le comportement s
 ## Fonctionnalités
 
 - Bibliothèque de jeux avec import de fichiers ou de dossiers, glisser-déposer et jeux récents.
-- Jaquettes locales et mode TV avec navigation au clavier ou à la manette. Un jeu lancé depuis le mode TV s'ouvre directement en plein écran, et ses notifications de succès, de progression et de défis sont agrandies pour être lues à distance, dans une marge de sécurité de l'écran.
+- Jaquettes locales et mode TV avec navigation au clavier ou à la manette, sans curseur de souris. Les indications montrent les boutons de la manette branchée (Xbox, PlayStation, Nintendo ou générique). Le mode TV garde le même écran plein du lanceur au jeu et retour, sans passage par le bureau, et les notifications de succès, de progression et de défis sont agrandies pour être lues à distance, dans une marge de sécurité de l'écran.
 - Audio, commandes clavier/manette et plein écran pendant le jeu.
 - Sauvegardes de progression et sauvegarde/chargement rapide d'un état.
 - Profil RetroAchievements, consultation des succès et notifications en jeu.
@@ -108,7 +108,9 @@ Aucune ROM commerciale n'est fournie. L'émulation ne nécessite pas de compte R
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 
-Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration. Les commandes à la manette sont également indiquées dans cette catégorie.
+Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration. Les commandes à la manette sont également indiquées dans cette catégorie, avec les noms de la manette branchée.
+
+À la manette, **Select + Start** pressés ensemble (Affichage + Menu sur Xbox, Share/Create + Options sur PlayStation, − + + sur Nintendo) ouvrent ou ferment le menu en jeu, sans que le jeu reçoive ces boutons. Le bouton Xbox, PS ou Home reste au système : Windows y ouvre la Xbox Game Bar et Steam son interface, qui s'afficheraient en même temps. Un menu ouvert à la manette n'affiche pas les raccourcis clavier.
 
 ### Sauvegardes et jaquettes
 

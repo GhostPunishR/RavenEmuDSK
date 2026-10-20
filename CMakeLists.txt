@@ -110,7 +110,7 @@ add_executable(RavenEmuDSK
   src/ui/badge_cache.cpp
   src/ui/app_shell.cpp src/ui/game_overlay.cpp
   src/ui/image_loader.cpp src/ui/theme.cpp
-  src/ui/widgets.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+  src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
 target_compile_definitions(RavenEmuDSK PRIVATE
   RAVENEMUDSK_VERSION="${PROJECT_VERSION}" RAVENEMUDSK_HAVE_CURL)
@@ -140,6 +140,25 @@ add_custom_command(TARGET RavenEmuDSK POST_BUILD
     "${RAVENEMUDSK_BRAND_LOGO}"
     "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ravenemu-logo.png"
   VERBATIM)
+
+# The program file itself shows the provided logo: a build-time tool turns
+# assets/ravenemu-logo.png into ravenemu.ico, embedded as a Windows resource.
+# macOS gets its .icns in tools/package_unix.py.
+add_executable(ravenemudsk_make_icon tools/make_icon.cpp)
+target_include_directories(ravenemudsk_make_icon PRIVATE "${stb_SOURCE_DIR}")
+set(RAVENEMUDSK_ICON "${CMAKE_CURRENT_BINARY_DIR}/ravenemu.ico")
+add_custom_command(OUTPUT "${RAVENEMUDSK_ICON}"
+  COMMAND ravenemudsk_make_icon "${RAVENEMUDSK_BRAND_LOGO}" "${RAVENEMUDSK_ICON}"
+  DEPENDS ravenemudsk_make_icon "${RAVENEMUDSK_BRAND_LOGO}"
+  COMMENT "RavenEmu icon from assets/ravenemu-logo.png" VERBATIM)
+if(WIN32)
+  set(RAVENEMUDSK_RC "${CMAKE_CURRENT_BINARY_DIR}/ravenemu.rc")
+  file(GENERATE OUTPUT "${RAVENEMUDSK_RC}" CONTENT "IDI_RAVENEMU ICON \"${RAVENEMUDSK_ICON}\"\n")
+  target_sources(RavenEmuDSK PRIVATE "${RAVENEMUDSK_RC}" "${RAVENEMUDSK_ICON}")
+  set_source_files_properties("${RAVENEMUDSK_RC}" PROPERTIES OBJECT_DEPENDS "${RAVENEMUDSK_ICON}")
+else()
+  add_custom_target(ravenemudsk_icon ALL DEPENDS "${RAVENEMUDSK_ICON}")
+endif()
 
 # Bundle the provided RetroAchievements artwork from this repository, not a
 # network dependency. The image remains available in offline builds.
@@ -193,7 +212,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
   add_executable(ravenemudsk_home_grid_test tests/home_grid_test.cpp
     src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+    src/ui/theme.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
   target_include_directories(ravenemudsk_home_grid_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_home_grid_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
   target_link_libraries(ravenemudsk_home_grid_test PRIVATE ravenemudsk_ui_library
@@ -205,7 +224,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   set_tests_properties(home_grid PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
   add_executable(ravenemudsk_profile_view_test tests/profile_view_test.cpp
     src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+    src/ui/theme.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
   target_include_directories(ravenemudsk_profile_view_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_profile_view_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
   target_link_libraries(ravenemudsk_profile_view_test PRIVATE ravenemudsk_ui_library
@@ -214,7 +233,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
     target_link_libraries(ravenemudsk_profile_view_test PRIVATE comdlg32 shell32 ole32 winhttp)
   endif()
   add_test(NAME profile_view COMMAND ravenemudsk_profile_view_test)
-  set_tests_properties(profile_view PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
+  set_tests_properties(profile_view PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1;SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
   add_executable(ravenemudsk_ra_game_test tests/ra_game_test.cpp src/achievements/client.cpp)
   target_include_directories(ravenemudsk_ra_game_test PRIVATE include)
   target_link_libraries(ravenemudsk_ra_game_test PRIVATE ravenemudsk_session_store ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
@@ -228,7 +247,7 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   set_tests_properties(retro_features PROPERTIES TIMEOUT 30)
   add_executable(ravenemudsk_game_overlay_test tests/game_overlay_test.cpp
     src/achievements/client.cpp src/achievements/notifications.cpp src/achievements/progress.cpp
-    src/ui/game_overlay.cpp src/ui/widgets.cpp src/ui/retro_widgets.cpp src/ui/theme.cpp
+    src/ui/game_overlay.cpp src/ui/widgets.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/theme.cpp
     src/ui/badge_cache.cpp src/ui/image_loader.cpp)
   target_include_directories(ravenemudsk_game_overlay_test PRIVATE include "${stb_SOURCE_DIR}")
   target_compile_definitions(ravenemudsk_game_overlay_test PRIVATE SDL_MAIN_HANDLED)

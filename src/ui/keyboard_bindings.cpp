@@ -15,7 +15,7 @@ const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
         {"key_select","Select","Back",SDLK_BACKSPACE,RAVENEMU_SELECT},
         {"key_l","Gâchette L (GBA)","LB",SDLK_a,RAVENEMU_L},
         {"key_r","Gâchette R (GBA)","RB",SDLK_s,RAVENEMU_R},
-        {"key_menu","Menu de pause","Guide",SDLK_ESCAPE,-1},
+        {"key_menu","Menu de pause","Select + Start",SDLK_ESCAPE,-1},
         {"key_pause","Pause rapide","Menu de pause",SDLK_p,-1},
         {"key_save","Sauvegarder l’état","Menu de pause",SDLK_F5,-1},
         {"key_load","Charger l’état","Menu de pause",SDLK_F9,-1},

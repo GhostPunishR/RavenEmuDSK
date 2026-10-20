@@ -12,6 +12,7 @@
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/achievements/achievement_list.hpp>
 #include <ravenemudsk/achievements/library_progress.hpp>
+#include <ravenemudsk/ui/pad_glyphs.hpp>
 #include <rc_client.h>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
@@ -36,6 +37,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -569,7 +571,8 @@ void sidebar(State& s) {
         text_at(d, s.fonts.caption, {(sidebar_w - lw) * .5f, y + 41.f}, fg, items[i].label);
         focus_ring(d, a, b, radius::md);
         if (items[i].tv_mode && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-            ImGui::SetTooltip("Mode TV / manette (Start)");
+            ImGui::SetTooltip("Mode TV / manette (%s)",
+                pad_button_name(connected_pad().value_or(PadFamily::Generic), PadButton::Start));
         ImGui::PopID();
     }
 }
@@ -1506,6 +1509,12 @@ std::vector<int> tv_games(const Library& lib, int category) {
 void set_tv(State& s, bool on, bool remember) {
     s.tv = on;
     if (s.window) SDL_SetWindowFullscreen(s.window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    // TV mode is driven by the controller or the keyboard: no mouse, no cursor.
+    if (ImGui::GetCurrentContext()) {
+        auto& io = ImGui::GetIO();
+        if (on) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+    }
     if (on) {
         // Open on the recent games when there are any.
         s.tv_category = recent_order(*s.library).empty() ? 1 : 0;
@@ -1521,11 +1530,6 @@ bool pressed(std::initializer_list<ImGuiKey> keys, bool repeat) {
         if (ImGui::IsKeyPressed(key, repeat)) return true;
     return false;
 }
-bool gamepad_connected() {
-    for (int i = 0; i < SDL_NumJoysticks(); ++i)
-        if (SDL_IsGameController(i)) return true;
-    return false;
-}
 // Button glyph such as "A", "LB" or "Échap"; returns its width.
 float key_glyph(ImDrawList* d, ImVec2 p, const char* label, ImFont* font) {
     const ImVec2 ts = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.f, label);
@@ -1534,6 +1538,18 @@ float key_glyph(ImDrawList* d, ImVec2 p, const char* label, ImFont* font) {
     d->AddRect(p, {p.x + w, p.y + h}, color::border_strong, h * .5f, 0, 1.5f);
     d->AddText(font, font->FontSize, {p.x + (w - ts.x) * .5f, p.y + 5.f}, color::text, label);
     return w;
+}
+// A hint key centred on `cy`: the connected controller's button as printed on
+// it, otherwise the keyboard key. With no draw list it only measures.
+float hint_key(ImDrawList* d, float x, float cy, const std::optional<PadFamily>& pad, PadButton button,
+               const char* key, const Fonts& fonts) {
+    if (pad) {
+        constexpr float h = 30.f;
+        return pad_glyph(d, {x, cy - h * .5f}, *pad, button, fonts.strong, h);
+    }
+    const ImVec2 ts = fonts.caption->CalcTextSizeA(fonts.caption->FontSize, FLT_MAX, 0.f, key);
+    if (!d) return std::max(ts.y + 10.f, ts.x + 20.f);
+    return key_glyph(d, {x, cy - (ts.y + 10.f) * .5f}, key, fonts.caption);
 }
 void tv_view(State& s, Library& lib) {
     ImGuiIO& io = ImGui::GetIO();
@@ -1593,7 +1609,7 @@ void tv_view(State& s, Library& lib) {
     text_at(d, s.fonts.tv_body, {rx - 56.f - nw, 45.f}, color::text_muted, name);
 
     // Category tabs between LB and RB.
-    const bool pad_in = gamepad_connected();
+    const auto controller = connected_pad();
     // Tab padding shrinks on narrow screens so that LB / RB stay visible.
     float labels_w = 0.f;
     for (const char* label : tv_categories) labels_w += text_width(s.fonts.tv_body, label);
@@ -1602,7 +1618,8 @@ void tv_view(State& s, Library& lib) {
     const float tabs_w = labels_w + tv_category_count * (tab_pad * 2.f + 8.f) - 8.f;
     float tx = (screen.x - tabs_w) * .5f;
     const float ty = 124.f;
-    key_glyph(d, {tx - 56.f, ty + 6.f}, pad_in ? "LB" : "Q", s.fonts.caption);
+    const float lb_w = hint_key(nullptr, 0.f, 0.f, controller, PadButton::LeftShoulder, "Q", s.fonts);
+    hint_key(d, tx - 16.f - lb_w, ty + 22.f, controller, PadButton::LeftShoulder, "Q", s.fonts);
     for (int i = 0; i < tv_category_count; ++i) {
         const float w = text_width(s.fonts.tv_body, tv_categories[i]) + tab_pad * 2.f;
         const bool on = i == s.tv_category;
@@ -1615,7 +1632,7 @@ void tv_view(State& s, Library& lib) {
         }
         tx += w + 8.f;
     }
-    key_glyph(d, {tx + 16.f, ty + 6.f}, pad_in ? "RB" : "E", s.fonts.caption);
+    hint_key(d, tx + 16.f, ty + 22.f, controller, PadButton::RightShoulder, "E", s.fonts);
 
     // Carousel: the selected cover is large, its neighbours smaller and dimmed.
     // "small" is a Win32 macro (rpcndr.h), hence these names.
@@ -1669,20 +1686,20 @@ void tv_view(State& s, Library& lib) {
                 color::text_muted, meta);
     }
     // Hints, adapted to the connected controller.
-    struct Hint { const char* keys[2]; const char* action; };
+    struct Hint { int count; PadButton buttons[2]; const char* keys[2]; const char* action; };
     const Hint hints[] = {
-        {{pad_in ? "A" : "Entrée", nullptr}, "Jouer"},
-        {{pad_in ? "LB" : "Q", pad_in ? "RB" : "E"}, "Catégorie"},
-        {{pad_in ? "Start" : "Échap", nullptr}, "Mode bureau"}};
-    float hint_w = 0.f;
+        {1, {PadButton::South, PadButton::South}, {"Entrée", nullptr}, "Jouer"},
+        {2, {PadButton::LeftShoulder, PadButton::RightShoulder}, {"Q", "E"}, "Catégorie"},
+        {1, {PadButton::Start, PadButton::Start}, {"Échap", nullptr}, "Mode bureau"}};
+    float hint_w = -40.f;
     for (const auto& h : hints) {
-        for (const char* k : h.keys) if (k) hint_w += text_width(s.fonts.caption, k) + 28.f;
-        hint_w += text_width(s.fonts.tv_body, h.action) + 48.f;
+        for (int k = 0; k < h.count; ++k) hint_w += hint_key(nullptr, 0.f, 0.f, controller, h.buttons[k], h.keys[k], s.fonts) + 8.f;
+        hint_w += text_width(s.fonts.tv_body, h.action) + 44.f;
     }
     float hx = (screen.x - hint_w) * .5f;
     const float hy = screen.y - 68.f;
     for (const auto& h : hints) {
-        for (const char* k : h.keys) if (k) hx += key_glyph(d, {hx, hy + 4.f}, k, s.fonts.caption) + 8.f;
+        for (int k = 0; k < h.count; ++k) hx += hint_key(d, hx, hy + 14.f, controller, h.buttons[k], h.keys[k], s.fonts) + 8.f;
         text_at(d, s.fonts.tv_body, {hx + 4.f, hy + 2.f}, color::text_muted, h.action);
         hx += text_width(s.fonts.tv_body, h.action) + 44.f;
     }
@@ -1820,11 +1837,27 @@ void settings_library(State& s, Library& lib) {
     end_card();
 }
 
+// Controller column of the controls table, named as on the connected controller.
+std::string controller_label(KeyAction action, const char* fallback, const std::optional<PadFamily>& pad) {
+    if (!pad) return fallback;
+    switch (action) {
+    case KeyAction::A: return pad_button_name(*pad, PadButton::South);
+    case KeyAction::B: return pad_button_name(*pad, PadButton::East);
+    case KeyAction::Start: return pad_button_name(*pad, PadButton::Start);
+    case KeyAction::Select: return pad_button_name(*pad, PadButton::Back);
+    case KeyAction::L: return pad_button_name(*pad, PadButton::LeftShoulder);
+    case KeyAction::R: return pad_button_name(*pad, PadButton::RightShoulder);
+    case KeyAction::Menu:
+        return std::string(pad_button_name(*pad, PadButton::Back)) + " + " + pad_button_name(*pad, PadButton::Start);
+    default: return fallback;
+    }
+}
 void settings_display(State& s) {
     begin_card("##tv");
     card_title(s, Icon::Gamepad, "Mode TV / manette");
-    muted("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé. "
-          "Start ou Échap revient au mode bureau ; RavenEmu s'en souvient au prochain lancement.");
+    const char* start = pad_button_name(connected_pad().value_or(PadFamily::Generic), PadButton::Start);
+    muted((std::string("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé, sans curseur de souris. ") +
+           start + " ou Échap revient au mode bureau ; RavenEmu s'en souvient au prochain lancement.").c_str());
     ImGui::Dummy({0.f, space::xs});
     if (button("Passer en mode TV", Icon::Fullscreen, ButtonStyle::Primary)) set_tv(s, true);
     end_card();
@@ -1832,6 +1865,7 @@ void settings_display(State& s) {
 
 void settings_controls(State& s) {
     KeyboardBindings keys;keys.load(s.settings);
+    const auto pad=connected_pad();
     begin_card("##controls");
     card_title(s, Icon::Gamepad, "Commandes en jeu");
     muted("Cliquez sur une touche pour la modifier. Les changements sont enregistrés automatiquement.");
@@ -1862,7 +1896,8 @@ void settings_controls(State& s) {
                 s.editing_key=static_cast<int>(i);s.key_error.clear();
             }
             if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",key_name.c_str());
-            ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();ImGui::TextDisabled("%s",command.controller);
+            ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s",controller_label(static_cast<KeyAction>(i),command.controller,pad).c_str());
             ImGui::PopID();
         }
         ImGui::PopStyleColor(2);
@@ -2217,6 +2252,7 @@ void render(State& s, Library& lib) {
                    "Téléchargement depuis l'accueil ou Réglages, Mises à jour");
     }
     if (s.tv) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
         tv_view(s, lib);
         ImGui::End();
         draw_toasts(s.toasts, s.fonts, 24.f);
@@ -2309,8 +2345,19 @@ std::string verify_smoke_frame(SDL_Renderer* renderer, const char* screenshot) {
 }
 } // namespace
 
+namespace {
+SDL_Window* kept_screen = nullptr;
+constexpr Uint32 launcher_systems = SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS;
+}
+SDL_Window* take_screen() { return std::exchange(kept_screen, nullptr); }
+void keep_screen(SDL_Window* window) {
+    if (kept_screen && kept_screen != window) SDL_DestroyWindow(kept_screen);
+    kept_screen = window;
+}
+void close_screen() { if (SDL_Window* window = take_screen()) SDL_DestroyWindow(window); }
 std::optional<LaunchRequest> run_launcher(const std::string& error) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS) != 0)
+    // Subsystems are reference-counted: a window kept for TV mode survives.
+    if (SDL_InitSubSystem(launcher_systems) != 0)
         throw std::runtime_error(std::string("Initialisation SDL impossible : ") + SDL_GetError());
     Library lib(data_file());
     lib.load();
@@ -2333,14 +2380,26 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    // TV mode reopens in full screen at once, e.g. when a game returns to the launcher.
+    // TV mode reopens in full screen at once. A game started from TV mode
+    // hands its full-screen window back, so the desktop never shows.
     const bool tv_start = state.settings.flag("tv_mode", false);
-    SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
-        (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    SDL_Window* window = take_screen();
+    if (window) {
+        SDL_SetWindowTitle(window, "RavenEmu");
+        SDL_SetWindowBordered(window, SDL_FALSE);
+        SDL_SetWindowSize(window, 1480, 900);  // the size used out of full screen
+        if (!tv_start) {
+            SDL_SetWindowFullscreen(window, 0);
+            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
+    } else {
+        window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
+            (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    }
     if (!window) {
         const std::string reason = SDL_GetError();
-        SDL_Quit();
+        SDL_QuitSubSystem(launcher_systems);
         throw std::runtime_error("Création de la fenêtre impossible : " + reason);
     }
     if (char* base = SDL_GetBasePath()) {
@@ -2358,7 +2417,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     if (!renderer) {
         const std::string reason = SDL_GetError();
         SDL_DestroyWindow(window);
-        SDL_Quit();
+        SDL_QuitSubSystem(launcher_systems);
         throw std::runtime_error("Création du rendu SDL impossible : " + reason);
     }
     state.window = window;
@@ -2451,8 +2510,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     if (state.logo) SDL_DestroyTexture(state.logo);
     for (auto& [key, texture] : state.images) if (texture) SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    if (state.launch && state.launch->fullscreen) {
+        // The game takes this full-screen window over; the hit test points into `state`.
+        (void)SDL_SetWindowHitTest(window, nullptr, nullptr);
+        keep_screen(window);
+    } else SDL_DestroyWindow(window);
+    SDL_QuitSubSystem(launcher_systems);
     if (ci_smoke && !smoke_rendered)
         throw std::runtime_error(smoke_error.empty() ? "Test de l'interface interrompu avant le rendu" : smoke_error);
     return state.launch;
@@ -2489,14 +2552,13 @@ KeyboardBindings keyboard_preferences(){
     catch(...){ }
     return keys;
 }
+// Needs no SDL subsystem; never quits SDL, which would close a kept TV window.
 void record_session(const LaunchRequest& request, unsigned long long seconds) {
-    if (SDL_Init(0) != 0) return;
     try {
         Library lib(data_file());
         lib.load();
         lib.mark_played(from_utf8(request.rom), seconds);
         lib.save();
     } catch (...) {}
-    SDL_Quit();
 }
 } // namespace ravenemudsk_ui
