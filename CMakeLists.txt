@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RavenEmuDSK VERSION 0.2.0 LANGUAGES C CXX)
+project(RavenEmuDSK VERSION 0.3.0 LANGUAGES C CXX)
 include(CTest)
 include(FetchContent)
 set(CMAKE_CXX_STANDARD 20)
@@ -18,7 +18,7 @@ set(RAVENEMUDSK_LOCAL_TESTING ${BUILD_TESTING})
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(ravencore
   GIT_REPOSITORY https://github.com/GhostPunishR/RavenCore.git
-  GIT_TAG 241f56c3564ca1389813753d5c13dd931771fe40
+  GIT_TAG 9fd041c6bc0b2a49357c93dd5fae707395c44d63
   GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(ravencore)
 FetchContent_Declare(imgui
