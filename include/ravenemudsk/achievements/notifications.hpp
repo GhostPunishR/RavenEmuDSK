@@ -4,7 +4,13 @@
 #include <functional>
 #include <unordered_set>
 namespace ravenemudsk_ra {
-struct Popup { std::string text, detail, badge; };
+// `text` and `detail`: the desktop card's lines. `heading` and `title`: the TV
+// banner's two lines; `trophy` marks an unlock or a completed game.
+struct Popup {
+    std::string text, detail, badge;
+    std::string heading, title;
+    bool trophy = false;
+};
 // Logical display time stops while the pause menu hides the cards.
 class Notifications {
 public:

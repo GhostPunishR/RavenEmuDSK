@@ -41,6 +41,20 @@ struct RetroCardStyle {
     bool tv = false;
 };
 RetroCardStyle retro_card_style(ImVec2 screen, bool tv);
+// TV mode unlock banner, top left inside the safe area: a badge square that
+// drops in, a band unfolding to its right with the heading and the title,
+// then the band folds back into the badge, which rises away.
+struct UnlockBannerStyle {
+    float margin = 54.f;     // From the top and left edges (5 % safe area).
+    float size = 118.f;      // Badge square, also the band's height.
+    float pad = 22.f;        // Text inset inside the band.
+    float radius = 14.f;
+    float max_width = 1100.f;
+};
+UnlockBannerStyle unlock_banner_style(ImVec2 screen);
+// `drop`: 0 above the screen, 1 in place. `unfold`: 0 badge alone, 1 whole band.
+struct UnlockBannerFrame { float drop = 0.f, unfold = 0.f; };
+UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.

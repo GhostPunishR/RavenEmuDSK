@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/game_overlay.hpp>
 #include <imgui_internal.h>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 using namespace ravenemudsk_ui;
@@ -43,32 +45,53 @@ void navigation(SDL_Window* window,SDL_Renderer* renderer){
         overlay.close_menu();draw();
     }
 }
-// Height of the unlock card drawn on top of the game, from the foreground vertices.
-std::pair<float,float> unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv){
+// Bounds of the unlock card drawn on top of the game, from the foreground
+// vertices, `seconds` after it was raised: {left, top, right, bottom}.
+ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seconds){
     ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
     GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
     overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
-    float top=1e9f,bottom=-1e9f;
-    for(int frame=0;frame<30;++frame){
-        SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);
-        SDL_Delay(20);
+    const auto start=SDL_GetTicks64();
+    do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);}
+    while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
+    ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
+    for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
+        box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
     }
-    for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){top=std::min(top,v.pos.y);bottom=std::max(bottom,v.pos.y);}
-    return {top,bottom-top};
+    return box;
 }
 void tv_cards(SDL_Window* window,SDL_Renderer* renderer){
     const auto desk=retro_card_style({1920.f,1080.f},false),tv=retro_card_style({1920.f,1080.f},true);
     require(!desk.tv&&desk.height==60.f&&desk.top==10.f&&desk.max_width==520.f,"Desktop cards keep their RavenEmu size");
     require(tv.tv&&tv.top>=54.f&&tv.bottom>=54.f&&tv.height>=100.f&&tv.badge>=72.f&&tv.max_width<=1152.f&&tv.max_width>=600.f,
         "TV cards must be larger and stay inside a 5 % safe area");
-    const auto small=retro_card_style({640.f,480.f},true);
-    require(small.max_width<=640.f-2.f*small.top,"TV cards must fit a small screen");
+    const auto small_tv=retro_card_style({640.f,480.f},true);
+    require(small_tv.max_width<=640.f-2.f*small_tv.top,"TV cards must fit a small screen");
+    // TV unlock banner: inside the 5 % safe area, readable from a couch, fitting the screen.
+    const auto banner=unlock_banner_style({1920.f,1080.f});
+    require(banner.margin>=54.f&&banner.size>=110.f&&banner.max_width<=1920.f-2.f*banner.margin,"TV banner at 1080p");
+    const auto low=unlock_banner_style({640.f,480.f});
+    require(low.size>=72.f&&low.max_width<=640.f-2.f*low.margin&&low.max_width>=3.f*low.size,"TV banner on a small screen");
+    // Timeline: the badge drops, the band unfolds, holds, folds back, the badge rises away.
+    const auto at=[](double t){return unlock_banner_frame(t);};
+    require(at(0.).drop==0.f&&at(.15).drop>0.f&&at(.15).unfold==0.f,"The badge drops in first, alone");
+    require(at(.30).drop==1.f&&at(.5).unfold>0.f&&at(.5).unfold<1.f&&at(.65).unfold==1.f,"Then the band unfolds");
+    require(at(2.).drop==1.f&&at(2.).unfold==1.f&&at(4.4).unfold==1.f,"The banner holds");
+    require(at(4.6).unfold<1.f&&at(4.6).drop==1.f&&at(4.75).unfold==0.f&&at(4.9).drop<1.f,"Then folds back and rises");
+    require(at(5.05).drop==0.f&&at(-1.).drop==0.f,"And is gone");
+    for(double t=0.;t<5.05;t+=.01) require(at(t).drop>=0.f&&at(t).drop<=1.f&&at(t).unfold>=0.f&&at(t).unfold<=1.f,"Frame out of range");
     SDL_SetWindowSize(window,1280,720);
-    const auto [desk_top,desk_height]=unlock_card(window,renderer,false);
-    const auto [tv_top,tv_height]=unlock_card(window,renderer,true);
-    require(desk_height>=55.f&&desk_height<70.f,"Desktop unlock card was not drawn at its usual size");
-    // The card starts at 5 % of 720 px; its 2 px outline and anti-aliasing reach 1.5 px further.
-    require(tv_height>=100.f&&tv_top>=36.f-2.f&&tv_top>desk_top,"TV unlock card must be larger and inside the safe area");
+    const auto desk_card=unlock_card(window,renderer,false,.6);
+    require(desk_card.w-desk_card.y>=55.f&&desk_card.w-desk_card.y<70.f&&std::abs((desk_card.x+desk_card.z)*.5f-640.f)<2.f,
+        "Desktop unlock card keeps its usual size, top center");
+    const auto at720=unlock_banner_style({1280.f,720.f});
+    const auto unfolded=unlock_card(window,renderer,true,1.);
+    // The band's drop shadow reaches 4 px right and 6 px down; anti-aliasing 1.5 px.
+    require(unfolded.x>=at720.margin-2.f&&unfolded.y>=at720.margin-2.f,"TV banner must sit inside the safe area, top left");
+    require(unfolded.w-unfolded.y>=at720.size&&unfolded.w-unfolded.y<=at720.size+8.f,"TV banner height is its badge square");
+    require(unfolded.z-unfolded.x>2.f*at720.size,"TV banner must unfold its text beside the badge");
+    const auto dropping=unlock_card(window,renderer,true,.1);
+    require(dropping.z-dropping.x<=at720.size+6.f&&dropping.y<at720.margin,"TV badge drops in alone, from above");
 }
 void pad_buttons(SDL_Window* window,SDL_Renderer* renderer){
     require(pad_family(SDL_CONTROLLER_TYPE_XBOXONE)==PadFamily::Xbox&&pad_family(SDL_CONTROLLER_TYPE_XBOX360)==PadFamily::Xbox&&

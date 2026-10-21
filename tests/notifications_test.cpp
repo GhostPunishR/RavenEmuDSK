@@ -43,5 +43,35 @@ int main() {
     n.set_paused(999999,false);n.advance(1000100,ready);require(n.progress().has_value());
     a.progress="1/100";a.measured_percent=1;n.update({a},1000200);require(!n.progress());
     a.progress="2/100";a.measured_percent=2;n.update({a},1000300);require(n.progress() && n.progress()->detail=="2/100");
-    std::cout << "FIFO unlocks, deduplication, indicators, badge timeout and menu pause passed\n";
+    // The TV banner's two lines: what happened, then what it is about.
+    n.clear();
+    n.event({"achievement","Maître de la Ligue","","77","badge",25});
+    n.advance(1100000,ready);
+    require(n.notice() && n.notice()->heading=="Succès débloqué \xC2\xB7 25 points" &&
+            n.notice()->title=="Maître de la Ligue" && n.notice()->trophy &&
+            n.notice()->text=="Succès débloqué \xC2\xB7 Maître de la Ligue (25 pts)");
+    n.clear();
+    n.event({"achievement","Premier pas","","78","",1});
+    n.advance(1200000,ready);
+    require(n.notice() && n.notice()->heading=="Succès débloqué \xC2\xB7 1 point");
+    n.clear();
+    n.event({"mastered","Pokémon Jaune","","","game.png"});
+    n.advance(1300000,ready);
+    require(n.notice() && n.notice()->heading=="Jeu maîtrisé" && n.notice()->title=="Pokémon Jaune" &&
+            n.notice()->badge=="game.png" && n.notice()->trophy && n.notice()->text=="Jeu maîtrisé \xC2\xB7 Pokémon Jaune");
+    n.clear();
+    n.event({"completed","Pokémon Jaune","","",""});
+    n.advance(1400000,ready);
+    require(n.notice() && n.notice()->heading=="Jeu terminé");
+    n.clear();
+    n.event({"leaderboard_started","Course","","9"});
+    n.advance(1500000,ready);
+    require(n.notice() && n.notice()->heading=="Classement commencé" && n.notice()->title=="Course" && !n.notice()->trophy &&
+            n.notice()->text=="Classement commencé \xC2\xB7 Course");
+    n.clear();
+    n.event({"offline","RetroAchievements hors ligne","Envois en attente"});
+    n.advance(1600000,ready);
+    require(n.notice() && n.notice()->heading=="RetroAchievements hors ligne" && n.notice()->title=="Envois en attente" &&
+            n.notice()->text=="RetroAchievements hors ligne" && n.notice()->detail=="Envois en attente");
+    std::cout << "FIFO unlocks, deduplication, indicators, badge timeout, menu pause and banner lines passed\n";
 }

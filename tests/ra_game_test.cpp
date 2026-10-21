@@ -97,7 +97,7 @@ void mastery_pending_when_closing() {
     c.drain_events();
     c.end_game();
     const auto events=c.drain_events();
-    require(std::any_of(events.begin(),events.end(),[](const auto& e){return e.title=="Tous les succès obtenus !";}),
+    require(std::any_of(events.begin(),events.end(),[](const auto& e){return e.kind=="completed"||e.kind=="mastered";}),
         "The pending mastery must be raised for the game being closed");
     std::cout<<"A mastery still pending when the game closes is raised for that game\n";
 }
@@ -124,7 +124,7 @@ void late_mastery_reply() {
             c.drain_events();
             c.pump(true);
             const auto events=c.drain_events();
-            require(std::none_of(events.begin(),events.end(),[](const auto& e){return e.title=="Tous les succès obtenus !";}),
+            require(std::none_of(events.begin(),events.end(),[](const auto& e){return e.kind=="completed"||e.kind=="mastered";}),
                 "A late reply must not master the game opened since");
             c.end_game();
         } else {

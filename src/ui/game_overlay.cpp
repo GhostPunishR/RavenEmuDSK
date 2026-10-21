@@ -170,6 +170,27 @@ RetroCardStyle retro_card_style(ImVec2 screen, bool tv) {
     style.max_width = std::max(320.f, std::min(1100.f, std::min(screen.x * .6f, screen.x - 2.f * style.top)));
     return style;
 }
+UnlockBannerStyle unlock_banner_style(ImVec2 screen) {
+    UnlockBannerStyle style;
+    style.margin = std::max(16.f, std::min(screen.x, screen.y) * .05f);
+    style.size = std::clamp(screen.y * .11f, 72.f, 160.f);
+    style.pad = style.size * .19f;
+    style.radius = style.size * .12f;
+    style.max_width = std::max(style.size * 3.f, std::min(screen.x * .7f, screen.x - 2.f * style.margin));
+    return style;
+}
+UnlockBannerFrame unlock_banner_frame(double t) {
+    // Seconds: drop, unfold, hold, fold, rise. Within the 5.2 s a notice lasts.
+    constexpr double dropped = .30, unfolded = .65, folding = 4.40, folded = 4.75, gone = 5.05;
+    if (t < 0. || t >= gone) return {};
+    const auto ease_out = [](double x) { return static_cast<float>(1. - (1. - x) * (1. - x) * (1. - x)); };
+    const auto smooth = [](double x) { return static_cast<float>(x * x * (3. - 2. * x)); };
+    UnlockBannerFrame frame;
+    frame.drop = t < dropped ? ease_out(t / dropped) : t < folded ? 1.f : 1.f - ease_out((t - folded) / (gone - folded));
+    frame.unfold = t < dropped ? 0.f : t < unfolded ? smooth((t - dropped) / (unfolded - dropped)) :
+        t < folding ? 1.f : t < folded ? 1.f - smooth((t - folding) / (folded - folding)) : 0.f;
+    return frame;
+}
 namespace {
 // Five-pointed star, filled as a fan from its center.
 void draw_star(ImDrawList* d,ImVec2 c,float r,ImU32 col){
@@ -225,6 +246,54 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const Retr
     if(!line2.empty())
         d->AddText(font,font->FontSize,{tx,ty+style.line},with_alpha(color::text,alpha),line2.c_str());
 }
+// Draws the TV unlock banner at `elapsed` seconds into its notice; returns
+// the bottom edge it reaches, or 0 when nothing is drawn.
+float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2 screen,
+                    const ravenemudsk_ra::Popup& popup, double elapsed) {
+    const auto style = unlock_banner_style(screen);
+    const auto frame = unlock_banner_frame(elapsed);
+    if (frame.drop <= 0.f) return 0.f;
+    ImFont* heading_font = fonts.tv_body ? fonts.tv_body : fonts.body;
+    ImFont* title_font = fonts.tv_title ? fonts.tv_title : fonts.strong;
+    const float space = std::max(80.f, style.max_width - style.size - 2.f * style.pad);
+    const auto heading = ellipsize(heading_font, popup.heading, space);
+    const auto title = ellipsize(title_font, popup.title, space);
+    const float text = std::max(text_width(heading_font, heading.c_str()), text_width(title_font, title.c_str()));
+    const float full = style.size + (text > 0.f ? 2.f * style.pad + text : 0.f);
+    const float width = style.size + (full - style.size) * frame.unfold;
+    const float x = style.margin;
+    const float y = style.margin - (style.size + style.margin) * (1.f - frame.drop);
+    d->AddRectFilled({x + 4.f, y + 6.f}, {x + width + 4.f, y + style.size + 6.f}, color::shadow, style.radius);
+    d->AddRectFilled({x, y}, {x + width, y + style.size}, with_alpha(color::background, .94f), style.radius);
+    // The badge fills its square; a gold frame marks an unlock or a completed game.
+    const float inset = style.size * .08f;
+    const ImVec2 badge_min{x + inset, y + inset}, badge_max{x + style.size - inset, y + style.size - inset};
+    if (SDL_Texture* image = cache.image(popup.badge)) {
+        d->AddImageRounded(reinterpret_cast<ImTextureID>(image), badge_min, badge_max, {0, 0}, {1, 1},
+                           IM_COL32_WHITE, style.radius * .6f);
+    } else {
+        d->AddRectFilled(badge_min, badge_max, color::surface, style.radius * .6f);
+        draw_star(d, {(badge_min.x + badge_max.x) * .5f, (badge_min.y + badge_max.y) * .5f},
+                  (badge_max.x - badge_min.x) * .34f, popup.trophy ? color::gold : color::accent);
+    }
+    d->AddRect(badge_min, badge_max, popup.trophy ? color::gold : color::border_strong, style.radius * .6f, 0, 2.f);
+    if (frame.unfold > 0.f && text > 0.f) {
+        // The text is uncovered as the band unfolds, never drawn past it.
+        d->PushClipRect({x + style.size, y}, {x + width, y + style.size}, true);
+        const float tx = x + style.size + style.pad * .6f;
+        const float gap = style.size * .06f;
+        const bool two = !title.empty() && !heading.empty();
+        const float block = two ? heading_font->FontSize + gap + title_font->FontSize : (title.empty() ? heading_font : title_font)->FontSize;
+        float ty = y + (style.size - block) * .5f;
+        if (!heading.empty()) {
+            d->AddText(heading_font, heading_font->FontSize, {tx, ty}, popup.trophy ? color::gold : color::text_muted, heading.c_str());
+            ty += heading_font->FontSize + gap;
+        }
+        if (!title.empty()) d->AddText(title_font, title_font->FontSize, {tx, ty}, color::text, title.c_str());
+        d->PopClipRect();
+    }
+    return y + style.size;
+}
 double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 }
 void GameOverlay::open_achievements() {
@@ -271,7 +340,11 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     auto* d=ImGui::GetForegroundDrawList();
     const auto style=retro_card_style(screen,tv_);
     float top=style.top;
-    if(notice_) {
+    if(notice_ && tv_) {
+        // TV: the unlock banner, top left; the progress card goes below it.
+        const float bottom=unlock_banner(d,fonts_,badges_,screen,*notice_,now-notice_since_);
+        if(bottom>0.f)top=std::max(top,bottom+14.f);
+    } else if(notice_) {
         const double elapsed=now-notice_since_;
         const float alpha=static_cast<float>(std::clamp(
             std::min(elapsed/0.3,(5.1-elapsed)/0.3),0.0,1.0));

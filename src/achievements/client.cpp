@@ -243,6 +243,9 @@ struct Client::Impl {
     std::int64_t login_retry_at = 0, game_retry_at = 0;
     unsigned login_failures = 0, game_failures = 0;
     rc_client_async_handle_t* game_load = nullptr;
+    // The loaded game's image, kept for its completion popup: that event may
+    // come while the game is being closed, when the SDK can no longer give it.
+    std::string game_badge;
     rc_client_async_handle_t* login_request = nullptr;
     std::string login_problem; // transport cause of the last sign-in failure, if any
     rc_client_async_handle_t* ranking_request = nullptr;
@@ -408,6 +411,7 @@ struct Client::Impl {
         game_load = nullptr;
         game_retry_at = 0;
         load_refusal = RC_OK;
+        game_badge.clear();
         state.game_status = GameStatus::Loading;
         state.status = "Recherche des succès officiels…";
         const uint32_t id = console == RAVENEMU_GB ? 4u : console == RAVENEMU_GBC ? 6u : 5u;
@@ -619,7 +623,9 @@ struct Client::Impl {
                 ev->server_error && ev->server_error->error_message
                 ? ev->server_error->error_message : "Le serveur a refusé une requête"});
         } else if (ev->type == RC_CLIENT_EVENT_GAME_COMPLETED) {
-            impl.events.push_back({"notice", "Tous les succès obtenus !", ""});
+            // Every achievement unlocked: "mastered" in Hardcore, "completed" in Softcore.
+            impl.events.push_back({impl.state.hardcore ? "mastered" : "completed",
+                impl.state.game_title.empty() ? "Jeu" : impl.state.game_title, "", "", impl.game_badge});
         } else if (ev->type == RC_CLIENT_EVENT_RESET) {
             impl.reset_hardcore_runtime();
         } else if (ev->type == RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW ||
@@ -830,6 +836,8 @@ struct Client::Impl {
         if (!game || !game->id ||
             (state.game_status != GameStatus::Ready && state.game_status != GameStatus::NoAchievements)) return;
         state.game_title = game->title ? game->title : "";
+        if(char image[256]{}; game_badge.empty() && rc_client_game_get_image_url(game, image, sizeof(image)) == RC_OK)
+            game_badge = image;
         if(state.game_hardcore!=state.hardcore)profile_dirty=true;
         state.game_hardcore=state.hardcore;
         state.game_hash=game->hash?game->hash:"";
