@@ -60,6 +60,9 @@ public:
     // `from_pad`: opened with the controller, so keyboard shortcuts are not listed.
     void open_menu(bool from_pad = false);
     void close_menu();
+    // Opens "Succès et classements" over the menu, as its entry does.
+    void open_achievements();
+    bool achievements_open() const { return retro_open_; }
     void notify(Toast toast) { toasts_.push_back(std::move(toast)); }
     bool has_toast(Toast::Kind kind) const;
     // Reproduces RavenEmu top-center unlock and measured progress cards.
@@ -79,6 +82,10 @@ private:
     bool pad_menu_ = false;
     bool focus_first_ = false;
     bool retro_open_ = false;
+    bool focus_retro_entry_ = false; // back from the achievements: their entry keeps the focus
+    bool focus_achievement_ = false; // achievements just opened: the first row takes the focus
+    int retro_tab_ = 0;              // TV: tab shown, switched with LB / RB
+    bool retro_tab_requested_ = false;
     BadgeCache badges_;
     ravenemudsk_ra::Notifications notifications_;
     std::optional<ravenemudsk_ra::Progress> last_progress_;
@@ -86,5 +93,6 @@ private:
     double progress_started_ = 0.0;
     double progress_hidden_at_ = 0.0;
     void draw_retro(double now_seconds, ImVec2 screen);
+    void draw_achievements_tv(const OverlayInfo& info, ImVec2 screen);
 };
 } // namespace ravenemudsk_ui

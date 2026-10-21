@@ -3,7 +3,7 @@
 #include <ravenemudsk/ui/widgets.hpp>
 #include <algorithm>
 namespace ravenemudsk_ui {
-void draw_leaderboards(ravenemudsk_ra::Client& client,const ravenemudsk_ra::Snapshot& game,const Fonts& fonts){
+void draw_leaderboards(ravenemudsk_ra::Client& client,const ravenemudsk_ra::Snapshot& game,const Fonts& fonts,bool tv){
     ImGui::PushID("retro-leaderboards");
     if(game.leaderboards.empty())ImGui::TextWrapped("Aucun classement disponible pour ce jeu.");
     const auto active=client.snapshot();
@@ -12,10 +12,16 @@ void draw_leaderboards(ravenemudsk_ra::Client& client,const ravenemudsk_ra::Snap
     for(const auto& board:game.leaderboards){
         ImGui::PushID(static_cast<int>(board.id));
         ImGui::BeginDisabled(!current);
-        const auto title=ellipsize(fonts.body,board.title,std::max(30.f,ImGui::GetContentRegionAvail().x-64.f));
-        if(button(title.c_str(),Icon::Trophy,ButtonStyle::Secondary,{ImGui::GetContentRegionAvail().x,40.f}))client.fetch_ranking(board.id);
+        // TV: the panel's large font, taller buttons and a readable description.
+        const auto title=ellipsize(tv?ImGui::GetFont():fonts.body,board.title,std::max(30.f,ImGui::GetContentRegionAvail().x-64.f));
+        if(button(title.c_str(),Icon::Trophy,ButtonStyle::Secondary,{ImGui::GetContentRegionAvail().x,tv?56.f:40.f}))client.fetch_ranking(board.id);
         ImGui::EndDisabled();
-        ImGui::PushFont(fonts.caption);ImGui::TextWrapped("%s",board.description.c_str());ImGui::PopFont();
+        if(tv){
+            ImGui::PushStyleColor(ImGuiCol_Text,ImGui::ColorConvertU32ToFloat4(color::text_muted));
+            ImGui::TextWrapped("%s",board.description.c_str());ImGui::PopStyleColor();ImGui::Dummy({0.f,space::sm});
+        }else{
+            ImGui::PushFont(fonts.caption);ImGui::TextWrapped("%s",board.description.c_str());ImGui::PopFont();
+        }
         ImGui::PopID();
     }
     const auto ranks=client.ranking();
@@ -29,7 +35,7 @@ void draw_leaderboards(ravenemudsk_ra::Client& client,const ravenemudsk_ra::Snap
         if(!ranks.error.empty())ImGui::TextWrapped("%s",ranks.error.c_str());
         if(!ranks.loading&&ranks.error.empty()&&ranks.entries.empty())ImGui::TextWrapped("Aucun score publié pour ce classement.");
         if(!ranks.entries.empty()&&ImGui::BeginTable("##ranking",3,ImGuiTableFlags_RowBg|ImGuiTableFlags_SizingStretchProp)){
-            ImGui::TableSetupColumn("Rang",ImGuiTableColumnFlags_WidthFixed,52.f);
+            ImGui::TableSetupColumn("Rang",ImGuiTableColumnFlags_WidthFixed,tv?80.f:52.f);
             ImGui::TableSetupColumn("Joueur",ImGuiTableColumnFlags_WidthStretch,2.f);
             ImGui::TableSetupColumn("Score",ImGuiTableColumnFlags_WidthStretch,1.f);
             ImGui::TableHeadersRow();
