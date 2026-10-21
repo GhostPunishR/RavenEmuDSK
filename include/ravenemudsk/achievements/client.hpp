@@ -65,6 +65,7 @@ struct Event {
 struct ServerReply {
     std::string body;
     int status = -2; // SDK retryable transport failure (HTTP codes remain positive).
+    std::string error; // why no HTTP reply came back (TLS, DNS, timeout), when known
 };
 using ServerTransport = std::function<ServerReply(const std::string&, const std::string&, const std::string&)>;
 class Client {

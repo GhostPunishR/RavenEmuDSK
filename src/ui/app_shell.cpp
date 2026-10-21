@@ -1359,12 +1359,19 @@ void ra_mode_controls(State& s) {
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     const auto snap = ra.snapshot();
     ImGui::BeginDisabled(snap.login_pending);
+    // The card is drawn in the fields' own colour: a darker, outlined well shows them.
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::background));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.f);
     ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
     ImGui::InputTextWithHint("##ra-user", "Identifiant RetroAchievements", s.ra_user, sizeof(s.ra_user));
     ImGui::SetNextItemWidth(std::min(380.f, ImGui::GetContentRegionAvail().x));
-    ImGui::InputTextWithHint("##ra-password", "Mot de passe", s.ra_password, sizeof(s.ra_password),
-                             ImGuiInputTextFlags_Password);
-    if (button("Se connecter", Icon::Play, ButtonStyle::Primary)) {
+    // Enter in the password field signs in, as the button does.
+    const bool entered = ImGui::InputTextWithHint("##ra-password", "Mot de passe", s.ra_password, sizeof(s.ra_password),
+                                                  ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    if (button("Se connecter", Icon::Play, ButtonStyle::Primary) || entered) {
         ra.login(s.ra_user, s.ra_password);
         std::fill(std::begin(s.ra_password), std::end(s.ra_password), '\0');
     }
