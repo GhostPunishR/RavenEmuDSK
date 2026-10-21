@@ -2405,15 +2405,20 @@ std::string verify_smoke_frame(SDL_Renderer* renderer, const char* screenshot) {
 } // namespace
 
 namespace {
-SDL_Window* kept_screen = nullptr;
+SharedScreen kept_screen;
 constexpr Uint32 launcher_systems = SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_EVENTS;
 }
-void keep_screen(SDL_Window* window) {
-    if (kept_screen && kept_screen != window) SDL_DestroyWindow(kept_screen);
-    kept_screen = window;
+void keep_screen(SharedScreen screen) {
+    if (kept_screen.window != screen.window) close_screen();
+    kept_screen = screen;
+}
+SharedScreen take_screen() {
+    return std::exchange(kept_screen, SharedScreen{});
 }
 void close_screen() {
-    if (SDL_Window* window = std::exchange(kept_screen, nullptr)) SDL_DestroyWindow(window);
+    const SharedScreen screen = take_screen();
+    if (screen.renderer) SDL_DestroyRenderer(screen.renderer);
+    if (screen.window) SDL_DestroyWindow(screen.window);
 }
 std::optional<LaunchRequest> run_launcher(const std::string& error) {
     // Subsystems are reference-counted: a window kept for TV mode survives.
@@ -2440,12 +2445,25 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    // TV mode reopens in full screen at once; the game's black cover, if
-    // any, is closed once the first launcher frame is up.
+    // TV mode reopens in full screen at once. Back from a game played in TV
+    // mode, its full-screen window and renderer carry on here.
     const bool tv_start = state.settings.flag("tv_mode", false);
-    SDL_Window* window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
-        (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    const SharedScreen shared = take_screen();
+    SDL_Window* window = shared.window;
+    if (window) {
+        SDL_SetWindowTitle(window, "RavenEmu");
+        if (tv_start && !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN))
+            SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+        if (!tv_start) {
+            SDL_SetWindowFullscreen(window, 0);
+            SDL_SetWindowSize(window, 1480, 900);
+            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
+    } else {
+        window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
+            (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
+    }
     if (!window) {
         const std::string reason = SDL_GetError();
         SDL_QuitSubSystem(launcher_systems);
@@ -2461,7 +2479,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     }
     SDL_SetWindowMinimumSize(window, 1024, 680);
     (void)SDL_SetWindowHitTest(window, &hit_test, &state);
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_Renderer* renderer = shared.renderer;
+    if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer) {
         const std::string reason = SDL_GetError();
@@ -2548,13 +2567,12 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
             if (!smoke_rendered) running = false;
         }
         SDL_RenderPresent(renderer);
-        close_screen();
         if (ci_smoke && ++frames >= 12) running = false;
         SDL_Delay(8);
     }
     const bool cover = state.launch && state.launch->fullscreen;
     if (cover) {
-        // Left on screen, black, until the game's own window is up.
+        // Black on screen until the game draws its first frame in this window.
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
         SDL_RenderPresent(renderer);
@@ -2566,11 +2584,13 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     if (state.ra_logo) SDL_DestroyTexture(state.ra_logo);
     if (state.logo) SDL_DestroyTexture(state.logo);
     for (auto& [key, texture] : state.images) if (texture) SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
     if (cover) {
         (void)SDL_SetWindowHitTest(window, nullptr, nullptr);  // it points into `state`
-        keep_screen(window);
-    } else SDL_DestroyWindow(window);
+        keep_screen({window, renderer});
+    } else {
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+    }
     SDL_QuitSubSystem(launcher_systems);
     if (ci_smoke && !smoke_rendered)
         throw std::runtime_error(smoke_error.empty() ? "Test de l'interface interrompu avant le rendu" : smoke_error);

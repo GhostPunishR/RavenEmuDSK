@@ -123,32 +123,52 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
     Sdl sdl;
     const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
-    // From TV mode the window opens directly in full screen over the
-    // launcher's black cover, and is left as a cover for the launcher in turn.
-    // Leaving full screen later restores the usual size.
-    Ptr<SDL_Window,SDL_DestroyWindow> win(SDL_CreateWindow(("RavenEmu - "+title).c_str(),
+    // From TV mode the launcher's full-screen window and renderer carry on:
+    // no window opens or closes, so the desktop never shows. They are handed
+    // back to the launcher afterwards. Leaving full screen later restores a
+    // usual window.
+    struct GameScreen {
+        bool shared = false;
+        SDL_Window* window = nullptr;
+        SDL_Renderer* renderer = nullptr;
+        ~GameScreen() {
+            if (shared) {
+                ravenemudsk_ui::keep_screen({window, renderer});
+                return;
+            }
+            if (renderer) SDL_DestroyRenderer(renderer);
+            if (window) SDL_DestroyWindow(window);
+        }
+    } screen;
+    if (req.fullscreen) {
+        const auto kept = ravenemudsk_ui::take_screen();
+        screen.window = kept.window;
+        screen.renderer = kept.renderer;
+        screen.shared = true;
+    }
+    if (screen.window) SDL_SetWindowTitle(screen.window,("RavenEmu - "+title).c_str());
+    else screen.window=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
         SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
-        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0)),
-        req.fullscreen?ravenemudsk_ui::keep_screen:SDL_DestroyWindow);
-    if(!win)throw std::runtime_error(SDL_GetError());
+        SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
+    if(!screen.window)throw std::runtime_error(SDL_GetError());
+    SDL_Window* const window=screen.window;
     // Played from the couch: no mouse cursor over the game.
     SDL_ShowCursor(req.fullscreen?SDL_DISABLE:SDL_ENABLE);
     if(char* base=SDL_GetBasePath()) {
         const auto path=ravenemudsk_ui::from_utf8(base)/"assets"/"ravenemu-logo.png";
         SDL_free(base);
         if(SDL_Surface* icon=ravenemudsk_ui::load_local_surface(path)) {
-            SDL_SetWindowIcon(win.get(),icon);
+            SDL_SetWindowIcon(window,icon);
             SDL_FreeSurface(icon);
         }
     }
-    SDL_Renderer* sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
-    if(!sr)sr=SDL_CreateRenderer(win.get(),-1,SDL_RENDERER_SOFTWARE);
-    Ptr<SDL_Renderer,SDL_DestroyRenderer> renderer(sr,SDL_DestroyRenderer);
-    if(!renderer)throw std::runtime_error(SDL_GetError());
-    // Black at once, before the first emulated frame; the launcher's cover can go.
-    SDL_SetRenderDrawColor(renderer.get(),0,0,0,255);SDL_RenderClear(renderer.get());SDL_RenderPresent(renderer.get());
-    ravenemudsk_ui::close_screen();
-    Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer.get(),
+    if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+    if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
+    if(!screen.renderer)throw std::runtime_error(SDL_GetError());
+    SDL_Renderer* const renderer=screen.renderer;
+    // Black at once, before the first emulated frame.
+    SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
+    Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
     // Sharp pixels whatever scaling hint the launcher left behind.
@@ -164,7 +184,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
-    ravenemudsk_ui::GameOverlay overlay(win.get(),renderer.get(),&ravenemudsk_ra::client(),req.fullscreen);
+    ravenemudsk_ui::GameOverlay overlay(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
     const auto keyboard=ravenemudsk_ui::keyboard_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
@@ -219,7 +239,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                             toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
                         break;
                     case Key::Fullscreen:
-                        SDL_SetWindowFullscreen(win.get(),(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
+                        SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
                         break;
                     default:break;
                 }
@@ -274,19 +294,19 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         if(now-last_save>std::chrono::seconds(30)) {
             save_battery(core.get(),battery_path);last_save=now;
         }
-        SDL_SetRenderDrawColor(renderer.get(),11,12,18,255);
-        SDL_RenderClear(renderer.get());
+        SDL_SetRenderDrawColor(renderer,11,12,18,255);
+        SDL_RenderClear(renderer);
         int out_w=0,out_h=0;
-        SDL_GetRendererOutputSize(renderer.get(),&out_w,&out_h);
+        SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
         const auto factor=std::min(double(out_w)/w,double(out_h)/h);
         const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
-        SDL_RenderCopy(renderer.get(),texture.get(),nullptr,&rect);
+        SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
         info.hardcore=retro.hardcore();
         info.hardcore_preferred=retro.snapshot().hardcore_preferred;
         info.hardcore_waiting=waiting;
         info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
         info.paused=paused;
-        info.fullscreen=(SDL_GetWindowFlags(win.get())&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
+        info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
         switch(overlay.draw(info)) {
             case Action::None:break;
             case Action::Resume:overlay.close_menu();break;
@@ -305,16 +325,16 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             case Action::Reset:
                 input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
             case Action::ToggleFullscreen:
-                SDL_SetWindowFullscreen(win.get(),info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
+                SDL_SetWindowFullscreen(window,info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
             case Action::Quit:running=false;break;
         }
-        SDL_RenderPresent(renderer.get());
+        SDL_RenderPresent(renderer);
         if(waiting||paused||overlay.menu_open())SDL_Delay(16);
         else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       if(req.fullscreen) {
           // Left on screen, black, until the launcher's window is up.
-          SDL_SetRenderDrawColor(renderer.get(),0,0,0,255);SDL_RenderClear(renderer.get());SDL_RenderPresent(renderer.get());
+          SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
       }
       save_battery(core.get(),battery_path);
       if(!pixels.empty()) {
