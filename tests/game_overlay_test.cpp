@@ -98,11 +98,77 @@ void pad_buttons(SDL_Window* window,SDL_Renderer* renderer){
         overlay.close_menu();
     }
 }
+// A virtual controller: ImGui reads its buttons as it reads a plugged one.
+struct VirtualPad{
+    int index=-1;SDL_Joystick* joystick=nullptr;
+    VirtualPad(){
+        require(SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER)==0,"SDL game controllers unavailable");
+        SDL_VirtualJoystickDesc desc{};desc.version=SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+        desc.type=SDL_JOYSTICK_TYPE_GAMECONTROLLER;desc.naxes=SDL_CONTROLLER_AXIS_MAX;
+        desc.nbuttons=SDL_CONTROLLER_BUTTON_MAX;desc.name="Virtual pad";
+        index=SDL_JoystickAttachVirtualEx(&desc);require(index>=0,"Virtual controller not attached");
+        joystick=SDL_JoystickOpen(index);require(joystick!=nullptr&&SDL_IsGameController(index),"Virtual controller not usable");
+    }
+    ~VirtualPad(){SDL_JoystickClose(joystick);SDL_JoystickDetachVirtual(index);SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);}
+    void set(SDL_GameControllerButton button,bool down){SDL_JoystickSetVirtualButton(joystick,button,down?1:0);}
+};
+// TV mode, played with the controller: large menu without the full-screen
+// switch, achievements in their own TV panel, B goes back one level at a time.
+void tv_menu(SDL_Window* window,SDL_Renderer* renderer){
+    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+    SDL_SetWindowSize(window,1280,720);
+    VirtualPad pad;
+    GameOverlay overlay(window,renderer,&client,true);OverlayInfo info;
+    info.game_title="TV menu";info.system="gba";info.has_state=true;info.fullscreen=true;info.pad=PadFamily::Xbox;
+    info.has_achievement=true;info.achievement_title="Maître de la Ligue";info.achievement_points=25;
+    const auto draw=[&]{
+        SDL_PumpEvents();SDL_RenderClear(renderer);const auto action=overlay.draw(info);SDL_RenderPresent(renderer);
+        require(ImGui::GetCurrentContext()->DebugDrawIdConflicts==0,"TV overlay has conflicting widget IDs");
+        return action;
+    };
+    const auto press=[&](SDL_GameControllerButton button){
+        pad.set(button,true);const auto action=draw();
+        pad.set(button,false);const auto released=draw();
+        return action==OverlayAction::None?released:action;
+    };
+    const auto focused=[&](const char* label){
+        auto* menu=ImGui::FindWindowByName("##pause");
+        require(menu!=nullptr,"TV pause window missing");
+        return ImGui::GetCurrentContext()->NavId==menu->GetID(label);
+    };
+    overlay.open_menu(true);for(int i=0;i<4;++i)draw();
+    require((ImGui::GetIO().BackendFlags&ImGuiBackendFlags_HasGamepad)!=0,"The overlay did not see the controller");
+    const auto* menu=ImGui::FindWindowByName("##pause");
+    require(menu&&menu->Size.x>=700.f&&menu->Size.y<=720.f&&menu->ScrollMax.y==0.f,"TV pause menu must be large and fit a 720p screen");
+    require(focused("Reprendre la partie"),"TV pause menu did not focus its first action");
+    for(int i=0;i<6;++i)press(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+    require(focused("Quitter vers la bibliothèque"),"TV mode stays in full screen: no full-screen entry before Quit");
+    for(int i=0;i<3;++i)press(SDL_CONTROLLER_BUTTON_DPAD_UP);
+    require(focused("Succès et classements"),"Achievements entry unreachable with the D-pad");
+    press(SDL_CONTROLLER_BUTTON_A);draw();
+    require(overlay.achievements_open(),"A did not open the achievements from the TV menu");
+    auto* retro=ImGui::FindWindowByName("##retro-tv");
+    require(retro&&retro->Active&&retro->Size.x<=1280.f&&retro->Size.y<=720.f,"TV achievements panel missing or off screen");
+    const auto* desk=ImGui::FindWindowByName("Succès et classements");
+    require(!desk||!desk->Active,"TV mode opened the desktop achievements window");
+    auto* bar=ImGui::GetCurrentContext()->TabBars.GetByKey(retro->GetID("##retro-tabs-tv"));
+    require(bar&&bar->Tabs.Size==3&&bar->SelectedTabId==bar->Tabs[0].ID,"TV achievements open on their first tab");
+    press(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);draw();
+    require(bar->SelectedTabId==bar->Tabs[1].ID,"RB did not show the next tab");
+    press(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);press(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);draw();
+    require(bar->SelectedTabId==bar->Tabs[2].ID,"LB did not wrap to the last tab");
+    require(press(SDL_CONTROLLER_BUTTON_B)==OverlayAction::None,"B in the achievements must not leave the menu");
+    draw();
+    require(!overlay.achievements_open()&&overlay.menu_open(),"B did not go back from the achievements to the menu");
+    require(focused("Succès et classements"),"Back from the achievements, their entry keeps the focus");
+    require(press(SDL_CONTROLLER_BUTTON_B)==OverlayAction::Resume,"B in the TV menu must resume the game");
+    overlay.close_menu();draw();
+}
 int main(){
     require(SDL_Init(SDL_INIT_VIDEO)==0,"SDL initialization failed");
     SDL_Window* window=SDL_CreateWindow("Overlay regression",0,0,1024,768,0);
     require(window!=nullptr,"SDL window failed");SDL_Renderer* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     require(renderer!=nullptr,"SDL renderer failed");
-    navigation(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
-    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, TV cards, controller buttons passed\n";
+    navigation(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
+    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, TV cards, controller buttons, TV menu passed\n";
 }

@@ -65,6 +65,7 @@ struct Event {
 struct ServerReply {
     std::string body;
     int status = -2; // SDK retryable transport failure (HTTP codes remain positive).
+    std::string error; // why no HTTP reply came back (TLS, DNS, timeout), when known
 };
 using ServerTransport = std::function<ServerReply(const std::string&, const std::string&, const std::string&)>;
 class Client {
@@ -95,7 +96,12 @@ public:
     bool load_progress(const std::vector<std::uint8_t>& progress);
     bool hardcore() const;
     bool can_load_state() const;
-    bool can_pause() const;
+    // Game loop gates. Frames wait while Hardcore is selected and the session
+    // cannot evaluate them yet: no account, game not identified, or offline.
+    bool frames_on_hold() const;
+    // A pause (menu, pause key, controller) needs the SDK's consent in Hardcore;
+    // when refused, `frames_left` tells how many frames must run first.
+    bool may_pause(std::uint32_t* frames_left = nullptr) const;
     Snapshot snapshot() const;
     // Account-scoped display data for a library ROM; never identifies or executes a game.
     std::optional<Snapshot> game_snapshot(const std::string& rom_path);

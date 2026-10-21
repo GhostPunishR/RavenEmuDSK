@@ -1,4 +1,5 @@
 # Local safety fixes for pinned rcheevos 1433173. Do not modify FetchContent's checkout.
+# Each fix, its cause and its regression test: docs/retroachievements-validation.md.
 # Keep these exact preconditions so an SDK update requires reviewing the patch.
 file(READ "${rcheevos_SOURCE_DIR}/src/rc_client.c" RAVEN_RC_CLIENT)
 function(raven_rc_replace before after)

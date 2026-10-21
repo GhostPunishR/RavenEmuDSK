@@ -3,16 +3,24 @@
 #include <ravenemudsk/ui/theme.hpp>
 #include <SDL.h>
 #include <imgui.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 namespace ravenemudsk_ui {
-// Vector icons drawn with ImDrawList: no icon font or image is shipped.
+// RavenEmu's own line icons (src/ui/icons.cpp): no icon font or image is shipped.
 enum class Icon {
     Home, Library, Recent, Trophy, Settings, Search, Play, Plus, Folder,
     Close, Minimize, Maximize, Restore, Pause, Save, Load, Reset,
     Fullscreen, Exit, Clock, Check, Lock, Gamepad, Keyboard, Info, Trash
 };
+// Draws the icon `size` pixels wide, centred, from the current ImGui context's
+// font atlas; nothing until register_icons has filled that atlas.
 void draw_icon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
+// Adds every icon, at the sizes the screens use, to a font atlas before its
+// texture is created (load_fonts does it).
+void register_icons(ImFontAtlas* atlas);
+// Coverage (0-255) of the icon drawn on a pixels x pixels grid, row by row.
+std::vector<std::uint8_t> rasterize_icon(Icon icon, int pixels);
 
 enum class ButtonStyle { Primary, Secondary, Ghost, Danger };
 // Rounded button with an optional leading icon. Width 0 fits the label.

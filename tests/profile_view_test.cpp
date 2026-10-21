@@ -192,20 +192,25 @@ int main() {
     set_tv(state, false, false);
     require((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouse) == 0, "Desktop mode must use the mouse again");
 
-    // In TV mode the side that leaves keeps its window as a cover until the
-    // next one is up; one cover at most.
+    // In TV mode the launcher and the game share one window and renderer:
+    // the side that leaves keeps them, the next one takes them over.
     require(SDL_InitSubSystem(SDL_INIT_VIDEO) == 0, "SDL video unavailable");
     SDL_Window* launcher = SDL_CreateWindow("Launcher", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
-    SDL_Window* game = SDL_CreateWindow("Game", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
-    require(launcher && game, "Cover fixture windows");
-    const Uint32 launcher_id = SDL_GetWindowID(launcher), game_id = SDL_GetWindowID(game);
-    keep_screen(launcher);
-    keep_screen(game);
-    require(!SDL_GetWindowFromID(launcher_id) && SDL_GetWindowFromID(game_id) == game,
-            "A new cover replaces and closes the previous one");
+    SDL_Window* other = SDL_CreateWindow("Other", 0, 0, 320, 240, SDL_WINDOW_HIDDEN);
+    SDL_Renderer* shared = launcher ? SDL_CreateRenderer(launcher, -1, SDL_RENDERER_SOFTWARE) : nullptr;
+    require(launcher && other && shared, "Shared screen fixtures");
+    const Uint32 launcher_id = SDL_GetWindowID(launcher), other_id = SDL_GetWindowID(other);
+    keep_screen({launcher, shared});
+    const SharedScreen taken = take_screen();
+    require(taken.window == launcher && taken.renderer == shared && !take_screen().window,
+            "The next side takes over the kept window and renderer, once");
+    keep_screen(taken);
+    keep_screen({other, nullptr});
+    require(!SDL_GetWindowFromID(launcher_id) && SDL_GetWindowFromID(other_id) == other,
+            "Keeping another screen closes the previous one");
     close_screen();
     close_screen();
-    require(!SDL_GetWindowFromID(game_id), "Closing destroys the cover");
+    require(!SDL_GetWindowFromID(other_id), "Closing destroys the kept screen");
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 
     ImGui::DestroyContext();

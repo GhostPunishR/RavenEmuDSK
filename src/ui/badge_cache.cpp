@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/badge_cache.hpp>
+#include <ravenemudsk/achievements/user_agent.hpp>
 #include <curl/curl.h>
 #include <stb_image.h>
 #include <chrono>
@@ -63,10 +64,8 @@ std::vector<std::uint8_t> download_image(const std::string& url) {
     curl_easy_setopt(curl,CURLOPT_TIMEOUT,8L);
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYPEER,1L);
     curl_easy_setopt(curl,CURLOPT_SSL_VERIFYHOST,2L);
-#ifndef RAVENEMUDSK_VERSION
-#define RAVENEMUDSK_VERSION "0.2.0"
-#endif
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"RavenEmu/" RAVENEMUDSK_VERSION);
+    const std::string agent=ravenemudsk_ra::user_agent();
+    curl_easy_setopt(curl,CURLOPT_USERAGENT,agent.c_str());
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,collect);
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&bytes);
     const CURLcode result=curl_easy_perform(curl);

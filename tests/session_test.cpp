@@ -137,6 +137,41 @@ void password_login_reasons() {
     require(status.find("Line one Line two") != std::string::npos && status.find('\n') == std::string::npos,
             "Server text must stay on one line");
 }
+// Without a readable reply, the status names the cause (firewall page, rate
+// limit, TLS or DNS failure) instead of a bare "no response".
+void transport_causes_are_named() {
+    Server server;
+    Client client(std::make_shared<MemoryStore>(), server.transport());
+    const auto status_for = [&](ServerReply reply) {
+        server.reply(std::move(reply));
+        client.login("SessionUser", "FakePassword");
+        finish_login(client);
+        require(!client.snapshot().logged_in, "A failed transport must not sign in");
+        return client.snapshot().status;
+    };
+    const auto has = [](const std::string& text, const char* part) { return text.find(part) != std::string::npos; };
+    auto status = status_for({"<!DOCTYPE html><title>Just a moment...</title>", 403});
+    require(has(status, "pare-feu (HTTP 403)"), "A firewall page must be named with its HTTP code");
+    status = status_for({R"({"Success":false,"Error":"Too Many Attempts","Status":429})", 429});
+    require(has(status, "trop de tentatives") && !has(status, "Too Many"), "A rate limit must say so in French");
+    status = status_for({"", -2, "SSL peer certificate or SSH remote key was not OK"});
+    require(has(status, "aucune réponse du serveur (SSL peer certificate"), "A TLS failure must be named");
+    status = status_for({"<html>maintenance</html>", 503});
+    require(has(status, "indisponible (HTTP 503)"), "A maintenance page must be named");
+    status = status_for({"", -2});
+    require(has(status, "ne répond pas"), "Without a known cause, the outage text stays");
+    const auto events = client.drain_events();
+    require(std::any_of(events.begin(), events.end(), [&](const Event& e) {
+        return e.kind == "error" && has(e.detail, "SSL peer certificate"); }), "The failure toast must carry the cause");
+    // A saved session that cannot reconnect names the cause too.
+    auto store = std::make_shared<MemoryStore>();
+    store->session = SessionCredentials{"SessionUser", "FakeSessionToken"};
+    server.reply({"", -2, "Could not resolve hostname"});
+    Client saved(store, server.transport());
+    finish_login(saved);
+    require(has(saved.snapshot().status, "Could not resolve hostname") && store->session,
+            "A failed automatic reconnection must name its cause and keep the session");
+}
 void automatic_backoff_and_cached_profile() {
     auto store = std::make_shared<MemoryStore>();
     store->session = SessionCredentials{"SessionUser", "FakeSessionToken"};
@@ -216,6 +251,7 @@ int main() {
     saved_session_lifecycle();
     network_failure_and_retry();
     password_login_reasons();
+    transport_causes_are_named();
     expired_session();
     automatic_backoff_and_cached_profile();
     logout_during_automatic_login();

@@ -8,38 +8,90 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
+#include <optional>
 #include <string>
 namespace ravenemudsk_ui {
 namespace {
 float text_width(ImFont* font, const char* text) {
     return font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.f, text).x;
 }
-// Full-width menu row: icon, label and keyboard shortcut.
-bool menu_item(const Fonts& fonts, const char* label, Icon icon, const char* shortcut,
+// Menu rows: desktop sizes, or larger ones read from a couch in TV mode.
+struct MenuStyle {
+    bool tv = false;
+    float row = 46.f, icon = 17.f, icon_x = 24.f, text_x = 48.f;
+    ImFont* font = nullptr;
+};
+// `compact`: a TV of less than 900 lines (720p, 768p) keeps the whole menu on screen.
+MenuStyle menu_style(const Fonts& fonts, bool tv, bool compact) {
+    if (!tv) return {false, 46.f, 17.f, 24.f, 48.f, fonts.body};
+    return {true, compact ? 50.f : 66.f, compact ? 24.f : 26.f, 36.f, 74.f, fonts.tv_body ? fonts.tv_body : fonts.body};
+}
+// Full-width menu row: icon, label and keyboard shortcut. In TV mode the row
+// under the controller's focus is filled, as in the launcher's TV menu.
+bool menu_item(const Fonts& fonts, const MenuStyle& m, const char* label, Icon icon, const char* shortcut,
                bool enabled = true, bool danger = false) {
     const float w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
     if (!enabled) ImGui::BeginDisabled();
-    const bool pressed = ImGui::InvisibleButton(label, {w, 46.f},ImGuiButtonFlags_EnableNav);
+    const bool pressed = ImGui::InvisibleButton(label, {w, m.row},ImGuiButtonFlags_EnableNav);
     if (!enabled) ImGui::EndDisabled();
     const bool hovered = enabled && ImGui::IsItemHovered();
+    const bool selected = m.tv && enabled && ImGui::IsItemFocused();
     auto* d = ImGui::GetWindowDrawList();
-    const ImVec2 max{p.x + w, p.y + 46.f};
-    if (hovered) d->AddRectFilled(p, max, danger ? with_alpha(color::danger, .16f) : color::surface_hover,
-                                  radius::md);
-    const ImU32 fg = !enabled ? color::text_faint : danger ? color::danger : color::text;
-    draw_icon(d, icon, {p.x + 24.f, p.y + 23.f}, 17.f, danger ? color::danger :
+    const ImVec2 max{p.x + w, p.y + m.row};
+    if (selected) d->AddRectFilled(p, max, danger ? color::danger : color::accent, radius::md);
+    else if (hovered) d->AddRectFilled(p, max, danger ? with_alpha(color::danger, .16f) : color::surface_hover,
+                                       radius::md);
+    const ImU32 fg = selected ? IM_COL32_WHITE : !enabled ? color::text_faint : danger ? color::danger : color::text;
+    draw_icon(d, icon, {p.x + m.icon_x, p.y + m.row * .5f}, m.icon, selected ? IM_COL32_WHITE : danger ? color::danger :
               enabled ? color::accent_hover : color::text_faint);
-    d->AddText(fonts.body, fonts.body->FontSize, {p.x + 48.f, p.y + 13.f}, fg, label);
-    if (shortcut && *shortcut) {
+    d->AddText(m.font, m.font->FontSize, {p.x + m.text_x, p.y + (m.row - m.font->FontSize) * .5f - 1.f}, fg, label);
+    if (!m.tv && shortcut && *shortcut) {
         const auto caption=ellipsize(fonts.caption,shortcut,std::max(16.f,w-text_width(fonts.body,label)-92.f));
         const float sw = text_width(fonts.caption, caption.c_str());
         const ImVec2 k{max.x - sw - 26.f, p.y + 12.f};
         d->AddRectFilled(k, {k.x + sw + 14.f, k.y + 22.f}, color::surface, radius::sm);
         d->AddText(fonts.caption, fonts.caption->FontSize, {k.x + 7.f, k.y + 3.f}, color::text_muted, caption.c_str());
     }
-    focus_ring(d, p, max, radius::md);
+    if (!m.tv) focus_ring(d, p, max, radius::md);
     return pressed;
+}
+// One control of a hint row: the controller's buttons as it prints them, or
+// the keyboard key when no controller is in use.
+struct Hint {
+    PadButton button;
+    const char* key;
+    const char* action;
+    bool with_next = false;  // drawn with the following button, e.g. LB RB
+};
+// Draws "[A] Choisir   [B] Reprendre" from `p`, or only measures it without
+// a draw list; returns its width.
+float hint_row(ImDrawList* d, ImVec2 p, const std::optional<PadFamily>& pad, const Fonts& fonts,
+               std::initializer_list<Hint> hints) {
+    constexpr float h = 34.f;
+    ImFont* label = fonts.tv_body ? fonts.tv_body : fonts.body;
+    float x = p.x;
+    for (const Hint& hint : hints) {
+        if (pad) {
+            x += pad_glyph(d, {x, p.y}, *pad, hint.button, fonts.strong, h);
+        } else {
+            const float kw = std::max(h, text_width(fonts.strong, hint.key) + 20.f);
+            if (d) {
+                d->AddRectFilled({x, p.y}, {x + kw, p.y + h}, color::surface, radius::sm);
+                d->AddRect({x, p.y}, {x + kw, p.y + h}, color::border_strong, radius::sm);
+                d->AddText(fonts.strong, fonts.strong->FontSize,
+                           {x + (kw - text_width(fonts.strong, hint.key)) * .5f, p.y + (h - fonts.strong->FontSize) * .5f},
+                           color::text_muted, hint.key);
+            }
+            x += kw;
+        }
+        if (hint.with_next && pad) { x += 6.f; continue; }
+        x += 10.f;
+        if (d) d->AddText(label, label->FontSize, {x, p.y + (h - label->FontSize) * .5f}, color::text_muted, hint.action);
+        x += text_width(label, hint.action) + 36.f;
+    }
+    return x - 36.f - p.x;
 }
 void demo_panel(const Fonts& fonts, const OverlayInfo& info) {
     auto* d = ImGui::GetBackgroundDrawList();
@@ -175,6 +227,12 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const Retr
 }
 double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 }
+void GameOverlay::open_achievements() {
+    retro_open_ = true;
+    focus_achievement_ = true;
+    retro_tab_ = 0;
+    retro_tab_requested_ = true;
+}
 void GameOverlay::close_menu() {
     notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), false);
     menu_open_ = false;
@@ -248,6 +306,133 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     }
 }
 
+// "Succès et classements" read from a couch: large panel and text, each
+// achievement a row the D-pad walks through (the list follows it), tabs on
+// LB / RB, B back to the menu.
+void GameOverlay::draw_achievements_tv(const OverlayInfo& info, ImVec2 screen) {
+    auto& client = retro_ ? *retro_ : ravenemudsk_ra::client();
+    const auto snapshot = client.snapshot();
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, 215));
+    constexpr int tabs = 3;
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) {
+        retro_tab_ = (retro_tab_ + tabs - 1) % tabs;
+        retro_tab_requested_ = true;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) {
+        retro_tab_ = (retro_tab_ + 1) % tabs;
+        retro_tab_requested_ = true;
+    }
+    const float margin = std::max(40.f, screen.y * .06f);
+    ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
+    ImGui::SetNextWindowSize({std::min(1280.f, screen.x - 2.f * margin), screen.y - 2.f * margin});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+    // The rows draw their own focus; tabs in the accent colour, not ImGui's blue.
+    ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Tab, ImGui::ColorConvertU32ToFloat4(color::surface));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, ImGui::ColorConvertU32ToFloat4(color::surface_hover));
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, ImGui::ColorConvertU32ToFloat4(color::accent));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImGui::ColorConvertU32ToFloat4(color::accent));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {40.f, 32.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {20.f, 10.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {12.f, 8.f});
+    ImGui::PushFont(fonts_.tv_body);
+    ImGui::Begin("##retro-tv", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+    auto* d = ImGui::GetWindowDrawList();
+    const float inner = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const std::string heading = snapshot.game_title.empty() ? snapshot.status : snapshot.game_title;
+    d->AddText(fonts_.tv_title, fonts_.tv_title->FontSize, p, color::text,
+               ellipsize(fonts_.tv_title, heading, inner).c_str());
+    const std::string summary = std::string(info.hardcore ? "Mode Hardcore" : "Mode Softcore") + "  \xC2\xB7  " +
+        std::to_string(snapshot.unlocked_count) + " / " + std::to_string(snapshot.total_count) + " succès";
+    d->AddText(fonts_.tv_body, fonts_.tv_body->FontSize, {p.x, p.y + 42.f}, color::text_muted, summary.c_str());
+    ImGui::Dummy({inner, 84.f});
+    constexpr float hint_h = 58.f;
+    static const char* const labels[tabs] = {"Succès", "Classements", "Activité"};
+    if (ImGui::BeginTabBar("##retro-tabs-tv")) {
+        for (int i = 0; i < tabs; ++i) {
+            const ImGuiTabItemFlags flags = retro_tab_requested_ && retro_tab_ == i ? ImGuiTabItemFlags_SetSelected : 0;
+            if (!ImGui::BeginTabItem(labels[i], nullptr, flags)) continue;
+            if (!retro_tab_requested_) retro_tab_ = i;
+            ImGui::BeginChild("##retro-tv-list", {0.f, -hint_h}, ImGuiChildFlags_NavFlattened);
+            if (i == 0) {
+                if (snapshot.achievements.empty())
+                    ImGui::TextWrapped("%s", snapshot.status.c_str());
+                for (const auto& a : snapshot.achievements) {
+                    ImGui::PushID(a.id.c_str());
+                    if (focus_achievement_) {
+                        ImGui::SetKeyboardFocusHere();
+                        ImGui::SetNavCursorVisible(true);
+                        focus_achievement_ = false;
+                    }
+                    const ImVec2 r = ImGui::GetCursorScreenPos();
+                    const float w = ImGui::GetContentRegionAvail().x, h = 112.f;
+                    ImGui::Selectable("##achievement", false, ImGuiSelectableFlags_None, {w, h});
+                    auto* rd = ImGui::GetWindowDrawList();
+                    if (ImGui::IsItemFocused()) {
+                        rd->AddRectFilled(r, {r.x + w, r.y + h}, color::surface_hover, radius::md);
+                        rd->AddRect(r, {r.x + w, r.y + h}, color::accent_hover, radius::md, 0, 2.f);
+                    }
+                    constexpr float badge = 76.f;
+                    const ImVec2 ba{r.x + 18.f, r.y + (h - badge) * .5f}, bb{ba.x + badge, ba.y + badge};
+                    if (SDL_Texture* t = a.badge_url.empty() ? nullptr : badges_.image(a.badge_url)) {
+                        rd->AddImageRounded(reinterpret_cast<ImTextureID>(t), ba, bb, {0, 0}, {1, 1},
+                                            a.unlocked ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 110), radius::md);
+                    } else {
+                        rd->AddRectFilled(ba, bb, color::surface, radius::md);
+                        draw_icon(rd, a.unlocked ? Icon::Trophy : Icon::Lock, {ba.x + badge * .5f, ba.y + badge * .5f},
+                                  28.f, a.unlocked ? color::gold : color::text_faint);
+                    }
+                    const float x = bb.x + 22.f, right = r.x + w - 22.f;
+                    const std::string points = std::to_string(a.points) + " pts";
+                    const float pw = text_width(fonts_.tv_body, points.c_str());
+                    rd->AddText(fonts_.tv_body, fonts_.tv_body->FontSize, {right - pw, r.y + 14.f},
+                                a.unlocked ? color::gold : color::text_muted, points.c_str());
+                    rd->AddText(fonts_.tv_body, fonts_.tv_body->FontSize, {x, r.y + 14.f}, color::text,
+                                ellipsize(fonts_.tv_body, a.title, right - pw - 24.f - x).c_str());
+                    rd->AddText(fonts_.tv_body, fonts_.tv_body->FontSize, {x, r.y + 44.f}, color::text_muted,
+                                ellipsize(fonts_.tv_body, a.description, right - x).c_str());
+                    const char* state = a.unlocked ? "Débloqué" : a.progress.empty() ? "À obtenir" : a.progress.c_str();
+                    rd->AddText(fonts_.strong, fonts_.strong->FontSize, {x, r.y + 80.f},
+                                a.unlocked ? color::gold : color::text_faint, state);
+                    if (!a.unlocked && a.measured_percent > 0.f) {
+                        const float bx = x + text_width(fonts_.strong, state) + 16.f;
+                        progress_bar(rd, {bx, r.y + 86.f}, {std::min(bx + 320.f, right), r.y + 94.f},
+                                     std::clamp(a.measured_percent / 100.f, 0.f, 1.f), color::accent);
+                    }
+                    ImGui::PopID();
+                }
+            } else if (i == 1) {
+                draw_leaderboards(client, snapshot, fonts_, true);
+            } else {
+                ImGui::TextWrapped("%s", snapshot.rich_presence.empty()
+                    ? "Aucune activité détaillée disponible pour ce jeu." : snapshot.rich_presence.c_str());
+            }
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    retro_tab_requested_ = false;
+    p = {ImGui::GetWindowPos().x + 40.f, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - 32.f - 34.f};
+    if (info.pad) {
+        hint_row(d, p, info.pad, fonts_,
+                 {{PadButton::LeftShoulder, "", "", true}, {PadButton::RightShoulder, "", "Onglet"},
+                  {PadButton::East, "Échap", "Retour"}});
+    } else {
+        hint_row(d, p, info.pad, fonts_, {{PadButton::East, "Échap", "Fermer le menu"}});
+    }
+    ImGui::End();
+    ImGui::PopFont();
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(8);
+}
+
 OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     badges_.begin_frame();
     ImGui_ImplSDLRenderer2_NewFrame();
@@ -302,9 +487,20 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
                         with_alpha(color::text_muted, alpha), hint);
         }
     }
+    // B (Circle on PlayStation) goes back: from the achievements to the menu,
+    // from the menu to the game.
+    bool back = menu_open_ && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
+    if (back && retro_open_) {
+        retro_open_ = false;
+        focus_retro_entry_ = true;
+        back = false;
+    }
+    if (back) action = OverlayAction::Resume;
     if (menu_open_ && !retro_open_) {
-        bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, 200));
-        const float w = std::min(440.f, screen.x - 32.f);
+        const bool compact = tv_ && screen.y < 900.f;
+        const MenuStyle m = menu_style(fonts_, tv_, compact);
+        bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, tv_ ? 215 : 200));
+        const float w = std::min(tv_ ? 760.f : 440.f, screen.x - 32.f);
         ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
         ImGui::SetNextWindowSize({w, 0.f});
         ImGui::SetNextWindowSizeConstraints({w,100.f},{w,std::max(100.f,screen.y-32.f)});
@@ -312,63 +508,94 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {space::lg, space::xl});
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, 2.f});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, !tv_ ? ImVec2{space::lg, space::xl} :
+                            ImVec2{36.f, compact ? 24.f : 32.f});
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, !tv_ ? 2.f : compact ? 4.f : 6.f});
+        // TV rows show their focus by their fill alone.
+        ImGui::PushStyleColor(ImGuiCol_NavCursor, tv_ ? ImVec4(0, 0, 0, 0) : ImGui::GetStyleColorVec4(ImGuiCol_NavCursor));
         ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
         auto* d = ImGui::GetWindowDrawList();
         ImVec2 p = ImGui::GetCursorScreenPos();
         const float inner = ImGui::GetContentRegionAvail().x;
-        d->AddText(fonts_.caption, fonts_.caption->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
-        d->AddText(fonts_.title, fonts_.title->FontSize, {p.x + space::sm, p.y + 20.f}, color::text,
-                   ellipsize(fonts_.title, info.game_title, inner - space::lg).c_str());
-        pill(d, {p.x + space::sm, p.y + 52.f}, system_name(info.system), system_color(info.system), fonts_.caption);
-        ImGui::Dummy({inner, 84.f});
-        if (focus_first_) {
+        if (tv_) {
+            d->AddText(fonts_.strong, fonts_.strong->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
+            d->AddText(fonts_.tv_title, fonts_.tv_title->FontSize, {p.x + space::sm, p.y + (compact ? 22.f : 26.f)},
+                       color::text, ellipsize(fonts_.tv_title, info.game_title, inner - space::lg).c_str());
+            pill(d, {p.x + space::sm, p.y + (compact ? 62.f : 72.f)}, system_name(info.system), system_color(info.system),
+                 fonts_.strong);
+            ImGui::Dummy({inner, compact ? 96.f : 124.f});
+        } else {
+            d->AddText(fonts_.caption, fonts_.caption->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
+            d->AddText(fonts_.title, fonts_.title->FontSize, {p.x + space::sm, p.y + 20.f}, color::text,
+                       ellipsize(fonts_.title, info.game_title, inner - space::lg).c_str());
+            pill(d, {p.x + space::sm, p.y + 52.f}, system_name(info.system), system_color(info.system), fonts_.caption);
+            ImGui::Dummy({inner, 84.f});
+        }
+        auto focus_here = [](bool& request) {
+            if (!request) return;
             ImGui::SetKeyboardFocusHere();
             ImGui::SetNavCursorVisible(true);
-            focus_first_ = false;
-        }
+            request = false;
+        };
+        focus_here(focus_first_);
         // Opened with the controller: the keyboard shortcuts would not apply.
         const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
-        if (menu_item(fonts_, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
+        if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
+        if (menu_item(fonts_, m, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
+        if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
             action = OverlayAction::LoadState;
-        if(menu_item(fonts_,"Succès et classements",Icon::Trophy,nullptr))retro_open_=true;
-        if(menu_item(fonts_,info.hardcore_preferred?"Passer en Softcore":"Activer Hardcore (réinitialise)",Icon::Lock,nullptr))
-            action=OverlayAction::ToggleHardcore;
-        if (menu_item(fonts_, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
-        if (menu_item(fonts_, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen, shortcut(KeyAction::Fullscreen).c_str()))
+        focus_here(focus_retro_entry_);
+        if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
+        if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
+            action = OverlayAction::ToggleHardcore;
+        if (menu_item(fonts_, m, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
+        // TV mode stays in full screen, from the launcher to the game and back.
+        if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
+                              shortcut(KeyAction::Fullscreen).c_str()))
             action = OverlayAction::ToggleFullscreen;
         ImGui::Dummy({inner, space::sm});
         p = ImGui::GetCursorScreenPos();
-        d->AddLine({p.x + space::sm, p.y}, {p.x + inner - space::sm, p.y}, color::border);
+        // One whole pixel row: a line between two rows is drawn in two halves.
+        const float rule = std::floor(p.y);
+        d->AddRectFilled({p.x + space::sm, rule}, {p.x + inner - space::sm, rule + 1.f}, color::border);
         ImGui::Dummy({inner, space::sm});
-        if (menu_item(fonts_, "Quitter vers la bibliothèque", Icon::Exit, nullptr, true, true))
+        if (menu_item(fonts_, m, "Quitter vers la bibliothèque", Icon::Exit, nullptr, true, true))
             action = OverlayAction::Quit;
         if (info.has_achievement) {
             ImGui::Dummy({inner, space::md});
             p = ImGui::GetCursorScreenPos();
-            const ImVec2 b{p.x + inner, p.y + 62.f};
+            // Larger text in TV mode; the 720p menu still fits with it.
+            const float h = tv_ ? 66.f : 62.f, text_x = tv_ ? 68.f : 58.f;
+            ImFont* title = tv_ ? fonts_.tv_body : fonts_.strong;
+            ImFont* detail = tv_ ? fonts_.strong : fonts_.caption;
+            const ImVec2 b{p.x + inner, p.y + h};
             d->AddRectFilled(p, b, color::surface, radius::md);
             const bool done = info.achievement_unlocked;
-            const ImVec2 c{p.x + 30.f, p.y + 31.f};
-            d->AddCircleFilled(c, 18.f, done ? color::gold_soft : color::elevated, 32);
-            draw_icon(d, done ? Icon::Trophy : Icon::Lock, c, 16.f, done ? color::gold : color::text_faint);
-            d->AddText(fonts_.strong, fonts_.strong->FontSize, {p.x + 58.f, p.y + 11.f}, color::text,
-                       ellipsize(fonts_.strong, info.achievement_title, inner - 70.f).c_str());
+            const ImVec2 c{p.x + (tv_ ? 34.f : 30.f), p.y + h * .5f};
+            d->AddCircleFilled(c, tv_ ? 22.f : 18.f, done ? color::gold_soft : color::elevated, 32);
+            draw_icon(d, done ? Icon::Trophy : Icon::Lock, c, tv_ ? 20.f : 16.f, done ? color::gold : color::text_faint);
+            d->AddText(title, title->FontSize, {p.x + text_x, p.y + (tv_ ? 8.f : 11.f)}, color::text,
+                       ellipsize(title, info.achievement_title, inner - text_x - 12.f).c_str());
             const std::string state = std::to_string(info.achievement_points) + " pts  \xC2\xB7  " +
                                       (done ? "Débloqué" : "À débloquer");
-            d->AddText(fonts_.caption, fonts_.caption->FontSize, {p.x + 58.f, p.y + 35.f},
+            d->AddText(detail, detail->FontSize, {p.x + text_x, p.y + (tv_ ? 38.f : 35.f)},
                        done ? color::gold : color::text_muted, state.c_str());
-            ImGui::Dummy({inner, 62.f});
+            ImGui::Dummy({inner, h});
+        }
+        if (tv_) {
+            ImGui::Dummy({inner, space::md});
+            p = ImGui::GetCursorScreenPos();
+            hint_row(d, {p.x + space::sm, p.y}, info.pad, fonts_,
+                     {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Reprendre"}});
+            ImGui::Dummy({inner, 34.f});
         }
         ImGui::End();
         ImGui::PopStyleVar(4);
-        ImGui::PopStyleColor(2);
+        ImGui::PopStyleColor(3);
     }
-    if(retro_open_&&menu_open_){
+    if (retro_open_ && menu_open_ && tv_) draw_achievements_tv(info, screen);
+    if(retro_open_&&menu_open_&&!tv_){
         ImGui::SetNextWindowPos({screen.x*.5f,screen.y*.5f},ImGuiCond_Always,{.5f,.5f});
         ImGui::SetNextWindowSize({std::min(680.f,screen.x-32.f),std::min(620.f,screen.y-48.f)});
         ImGui::Begin("Succès et classements",&retro_open_,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoCollapse);

@@ -2,6 +2,7 @@
 // HTTPS request behind UpdateCheck: WinHTTP on Windows, libcurl elsewhere
 // when available. Only GET /repos/GhostPunishR/RavenEmuDSK/releases/latest.
 #include <ravenemudsk/ui/updates.hpp>
+#include <ravenemudsk/achievements/user_agent.hpp>
 #include <cstddef>
 #include <string>
 #include <thread>
@@ -31,7 +32,9 @@ struct Handle {
 };
 Response fetch_latest() {
     Response r;
-    Handle session{WinHttpOpen(L"RavenEmuDSK", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    const std::string ascii = ravenemudsk_ra::user_agent();  // printable ASCII only
+    const std::wstring agent(ascii.begin(), ascii.end());
+    Handle session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0)};
     if (!session.h) { r.error = "WinHTTP indisponible"; return r; }
     WinHttpSetTimeouts(session.h, 5000, 5000, 5000, 8000);
@@ -75,7 +78,8 @@ Response fetch_latest() {
     curl_slist* headers = curl_slist_append(nullptr, "Accept: application/vnd.github+json");
     curl_easy_setopt(curl, CURLOPT_URL,
                      "https://api.github.com/repos/GhostPunishR/RavenEmuDSK/releases/latest");
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "RavenEmuDSK");
+    const std::string agent = ravenemudsk_ra::user_agent();
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, agent.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/theme.hpp>
+#include <ravenemudsk/ui/widgets.hpp>
 #include <filesystem>
 #include <initializer_list>
 namespace ravenemudsk_ui {
@@ -109,6 +110,7 @@ Fonts load_fonts(bool tv_sizes) {
         fonts.body = io.Fonts->AddFontDefault();
         fonts.strong = fonts.caption = fonts.title = fonts.display = fonts.body;
         fonts.tv_body = fonts.tv_title = fonts.tv_display = fonts.body;
+        register_icons(io.Fonts);
         return fonts;
     }
     // Latin-1 plus the typographic signs used in French UI text.
@@ -136,6 +138,7 @@ Fonts load_fonts(bool tv_sizes) {
                        &fonts.tv_body, &fonts.tv_title, &fonts.tv_display})
         if (!*f) *f = fonts.body;
     io.FontDefault = fonts.body;
+    register_icons(io.Fonts);
     return fonts;
 }
 } // namespace ravenemudsk_ui

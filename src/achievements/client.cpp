@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/achievements/client.hpp>
+#include <ravenemudsk/achievements/user_agent.hpp>
 #include <ravenemu/bridge.h>
 #include <rc_client.h>
 #include <rc_api_runtime.h>
@@ -55,10 +56,7 @@ Reply https_request(std::string url, std::string post, std::string content_type)
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-#ifndef RAVENEMUDSK_VERSION
-#define RAVENEMUDSK_VERSION "0.2.0"
-#endif
-    const std::string agent = std::string("RavenEmu/") + RAVENEMUDSK_VERSION + " RavenCore/" + ravenemu_version();
+    const std::string agent = user_agent();
     curl_easy_setopt(curl, CURLOPT_USERAGENT, agent.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &reply.body);
@@ -67,6 +65,8 @@ Reply https_request(std::string url, std::string post, std::string content_type)
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         reply.status = static_cast<int>(http_code);
+    } else {
+        reply.error = curl_easy_strerror(result);
     }
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
@@ -159,6 +159,18 @@ Reply browse_reply(const ServerTransport& send,const std::string& post){
         return failure.status>0?failure:Reply{"",-2}; // A refused token still renews or expires.
     return {session_body(wall_time(),unlocked),200};
 }
+// Why a sign-in reply cannot be used, in the player's words. The SDK reads a
+// refused TLS link, a firewall page and a rate limit all as "no response".
+std::string reply_problem(const Reply& reply){
+    const auto code=std::to_string(reply.status);
+    if(reply.status==429)return "trop de tentatives, RetroAchievements bloque les connexions pendant une minute";
+    if(reply.status<0)return reply.error.empty()?std::string{}:"aucune réponse du serveur ("+reply.error+")";
+    const auto start=reply.body.find_first_not_of(" \t\r\n");
+    if(start!=std::string::npos&&reply.body[start]=='{')return {};
+    if(reply.status==403)return "accès refusé par RetroAchievements ou son pare-feu (HTTP 403)";
+    if(reply.status>=500)return "service RetroAchievements indisponible (HTTP "+code+")";
+    return "réponse inattendue de RetroAchievements (HTTP "+code+")";
+}
 // Server text shown in the interface: one line, bounded, never cut inside a character.
 std::string server_message(const char* message){
     std::string text=message?message:"";
@@ -232,6 +244,7 @@ struct Client::Impl {
     unsigned login_failures = 0, game_failures = 0;
     rc_client_async_handle_t* game_load = nullptr;
     rc_client_async_handle_t* login_request = nullptr;
+    std::string login_problem; // transport cause of the last sign-in failure, if any
     rc_client_async_handle_t* ranking_request = nullptr;
     Ranking ranks;
     std::shared_ptr<Outbox> outbox;
@@ -494,6 +507,7 @@ struct Client::Impl {
             // When the ROM was opened before authentication, identify it now.
             if ((impl.memory||impl.browsing) && !impl.rom.empty()) impl.identify_after_outbox();
         } else {
+            const std::string problem = std::exchange(impl.login_problem, {});
             if (impl.token_login && (result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN)) {
                 const bool forgotten = !impl.storage || impl.storage->clear();
                 impl.retry_user.clear();
@@ -509,12 +523,14 @@ struct Client::Impl {
             } else if (impl.token_login) {
                 // Keep a saved token on transient network errors so Retry (or
                 // the next launch) can reconnect without asking for a password.
-                impl.state.status = "Reconnexion impossible : réessayez lorsque le réseau est disponible";
+                impl.state.status = "Reconnexion impossible : " + (problem.empty() ?
+                    std::string("réessayez lorsque le réseau est disponible") : problem);
             } else if (result == RC_NO_RESPONSE || result == RC_INVALID_JSON) {
-                impl.state.status = "Connexion impossible : RetroAchievements ne répond pas, vérifiez le réseau";
+                impl.state.status = "Connexion impossible : " + (problem.empty() ?
+                    std::string("RetroAchievements ne répond pas, vérifiez le réseau") : problem);
             } else {
                 // A wrong password and an outage must not read the same: show the service's reason.
-                const auto reason = server_message(message);
+                const auto reason = problem.empty() ? server_message(message) : problem;
                 const bool refused = result == RC_INVALID_CREDENTIALS || result == RC_EXPIRED_TOKEN || result == RC_ACCESS_DENIED;
                 impl.state.status = std::string(refused ? "Connexion refusée par RetroAchievements" : "Connexion impossible") +
                     (reason.empty() ? refused ? " : identifiant ou mot de passe incorrect" : " : vérifiez votre compte et le réseau" :
@@ -523,9 +539,11 @@ struct Client::Impl {
             if (impl.token_login && !impl.retry_token.empty() && transient(result)) {
                 impl.login_retry_at = impl.clock() + delay(impl.login_failures);
                 impl.state.reconnect_scheduled = true;
-                impl.state.status = "Hors ligne : reconnexion automatique programmée";
+                impl.state.status = problem.empty() ? "Hors ligne : reconnexion automatique programmée" :
+                    "Reconnexion automatique programmée : " + problem;
             }
-            impl.events.push_back({"error", "Connexion RetroAchievements impossible", server_message(message)});
+            impl.events.push_back({"error", "Connexion RetroAchievements impossible",
+                                   problem.empty() ? server_message(message) : problem});
         }
     }
     static void loaded(int result, const char* message, rc_client_t* c, void*) {
@@ -707,6 +725,7 @@ struct Client::Impl {
         Reply reply;
         try { reply = job.future.get(); } catch (...) { /* treated as a network failure */ }
         if (cancel) { reply.body = "Session arrêtée"; reply.status = RC_API_SERVER_RESPONSE_CLIENT_ERROR; }
+        if (job.operation == "login2") login_problem = cancel ? std::string{} : reply_problem(reply);
         const rc_api_server_response_t response{reply.body.c_str(), reply.body.size(), reply.status};
         bool accepted=false,permanent=false;
         if(!cancel && (!job.submission_id.empty()||job.replay)) {
@@ -1058,9 +1077,17 @@ bool Client::load_progress(const std::vector<std::uint8_t>& bytes){
 }
 bool Client::hardcore() const { return rc_client_get_hardcore_enabled(impl_->handle) != 0; }
 bool Client::can_load_state() const { return !impl_->preferred_hardcore && !hardcore(); }
-bool Client::can_pause() const {
-    if(impl_->state.game_status!=GameStatus::Ready && impl_->state.game_status!=GameStatus::NoAchievements)return true;
-    return rc_client_can_pause(impl_->handle, nullptr) != 0;
+bool Client::frames_on_hold() const {
+    const auto& s = impl_->state;
+    return s.hardcore_preferred &&
+           (!s.logged_in || (s.game_status != GameStatus::Ready && s.game_status != GameStatus::NoAchievements));
+}
+bool Client::may_pause(std::uint32_t* frames_left) const {
+    if (frames_left) *frames_left = 0;
+    if (!hardcore()) return true;
+    // Without a running game session there is nothing to evaluate, so nothing to throttle.
+    if (impl_->state.game_status != GameStatus::Ready && impl_->state.game_status != GameStatus::NoAchievements) return true;
+    return rc_client_can_pause(impl_->handle, frames_left) != 0;
 }
 Snapshot Client::snapshot() const { return impl_->state; }
 std::optional<Snapshot> Client::game_snapshot(const std::string& path) {
