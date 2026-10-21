@@ -1077,9 +1077,17 @@ bool Client::load_progress(const std::vector<std::uint8_t>& bytes){
 }
 bool Client::hardcore() const { return rc_client_get_hardcore_enabled(impl_->handle) != 0; }
 bool Client::can_load_state() const { return !impl_->preferred_hardcore && !hardcore(); }
-bool Client::can_pause() const {
-    if(impl_->state.game_status!=GameStatus::Ready && impl_->state.game_status!=GameStatus::NoAchievements)return true;
-    return rc_client_can_pause(impl_->handle, nullptr) != 0;
+bool Client::frames_on_hold() const {
+    const auto& s = impl_->state;
+    return s.hardcore_preferred &&
+           (!s.logged_in || (s.game_status != GameStatus::Ready && s.game_status != GameStatus::NoAchievements));
+}
+bool Client::may_pause(std::uint32_t* frames_left) const {
+    if (frames_left) *frames_left = 0;
+    if (!hardcore()) return true;
+    // Without a running game session there is nothing to evaluate, so nothing to throttle.
+    if (impl_->state.game_status != GameStatus::Ready && impl_->state.game_status != GameStatus::NoAchievements) return true;
+    return rc_client_can_pause(impl_->handle, frames_left) != 0;
 }
 Snapshot Client::snapshot() const { return impl_->state; }
 std::optional<Snapshot> Client::game_snapshot(const std::string& path) {

@@ -14,10 +14,31 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 namespace ravenemudsk_ra {
 namespace {
 namespace fs = std::filesystem;
+// Pushes a written file (or, on POSIX, a directory entry) to the disk: after a
+// power cut the journal is either the old one or the new one, never empty.
+bool flush_to_disk(const fs::path& path) {
+#ifdef _WIN32
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    const bool flushed = FlushFileBuffers(file) != 0;
+    CloseHandle(file);
+    return flushed;
+#else
+    const int fd = ::open(path.c_str(), O_RDONLY);
+    if (fd < 0) return false;
+    const bool flushed = ::fsync(fd) == 0;
+    ::close(fd);
+    return flushed;
+#endif
+}
 std::string lower(std::string value) {
     for (auto& c : value) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
     return value;
@@ -128,10 +149,11 @@ struct Outbox::Impl {
             for(const auto& s:a.records)body<<serialize(s)<<'\n';
             const auto value=body.str();
             out<<"RavenEmuOutbox1\n"<<hmac(a.key,value)<<'\n'<<value;
-            out.close();if(!out){ok=false;return false;}
+            out.close();if(!out||!flush_to_disk(temp)){ok=false;return false;}
 #ifndef _WIN32
             fs::permissions(temp,fs::perms::owner_read|fs::perms::owner_write,fs::perm_options::replace);
             fs::rename(temp,file);
+            flush_to_disk(root); // the rename itself; a refusal here leaves a complete file
 #else
             if(!MoveFileExW(temp.c_str(),file.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){ok=false;return false;}
 #endif

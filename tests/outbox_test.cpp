@@ -39,6 +39,23 @@ int main(){
         write(file,corrupt);Outbox damaged(root.path,factory);
         check(!damaged.available("GameUser")&&damaged.entries("GameUser").empty()&&!damaged.healthy(),"Tampered journal accepted");
     }
+    write(file,original);
+    // Another account's journal, copied over this one's, is refused even with the same key.
+    {
+        const auto other_vault=std::make_shared<retro_test::Vault>();
+        other_vault->value=SessionCredentials{"otheruser",fixed->value->token};
+        auto other_keys=[other_vault](const std::string&){return other_vault;};
+        std::filesystem::path other_file;
+        {Outbox other(root.path,other_keys);auto mine=award;mine.username="OtherUser";check(!other.put(mine).empty(),"Second account not persisted");}
+        for(const auto& entry:std::filesystem::directory_iterator(root.path))
+            if(entry.path().extension()==".outbox"&&entry.path()!=file)other_file=entry.path();
+        check(!other_file.empty(),"Second account's journal not written");
+        write(other_file,original);
+        {Outbox swapped(root.path,other_keys);
+            check(!swapped.available("OtherUser")&&swapped.entries("OtherUser").empty(),"Another account's journal was replayed");}
+        {Outbox owner(root.path,factory);check(owner.entries("GameUser").size()==1,"The owner's journal must stay readable");}
+        std::filesystem::remove(other_file);
+    }
     auto changed=original;changed[changed.find("1700000000")]='9';write(file,changed);
     {Outbox damaged(root.path,factory);check(!damaged.available("GameUser"),"Edited unlock timestamp accepted");}
     write(file,original);
@@ -50,5 +67,5 @@ int main(){
         Outbox restored(root.path,factory);check(restored.entries("GameUser").size()==1,"Valid journal failed to reopen");
         check(restored.clear("GameUser")&&!fixed->value&&!std::filesystem::exists(file),"Logout must remove journal and signing key");
     }
-    std::cout<<"Protected outbox persistence, deduplication, HMAC reference, tampering and vault failures passed\n";
+    std::cout<<"Protected outbox persistence, deduplication, HMAC reference, tampering, account swap and vault failures passed\n";
 }

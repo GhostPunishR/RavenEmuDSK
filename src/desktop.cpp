@@ -196,6 +196,15 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
     };
     bool running=true,paused=false;
+    // Hardcore limits pauses: when the SDK refuses one, say how long to play first.
+    auto pause_allowed=[&]{
+        std::uint32_t frames=0;
+        if(ravenemudsk_ra::client().may_pause(&frames))return true;
+        const auto seconds=std::max<std::uint32_t>(1,(frames+59)/60);
+        toast(ravenemudsk_ui::Toast::Kind::Info,"Pause indisponible",
+              "Le Hardcore limite les pauses : réessayez dans "+std::to_string(seconds)+" s.");
+        return false;
+    };
     using Action=ravenemudsk_ui::OverlayAction;
     auto next=Clock::now();
     auto last_save=Clock::now();
@@ -219,11 +228,10 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
                 switch(action) {
                     case Key::Menu:
                         if(overlay.menu_open())overlay.close_menu();
-                        else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())
-                            overlay.open_menu();
+                        else if(pause_allowed())overlay.open_menu();
                         break;
                     case Key::Pause:
-                        if(paused || !ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause()) {
+                        if(paused || pause_allowed()) {
                             paused=!paused;input.release_all();
                         }
                         break;
@@ -251,15 +259,13 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             input.set_menu_open(overlay.menu_open()||paused);
             if(input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
                 if(overlay.menu_open())overlay.close_menu();
-                else if(!ravenemudsk_ra::client().hardcore() || ravenemudsk_ra::client().can_pause())overlay.open_menu(true);
+                else if(pause_allowed())overlay.open_menu(true);
                 input.release_all();
             }
         }
         input.update(SDL_GetTicks());
         const auto now=Clock::now();
-        const auto ra_status=ravenemudsk_ra::client().snapshot();
-        const bool waiting=ra_status.hardcore_preferred && (!ra_status.logged_in ||
-            (ra_status.game_status!=ravenemudsk_ra::GameStatus::Ready && ra_status.game_status!=ravenemudsk_ra::GameStatus::NoAchievements));
+        const bool waiting=ravenemudsk_ra::client().frames_on_hold();
         if(!waiting&&!paused&&!overlay.menu_open() && now>=next) {
             verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
             ravenemudsk_ra::client().pump(true);

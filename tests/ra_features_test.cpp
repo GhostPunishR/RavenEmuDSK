@@ -270,6 +270,53 @@ void hardcore_during_loading(){
     }
     std::cout<<"Hardcore transitions remain guarded while metadata/authentication is still pending\n";
 }
+// The game loop's Hardcore gates: frames wait until the session can evaluate
+// them, and pauses follow the SDK (refused right after one, with the frames
+// left to play, allowed again once played). Softcore never waits nor throttles.
+void hardcore_game_loop_gates(){
+    retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
+    FeatureServer server;server.expected_hardcore=1;const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);
+    Client client(nullptr,server.transport(),{}, {},queue);
+    require(!client.frames_on_hold()&&client.may_pause(),"Softcore without an account neither waits nor throttles");
+    client.set_hardcore(true);
+    require(client.frames_on_hold(),"Hardcore without an account must hold frames");
+    client.set_hardcore(false);
+    require(!client.frames_on_hold(),"Back to Softcore while waiting, the game runs");
+    client.set_hardcore(true);
+    login(client);
+    require(client.frames_on_hold(),"Hardcore without a game session must hold frames");
+    client.start_game(RAVENEMU_GB,rom,core.handle);
+    require(client.frames_on_hold(),"Hardcore must hold frames while the game loads");
+    wait(client,[&]{return client.snapshot().game_status==GameStatus::Ready;});
+    require(!client.frames_on_hold()&&client.hardcore(),"An identified Hardcore game runs");
+    std::uint32_t left=99;
+    require(client.may_pause(&left)&&left==0,"The first Hardcore pause is allowed");
+    frame(core);client.pump(true);
+    require(!client.may_pause(&left)&&left>0,"A pause right after another is refused, with the frames still to play");
+    for(std::uint32_t i=0;i<left;++i){frame(core);client.pump(true);}
+    require(client.may_pause(),"Once those frames are played, the next pause is allowed");
+    require(client.set_hardcore(false)&&!client.frames_on_hold()&&client.may_pause(),"Back in Softcore, nothing waits or throttles");
+    std::cout<<"Hardcore holds frames until the game session is ready and throttles pauses as the SDK requires\n";
+}
+// A Hardcore award that cannot be written to the protected journal stops
+// Hardcore: the game goes on in Softcore and says why.
+void hardcore_journal_write_failure(){
+    retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
+    FeatureServer server;server.expected_hardcore=1;const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);
+    Client client(nullptr,server.transport(),{}, {},queue);login(client);start(client,core,rom);
+    require(client.set_hardcore(true)&&client.hardcore(),"Hardcore did not start with a protected journal");
+    client.drain_events();
+    // The journal's folder becomes a file: the next write fails.
+    std::filesystem::remove_all(root.path);std::ofstream(root.path)<<"not a folder";
+    client.pump(true);frame(core);client.pump(true);
+    wait(client,[&]{return !client.hardcore();});
+    require(!client.snapshot().hardcore_preferred&&client.can_load_state(),"A failed journal write must leave Hardcore");
+    const auto events=client.drain_events();
+    require(std::any_of(events.begin(),events.end(),[](const auto& e){return e.kind=="hardcore_refused";})&&
+            std::any_of(events.begin(),events.end(),[](const auto& e){return e.kind=="error"&&e.title=="Hardcore interrompu";}),
+            "Leaving Hardcore after a failed write must be reported");
+    std::cout<<"A Hardcore award the journal cannot keep switches the game to Softcore and says so\n";
+}
 void expired_submission_session(){
     for(bool hardcore:{false,true}){
         retro_test::Directory root;retro_test::Vaults keys;auto queue=std::make_shared<Outbox>(root.path,keys.factory());
@@ -435,7 +482,7 @@ void achievement_sync_states(){
 int main(){
     restart_with_pending_award();restart_with_pending_score();softcore_states();
     for(const auto system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})hardcore_transitions(system);
-    launcher_refresh_rankings_activity();hardcore_during_loading();expired_submission_session();previously_earned_achievements();
+    launcher_refresh_rankings_activity();hardcore_during_loading();hardcore_game_loop_gates();hardcore_journal_write_failure();expired_submission_session();previously_earned_achievements();
     refused_replay_does_not_block_games();refused_game_session_is_not_an_outage();
     previous_game_is_not_shown();achievement_sync_states();
 }

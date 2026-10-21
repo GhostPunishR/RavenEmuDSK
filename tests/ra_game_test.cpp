@@ -80,4 +80,59 @@ void close_with_pending_awards() {
     }
     std::cout<<"Closing games and signing out with active/scheduled award submissions passed\n";
 }
-int main(){for(int system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})unlock_on_real_core(system);game_status_and_retry();close_with_pending_awards();}
+// rcheevos safety fix 1 (cmake/rcheevos_safety.cmake): the SDK raises a
+// pending mastery only on the next frame. Closing the game before that frame
+// raised it after clearing client->game, and the unpatched SDK crashed there.
+void mastery_pending_when_closing() {
+    const auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);TestServer server;
+    std::int64_t now=1000;Client c(nullptr,server.transport(),{},[&]{return now;});
+    c.login("GameUser","SyntheticPassword");wait(c,[&]{return c.snapshot().logged_in;});
+    c.start_game(RAVENEMU_GB,rom,core.handle);wait(c,[&]{return c.snapshot().game_status==GameStatus::Ready;});
+    c.pump(true);
+    std::vector<std::uint32_t> pixels(ravenemu_video_width(core.handle)*ravenemu_video_height(core.handle));
+    require(ravenemu_run_frame(core.handle,pixels.data(),pixels.size()),"Mastery ROM frame failed");
+    c.pump(true); // the unlock sends its award; the reply says no achievement remains
+    wait(c,[&]{return server.accepted==1;});
+    for(int i=0;i<50;++i){c.pump(false);std::this_thread::sleep_for(std::chrono::milliseconds(1));} // reply handled, no frame since
+    c.drain_events();
+    c.end_game();
+    const auto events=c.drain_events();
+    require(std::any_of(events.begin(),events.end(),[](const auto& e){return e.title=="Tous les succès obtenus !";}),
+        "The pending mastery must be raised for the game being closed");
+    std::cout<<"A mastery still pending when the game closes is raised for that game\n";
+}
+// rcheevos safety fix 2 (cmake/rcheevos_safety.cmake): an award reply saying
+// no achievement remains may arrive after its game was closed, or after
+// another ROM was opened. It must neither crash on the missing game nor mark
+// the other game as mastered.
+void late_mastery_reply() {
+    for (bool other_rom : {true, false}) {
+        auto rom=rom_for(RAVENEMU_GB);Core core(RAVENEMU_GB,rom);TestServer server;
+        std::int64_t now=1000;Client c(nullptr,server.transport(),{},[&]{return now;});
+        c.login("GameUser","SyntheticPassword");wait(c,[&]{return c.snapshot().logged_in;});
+        c.start_game(RAVENEMU_GB,rom,core.handle);wait(c,[&]{return c.snapshot().game_status==GameStatus::Ready;});
+        c.pump(true);
+        std::vector<std::uint32_t> pixels(ravenemu_video_width(core.handle)*ravenemu_video_height(core.handle));
+        require(ravenemu_run_frame(core.handle,pixels.data(),pixels.size()),"Late reply ROM frame failed");
+        c.pump(true); // the unlock sends its award; its reply is not handled yet
+        if (other_rom) {
+            auto other=rom;other[0x150]^=0xff; // same set on the server, another hash
+            Core next(RAVENEMU_GB,other);
+            c.start_game(RAVENEMU_GB,other,next.handle);
+            wait(c,[&]{return server.accepted==1&&c.snapshot().game_status==GameStatus::Ready;});
+            for(int i=0;i<50;++i){c.pump(false);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+            c.drain_events();
+            c.pump(true);
+            const auto events=c.drain_events();
+            require(std::none_of(events.begin(),events.end(),[](const auto& e){return e.title=="Tous les succès obtenus !";}),
+                "A late reply must not master the game opened since");
+            c.end_game();
+        } else {
+            c.end_game();
+            wait(c,[&]{return server.accepted==1;});
+            for(int i=0;i<50;++i){c.pump(false);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+        }
+    }
+    std::cout<<"A late reply saying no achievement remains neither crashes nor masters another game\n";
+}
+int main(){for(int system:{RAVENEMU_GB,RAVENEMU_GBC,RAVENEMU_GBA})unlock_on_real_core(system);game_status_and_retry();close_with_pending_awards();mastery_pending_when_closing();late_mastery_reply();}
