@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/ui/pad_glyphs.hpp>
+#include <ravenemudsk/ui/pad_bindings.hpp>
 #include <ravenemudsk/ui/theme.hpp>
 #include <algorithm>
 #include <cfloat>
@@ -142,5 +143,39 @@ float pad_menu_combo(ImDrawList* d, ImVec2 p, PadFamily family, ImFont* font, fl
     if (d) d->AddText(font, font->FontSize, {x + 5.f, p.y + (h - plus.y) * .5f}, with_alpha(color::text_muted, alpha), "+");
     x += plus.x + 10.f;
     return x + pad_glyph(d, {x, p.y}, family, PadButton::Start, font, h, alpha) - p.x;
+}
+std::string pad_input_name(int input, PadFamily family) {
+    const bool sony = family == PadFamily::PlayStation || family == PadFamily::PlayStation5;
+    switch (input) {
+    case pad_unbound: return "Non attribué";
+    case pad_left_trigger:
+        return family == PadFamily::Xbox ? "LT" : sony ? "L2" : family == PadFamily::Nintendo ? "ZL" : "Gâchette gauche";
+    case pad_right_trigger:
+        return family == PadFamily::Xbox ? "RT" : sony ? "R2" : family == PadFamily::Nintendo ? "ZR" : "Gâchette droite";
+    case SDL_CONTROLLER_BUTTON_A: return pad_button_name(family, PadButton::South);
+    case SDL_CONTROLLER_BUTTON_B: return pad_button_name(family, PadButton::East);
+    case SDL_CONTROLLER_BUTTON_X: return pad_button_name(family, PadButton::West);
+    case SDL_CONTROLLER_BUTTON_Y: return pad_button_name(family, PadButton::North);
+    case SDL_CONTROLLER_BUTTON_BACK: return pad_button_name(family, PadButton::Back);
+    case SDL_CONTROLLER_BUTTON_START: return pad_button_name(family, PadButton::Start);
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return pad_button_name(family, PadButton::LeftShoulder);
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return pad_button_name(family, PadButton::RightShoulder);
+    case SDL_CONTROLLER_BUTTON_GUIDE: return "Guide";
+    case SDL_CONTROLLER_BUTTON_LEFTSTICK: return sony ? "L3" : "Clic stick gauche";
+    case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return sony ? "R3" : "Clic stick droit";
+    case SDL_CONTROLLER_BUTTON_DPAD_UP: return "Croix haut";
+    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "Croix bas";
+    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "Croix gauche";
+    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "Croix droite";
+    case SDL_CONTROLLER_BUTTON_MISC1:
+        return family == PadFamily::Xbox ? "Partager" : family == PadFamily::Nintendo ? "Capture" :
+               family == PadFamily::PlayStation5 ? "Micro" : "Bouton supplémentaire";
+    case SDL_CONTROLLER_BUTTON_PADDLE1: return "Palette 1";
+    case SDL_CONTROLLER_BUTTON_PADDLE2: return "Palette 2";
+    case SDL_CONTROLLER_BUTTON_PADDLE3: return "Palette 3";
+    case SDL_CONTROLLER_BUTTON_PADDLE4: return "Palette 4";
+    case SDL_CONTROLLER_BUTTON_TOUCHPAD: return "Pavé tactile";
+    default: return "Bouton " + std::to_string(input);
+    }
 }
 } // namespace ravenemudsk_ui

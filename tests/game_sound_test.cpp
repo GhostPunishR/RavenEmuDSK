@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/unlock_chime.hpp>
+#include <ravenemudsk/ui/game_sound.hpp>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -41,5 +41,18 @@ int main() {
     require(after == std::vector<std::int16_t>{5, 5}, "Nothing added once finished");
     mixer.play(sound);
     require(mixer.playing(), "Playing again restarts the sound");
-    std::cout << "Unlock chime synthesis and mixing passed\n";
+    // Volume: the whole mix, chime included, follows the game's volume.
+    std::vector<std::int16_t> level{10000, -10000, 32767, -32768};
+    scale_volume(level.data(), level.size(), 50);
+    require(level == std::vector<std::int16_t>{5000, -5000, 16383, -16384}, "Half volume");
+    scale_volume(level.data(), level.size(), 100);
+    require(level == std::vector<std::int16_t>{5000, -5000, 16383, -16384}, "Full volume leaves the samples");
+    scale_volume(level.data(), level.size(), 0);
+    require(level == std::vector<std::int16_t>{0, 0, 0, 0}, "Muted");
+    std::vector<std::int16_t> clamped{100, -100};
+    scale_volume(clamped.data(), clamped.size(), 250);
+    require(clamped == std::vector<std::int16_t>{100, -100}, "Above 100 % is full volume");
+    scale_volume(clamped.data(), clamped.size(), -5);
+    require(clamped == std::vector<std::int16_t>{0, 0}, "Below 0 % is silence");
+    std::cout << "Unlock chime synthesis, mixing and volume passed\n";
 }

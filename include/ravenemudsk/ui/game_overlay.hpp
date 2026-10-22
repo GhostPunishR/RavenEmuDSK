@@ -5,6 +5,7 @@
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <ravenemudsk/achievements/notifications.hpp>
 #include <ravenemudsk/ui/keyboard_bindings.hpp>
+#include <ravenemudsk/ui/pad_bindings.hpp>
 #include <ravenemudsk/ui/pad_glyphs.hpp>
 #include <deque>
 #include <optional>
@@ -15,6 +16,7 @@
 namespace ravenemudsk_ui {
 struct OverlayInfo {
     KeyboardBindings keyboard;
+    PadBindings pads;           // the menu chord is the bound Select + Start
     std::string game_title;
     std::string system;
     bool hardcore = false;

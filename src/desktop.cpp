@@ -8,7 +8,7 @@
 #include <ravenemudsk/ui/game_state.hpp>
 #include <ravenemudsk/ui/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
-#include <ravenemudsk/ui/unlock_chime.hpp>
+#include <ravenemudsk/ui/game_sound.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <algorithm>
 #include <array>
@@ -173,7 +173,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
     // Sharp pixels whatever scaling hint the launcher left behind.
-    SDL_SetTextureScaleMode(texture.get(),SDL_ScaleModeNearest);
+    SDL_SetTextureScaleMode(texture.get(),ravenemudsk_ui::smooth_image_preference()?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
     spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
     SDL_AudioDeviceID audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
@@ -189,13 +189,15 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
     const auto chime=ravenemudsk_ui::unlock_sound_preference()?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     ravenemudsk_ui::SoundMixer effects;
+    const int volume=ravenemudsk_ui::game_volume_preference();
     const auto keyboard=ravenemudsk_ui::keyboard_preferences();
+    const auto pads=ravenemudsk_ui::pad_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
-    },keyboard);
+    },keyboard,pads);
     ravenemudsk_ui::OverlayInfo info{};
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
-    info.keyboard=keyboard;info.pad=family_of(pad.get());
+    info.keyboard=keyboard;info.pads=pads;info.pad=family_of(pad.get());
     auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
         overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
     };
@@ -275,6 +277,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             ravenemudsk_ra::client().pump(true);
             const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
             effects.mix(pcm.data(),n);
+            ravenemudsk_ui::scale_volume(pcm.data(),n,volume);
             if(audio_device && n) {
                 if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
                     SDL_ClearQueuedAudio(audio_device);

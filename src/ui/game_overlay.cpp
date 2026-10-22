@@ -546,7 +546,9 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         ImFont* font = tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.caption;
         const float bar_h = tv_ ? 52.f : 32.f;
         const float bottom = tv_ ? retro_card_style(screen, true).bottom : 20.f;
-        if (info.pad && !info.hardcore) {
+        const bool usual_chord = info.pads.input(KeyAction::Select) == SDL_CONTROLLER_BUTTON_BACK &&
+                                 info.pads.input(KeyAction::Start) == SDL_CONTROLLER_BUTTON_START;
+        if (info.pad && !info.hardcore && usual_chord) {
             const float gh = tv_ ? 34.f : 22.f;
             const char* label = "  Menu";
             const float gw = pad_menu_combo(nullptr, {}, *info.pad, fonts_.strong, gh);
@@ -557,7 +559,10 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             bg->AddText(font, font->FontSize, {a.x + 16.f + gw, a.y + (bar_h - font->FontSize) * .5f},
                         with_alpha(color::text_muted, alpha), label);
         } else {
+            // A controller whose Select or Start was moved: its chord, in words.
             const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+                info.pad?pad_input_name(info.pads.input(KeyAction::Select),*info.pad)+" + "+
+                    pad_input_name(info.pads.input(KeyAction::Start),*info.pad)+" : menu":
                 "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
                 info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
             const auto fitted=ellipsize(font,hint_text,std::max(40.f,screen.x-64.f));

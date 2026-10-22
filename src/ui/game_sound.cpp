@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/unlock_chime.hpp>
+#include <ravenemudsk/ui/game_sound.hpp>
 #include <algorithm>
 #include <cmath>
 namespace ravenemudsk_ui {
@@ -32,6 +32,11 @@ std::vector<std::int16_t> unlock_chime(int rate) {
     for (std::size_t i = 0; i < frames; ++i)
         pcm[2 * i] = pcm[2 * i + 1] = static_cast<std::int16_t>(std::lround(mono[i] * gain));
     return pcm;
+}
+void scale_volume(std::int16_t* pcm, std::size_t count, int percent) {
+    percent = std::clamp(percent, 0, 100);
+    if (percent == 100) return;
+    for (std::size_t i = 0; i < count; ++i) pcm[i] = static_cast<std::int16_t>(pcm[i] * percent / 100);
 }
 void SoundMixer::mix(std::int16_t* out, std::size_t count) {
     if (!playing()) return;

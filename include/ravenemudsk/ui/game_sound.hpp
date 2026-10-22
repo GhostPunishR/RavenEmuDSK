@@ -21,4 +21,7 @@ private:
     const std::vector<std::int16_t>* sound_ = nullptr;
     std::size_t position_ = 0;
 };
+// The game's volume: scales `count` samples to `percent` of their level,
+// clamped to 0-100 (0 silences them).
+void scale_volume(std::int16_t* pcm, std::size_t count, int percent);
 } // namespace ravenemudsk_ui
