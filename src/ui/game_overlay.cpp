@@ -261,7 +261,7 @@ float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2
     const float text = std::max(text_width(heading_font, heading.c_str()), text_width(title_font, title.c_str()));
     const float full = style.size + (text > 0.f ? 2.f * style.pad + text : 0.f);
     const float width = style.size + (full - style.size) * frame.unfold;
-    const float x = style.margin;
+    const float x = (screen.x - width) * .5f;
     const float y = style.margin - (style.size + style.margin) * (1.f - frame.drop);
     d->AddRectFilled({x + 4.f, y + 6.f}, {x + width + 4.f, y + style.size + 6.f}, color::shadow, style.radius);
     d->AddRectFilled({x, y}, {x + width, y + style.size}, with_alpha(color::background, .94f), style.radius);
@@ -317,15 +317,20 @@ void GameOverlay::clear_retro() {
     progress_visible_=false;
     progress_hidden_at_=0.0;
 }
-void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
+float GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     notifications_.advance(static_cast<std::int64_t>(wall*1000), [&](const std::string& url) {
         return badges_.image(url) != nullptr;
     });
-    if(menu_open_)return;
-    const double now = notifications_.time();
     const auto& notice_ = notifications_.notice();
-    const auto& indicators_ = notifications_.indicators();
     const auto notice_since_ = notifications_.notice_since();
+    if(notice_ && notice_since_!=shown_notice_since_) {
+        shown_notice_since_=notice_since_;
+        if(notice_->trophy) unlock_sound_=true;
+    }
+    if(menu_open_)return 0.f;
+    const double now = notifications_.time();
+    const auto& indicators_ = notifications_.indicators();
+    float lowest=0.f;
     const auto& current=notifications_.progress();
     if(current) {
         if(!progress_visible_ || !last_progress_ || last_progress_->id!=current->id) {
@@ -341,9 +346,9 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     const auto style=retro_card_style(screen,tv_);
     float top=style.top;
     if(notice_ && tv_) {
-        // TV: the unlock banner, top left; the progress card goes below it.
+        // TV: the unlock banner, top center; the progress card goes below it.
         const float bottom=unlock_banner(d,fonts_,badges_,screen,*notice_,now-notice_since_);
-        if(bottom>0.f)top=std::max(top,bottom+14.f);
+        if(bottom>0.f){top=std::max(top,bottom+14.f);lowest=bottom;}
     } else if(notice_) {
         const double elapsed=now-notice_since_;
         const float alpha=static_cast<float>(std::clamp(
@@ -351,6 +356,7 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
         if(alpha>0.f) {
             retro_card(d,fonts_,badges_,style,screen,top,
                 notice_->text,notice_->detail,notice_->badge,alpha);
+            lowest=top+style.height;
             top+=style.height+(style.tv?14.f:8.f);
         }
     }
@@ -358,12 +364,14 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
         const float alpha=progress_visible_?
             static_cast<float>(std::clamp((now-progress_started_)/0.3,0.0,1.0)):
             static_cast<float>(std::clamp(1.0-(now-progress_hidden_at_)/0.3,0.0,1.0));
-        if(alpha>0.f)
+        if(alpha>0.f){
             retro_card(d,fonts_,badges_,style,screen,top,
                 "Progression \xC2\xB7 "+last_progress_->title,
                 last_progress_->detail,last_progress_->badge_url,alpha);
+            lowest=top+style.height;
+        }
     }
-    if(indicators_.empty())return;
+    if(indicators_.empty())return lowest;
     // Active challenges, at the bottom center.
     ImFont* font=card_font(fonts_,style);
     const std::size_t count=std::min<std::size_t>(indicators_.size(),4);
@@ -377,6 +385,7 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
         const auto label=ellipsize(font,indicators_[i].second,w-inset*2.f);
         d->AddText(font,font->FontSize,{x+inset,y+first+static_cast<float>(i)*row},color::text,label.c_str());
     }
+    return lowest;
 }
 
 // "Succès et classements" read from a couch: large panel and text, each
@@ -703,9 +712,10 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             ellipsize(fonts_.caption,info.retro_status,screen.x-32.f).c_str());
     }
     // RetroAchievements cards use RavenEmu's dedicated top-center style.
-    draw_retro(seconds_now(),screen);
-    // Non-achievement local notifications still use the desktop toast style.
-    if (!menu_open_) draw_toasts(toasts_, fonts_);
+    const float retro_bottom=draw_retro(seconds_now(),screen);
+    // Local notifications join them at the top center, just below.
+    if (!menu_open_)
+        draw_toasts(toasts_, fonts_, retro_bottom>0.f?retro_bottom+space::sm:space::lg, true);
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);
     return action;

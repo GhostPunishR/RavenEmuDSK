@@ -66,5 +66,6 @@ struct Toast {
     double lifetime = 4.0;
 };
 // Stacked toasts in the top-right corner; expired ones are removed.
-void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top = space::lg);
+// `centered`: at the top center, sliding down (in game); otherwise at the right, sliding in.
+void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top = space::lg, bool centered = false);
 } // namespace ravenemudsk_ui

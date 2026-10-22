@@ -115,7 +115,8 @@ add_executable(RavenEmuDSK
   src/ui/badge_cache.cpp
   src/ui/app_shell.cpp src/ui/game_overlay.cpp
   src/ui/image_loader.cpp src/ui/theme.cpp
-  src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
+  src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp
+  src/ui/unlock_chime.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
 target_compile_definitions(RavenEmuDSK PRIVATE
   RAVENEMUDSK_VERSION="${PROJECT_VERSION}" RAVENEMUDSK_HAVE_CURL)
@@ -182,6 +183,9 @@ if(BUILD_TESTING)
   add_executable(ravenemudsk_notifications_test tests/notifications_test.cpp src/achievements/notifications.cpp src/achievements/progress.cpp)
   target_include_directories(ravenemudsk_notifications_test PRIVATE include)
   add_test(NAME retro_notifications COMMAND ravenemudsk_notifications_test)
+  add_executable(ravenemudsk_unlock_chime_test tests/unlock_chime_test.cpp src/ui/unlock_chime.cpp)
+  target_include_directories(ravenemudsk_unlock_chime_test PRIVATE include)
+  add_test(NAME unlock_chime COMMAND ravenemudsk_unlock_chime_test)
   add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
   target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
   add_test(NAME retro_profile_store COMMAND ravenemudsk_profile_store_test)

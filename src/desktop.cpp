@@ -8,6 +8,7 @@
 #include <ravenemudsk/ui/game_state.hpp>
 #include <ravenemudsk/ui/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
+#include <ravenemudsk/ui/unlock_chime.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <algorithm>
 #include <array>
@@ -185,6 +186,9 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
     std::vector<std::int16_t> pcm(8192);
     ravenemudsk_ui::GameOverlay overlay(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
+    // An unlock's chime is mixed into the game's sound, when the settings allow it.
+    const auto chime=ravenemudsk_ui::unlock_sound_preference()?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
+    ravenemudsk_ui::SoundMixer effects;
     const auto keyboard=ravenemudsk_ui::keyboard_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
@@ -270,6 +274,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
             ravenemudsk_ra::client().pump(true);
             const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
+            effects.mix(pcm.data(),n);
             if(audio_device && n) {
                 if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
                     SDL_ClearQueuedAudio(audio_device);
@@ -313,7 +318,9 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
         info.paused=paused;
         info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
-        switch(overlay.draw(info)) {
+        const auto action=overlay.draw(info);
+        if(overlay.take_unlock_sound()&&!chime.empty())effects.play(chime);
+        switch(action) {
             case Action::None:break;
             case Action::Resume:overlay.close_menu();break;
             case Action::SaveState:

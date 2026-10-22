@@ -41,11 +41,11 @@ struct RetroCardStyle {
     bool tv = false;
 };
 RetroCardStyle retro_card_style(ImVec2 screen, bool tv);
-// TV mode unlock banner, top left inside the safe area: a badge square that
-// drops in, a band unfolding to its right with the heading and the title,
-// then the band folds back into the badge, which rises away.
+// TV mode unlock banner, top center inside the safe area: a badge square that
+// drops in, then opens into a band with the heading and the title beside the
+// badge, centered all along; the band folds back into the badge, which rises away.
 struct UnlockBannerStyle {
-    float margin = 54.f;     // From the top and left edges (5 % safe area).
+    float margin = 54.f;     // From the top edge (5 % safe area); the sides keep it too.
     float size = 118.f;      // Badge square, also the band's height.
     float pad = 22.f;        // Text inset inside the band.
     float radius = 14.f;
@@ -83,6 +83,9 @@ public:
     void retro_event(const ravenemudsk_ra::Event& event);
     void update_retro_progress(const std::vector<ravenemudsk_ra::Achievement>& entries);
     void clear_retro();
+    // True once when an unlock or a completed game appears on screen: the
+    // moment its chime plays.
+    bool take_unlock_sound() { return std::exchange(unlock_sound_, false); }
     // Draws the overlay on top of the current frame and returns the menu choice.
     OverlayAction draw(const OverlayInfo& info);
 
@@ -106,7 +109,10 @@ private:
     bool progress_visible_ = false;
     double progress_started_ = 0.0;
     double progress_hidden_at_ = 0.0;
-    void draw_retro(double now_seconds, ImVec2 screen);
+    double shown_notice_since_ = -1.0;
+    bool unlock_sound_ = false;
+    // Returns the lowest edge it drew, 0 when nothing; toasts go below it.
+    float draw_retro(double now_seconds, ImVec2 screen);
     void draw_achievements_tv(const OverlayInfo& info, ImVec2 screen);
 };
 } // namespace ravenemudsk_ui

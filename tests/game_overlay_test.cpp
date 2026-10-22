@@ -45,15 +45,19 @@ void navigation(SDL_Window* window,SDL_Renderer* renderer){
         overlay.close_menu();draw();
     }
 }
-// Bounds of the unlock card drawn on top of the game, from the foreground
-// vertices, `seconds` after it was raised: {left, top, right, bottom}.
-ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seconds){
+// Bounds of what is drawn on top of the game, from the foreground vertices,
+// `seconds` after an unlock (or only a toast) was raised: {left, top, right, bottom}.
+ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seconds,bool toast_only=false){
     ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
     GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
-    overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
+    if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
+    else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
+    int sounds=0;
     const auto start=SDL_GetTicks64();
-    do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);}
+    do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
+       sounds+=overlay.take_unlock_sound();}
     while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
+    require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
     ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
     for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
         box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
@@ -87,11 +91,26 @@ void tv_cards(SDL_Window* window,SDL_Renderer* renderer){
     const auto at720=unlock_banner_style({1280.f,720.f});
     const auto unfolded=unlock_card(window,renderer,true,1.);
     // The band's drop shadow reaches 4 px right and 6 px down; anti-aliasing 1.5 px.
-    require(unfolded.x>=at720.margin-2.f&&unfolded.y>=at720.margin-2.f,"TV banner must sit inside the safe area, top left");
+    require(unfolded.x>=at720.margin-2.f&&unfolded.y>=at720.margin-2.f,"TV banner must sit inside the safe area");
+    require(std::abs((unfolded.x+unfolded.z)*.5f-642.f)<3.f,"TV banner must be centered at the top");
     require(unfolded.w-unfolded.y>=at720.size&&unfolded.w-unfolded.y<=at720.size+8.f,"TV banner height is its badge square");
     require(unfolded.z-unfolded.x>2.f*at720.size,"TV banner must unfold its text beside the badge");
     const auto dropping=unlock_card(window,renderer,true,.1);
     require(dropping.z-dropping.x<=at720.size+6.f&&dropping.y<at720.margin,"TV badge drops in alone, from above");
+    require(std::abs((dropping.x+dropping.z)*.5f-642.f)<3.f,"TV badge drops in at the center");
+    {   // A leaderboard or a service notice shows its banner silently.
+        ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+        GameOverlay overlay(window,renderer,&client,true);OverlayInfo info;info.game_title="Silent";info.system="gba";
+        overlay.retro_event({"leaderboard_started","Course","","9"});
+        bool sound=false;
+        for(int frame=0;frame<20;++frame){SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);sound|=overlay.take_unlock_sound();}
+        require(!sound,"Only unlocks and completed games chime");
+    }
+    // Local notifications in game sit at the top center too, in both modes.
+    for(const bool on_tv:{false,true}){
+        const auto toast=unlock_card(window,renderer,on_tv,.6,true);
+        require(std::abs((toast.x+toast.z)*.5f-640.f)<3.f&&toast.y<60.f,"In-game toasts must be at the top center");
+    }
 }
 void pad_buttons(SDL_Window* window,SDL_Renderer* renderer){
     require(pad_family(SDL_CONTROLLER_TYPE_XBOXONE)==PadFamily::Xbox&&pad_family(SDL_CONTROLLER_TYPE_XBOX360)==PadFamily::Xbox&&

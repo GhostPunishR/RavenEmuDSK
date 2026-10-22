@@ -1355,6 +1355,15 @@ void ra_mode_controls(State& s) {
     else muted("Softcore actif : chargement des états autorisé.");
     muted("Le Hardcore interdit le chargement des états. Son activation pendant une partie réinitialise la console.");
     ImGui::PopFont();
+    ImGui::Dummy({0.f,space::sm});
+    bool sound=s.settings.flag("ra_unlock_sound",true);
+    if(toggle("##ra-unlock-sound",&sound)){s.settings.set_flag("ra_unlock_sound",sound);save_settings(s);}
+    ImGui::SameLine(0.f,space::md);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Son des succès");
+    ImGui::PushFont(s.fonts.caption);
+    muted("Un court carillon, créé par RavenEmu, accompagne chaque succès débloqué et chaque jeu maîtrisé. Pris en compte à la prochaine partie.");
+    ImGui::PopFont();
 }
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     const auto snap = ra.snapshot();
@@ -1513,7 +1522,10 @@ std::vector<int> tv_games(const Library& lib, int category) {
         }), ids.end());
     return ids;
 }
-// `remember` stores the mode so that the next launch reopens it.
+// TV mode lasts for this run of RavenEmu: back from a game it reopens, but
+// the application itself always starts in desktop mode.
+bool& tv_this_run() { static bool on = false; return on; }
+// `remember` keeps the mode for the next launcher of this run.
 void set_tv(State& s, bool on, bool remember) {
     s.tv = on;
     s.tv_menu = -1;
@@ -1530,9 +1542,7 @@ void set_tv(State& s, bool on, bool remember) {
         s.tv_index = 0;
         s.tv_scroll = 0.f;
     }
-    if (!remember) return;
-    s.settings.set_flag("tv_mode", on);
-    save_settings(s);
+    if (remember) tv_this_run() = on;
 }
 bool pressed(std::initializer_list<ImGuiKey> keys, bool repeat) {
     for (const ImGuiKey key : keys)
@@ -2452,9 +2462,9 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    // TV mode reopens in full screen at once. Back from a game played in TV
-    // mode, its full-screen window and renderer carry on here.
-    const bool tv_start = state.settings.flag("tv_mode", false);
+    // Back from a game played in TV mode, TV mode reopens at once, and the
+    // game's full-screen window and renderer carry on here.
+    const bool tv_start = tv_this_run();
     const SharedScreen shared = take_screen();
     SDL_Window* window = shared.window;
     if (window) {
@@ -2628,6 +2638,10 @@ bool remember_hardcore(bool enabled){
 bool hardcore_preference(){
     try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_hardcore",false);}
     catch(...){return false;}
+}
+bool unlock_sound_preference(){
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_unlock_sound",true);}
+    catch(...){return true;}
 }
 KeyboardBindings keyboard_preferences(){
     KeyboardBindings keys;

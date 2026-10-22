@@ -32,5 +32,7 @@ void record_session(const LaunchRequest& selection, unsigned long long seconds);
 Folders app_folders();
 bool remember_hardcore(bool enabled);
 bool hardcore_preference();
+// "Son des succès" in the settings; on unless turned off.
+bool unlock_sound_preference();
 KeyboardBindings keyboard_preferences();
 } // namespace ravenemudsk_ui

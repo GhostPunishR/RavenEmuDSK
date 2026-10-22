@@ -274,7 +274,7 @@ void draw_avatar(ImDrawList* d, ImVec2 c, float r, const std::string& name, int 
     d->AddCircle(c, r, color::border_strong, 0, 1.f);
 }
 
-void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top) {
+void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top, bool centered) {
     const double now = ImGui::GetTime();
     auto* d = ImGui::GetForegroundDrawList();
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
@@ -292,8 +292,9 @@ void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top) {
         const float alpha = std::min(in, out);
         const bool trophy = toast.kind == Toast::Kind::Achievement;
         const float height = toast.body.empty() ? 56.f : 72.f;
-        const float x = screen.x - width - space::lg + (1.f - ease) * 40.f;
-        const ImVec2 a{x, y}, b{x + width, y + height};
+        const float x = centered ? (screen.x - width) * .5f : screen.x - width - space::lg + (1.f - ease) * 40.f;
+        const float slide = centered ? (1.f - ease) * -16.f : 0.f;
+        const ImVec2 a{x, y + slide}, b{x + width, y + slide + height};
         const ImU32 accent = trophy ? color::gold :
             toast.kind == Toast::Kind::Success ? color::success :
             toast.kind == Toast::Kind::Error ? color::danger : color::accent;
