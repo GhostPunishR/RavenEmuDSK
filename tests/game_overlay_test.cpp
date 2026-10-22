@@ -85,10 +85,19 @@ void tv_cards(SDL_Window* window,SDL_Renderer* renderer){
     require(at(5.05).drop==0.f&&at(-1.).drop==0.f,"And is gone");
     for(double t=0.;t<5.05;t+=.01) require(at(t).drop>=0.f&&at(t).drop<=1.f&&at(t).unfold>=0.f&&at(t).unfold<=1.f,"Frame out of range");
     SDL_SetWindowSize(window,1280,720);
-    const auto desk_card=unlock_card(window,renderer,false,.6);
-    require(desk_card.w-desk_card.y>=55.f&&desk_card.w-desk_card.y<70.f&&std::abs((desk_card.x+desk_card.z)*.5f-640.f)<2.f,
-        "Desktop unlock card keeps its usual size, top center");
     const auto at720=unlock_banner_style({1280.f,720.f});
+    // Desktop: the same banner, compact, at the top center of the game window.
+    const auto desk_banner=unlock_banner_style({1280.f,720.f},false);
+    require(desk_banner.size<at720.size&&desk_banner.margin<at720.margin&&desk_banner.max_width<=1280.f-2.f*desk_banner.margin,
+        "Desktop banner is compact and fits the window");
+    require(unlock_banner_style({320.f,240.f},false).max_width<=300.f,"Desktop banner fits a small window");
+    const auto desk_card=unlock_card(window,renderer,false,1.);
+    require(desk_card.y>=desk_banner.margin-2.f&&desk_card.w-desk_card.y>=desk_banner.size&&
+            desk_card.w-desk_card.y<=desk_banner.size+8.f,"Desktop banner height is its badge square");
+    require(std::abs((desk_card.x+desk_card.z)*.5f-642.f)<3.f&&desk_card.z-desk_card.x>2.f*desk_banner.size,
+        "Desktop banner unfolds at the top center");
+    const auto desk_drop=unlock_card(window,renderer,false,.1);
+    require(desk_drop.z-desk_drop.x<=desk_banner.size+6.f&&desk_drop.y<desk_banner.margin,"Desktop badge drops in alone");
     const auto unfolded=unlock_card(window,renderer,true,1.);
     // The band's drop shadow reaches 4 px right and 6 px down; anti-aliasing 1.5 px.
     require(unfolded.x>=at720.margin-2.f&&unfolded.y>=at720.margin-2.f,"TV banner must sit inside the safe area");

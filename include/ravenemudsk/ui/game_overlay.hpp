@@ -43,17 +43,18 @@ struct RetroCardStyle {
     bool tv = false;
 };
 RetroCardStyle retro_card_style(ImVec2 screen, bool tv);
-// TV mode unlock banner, top center inside the safe area: a badge square that
-// drops in, then opens into a band with the heading and the title beside the
-// badge, centered all along; the band folds back into the badge, which rises away.
+// Unlock banner, top center: a badge square that drops in, then opens into a
+// band with the heading and the title beside the badge, centered all along;
+// the band folds back into the badge, which rises away. TV mode sizes it for a
+// couch, inside the safe area; the desktop keeps it compact.
 struct UnlockBannerStyle {
-    float margin = 54.f;     // From the top edge (5 % safe area); the sides keep it too.
+    float margin = 54.f;     // From the top edge (5 % safe area on TV); the sides keep it too.
     float size = 118.f;      // Badge square, also the band's height.
     float pad = 22.f;        // Text inset inside the band.
     float radius = 14.f;
     float max_width = 1100.f;
 };
-UnlockBannerStyle unlock_banner_style(ImVec2 screen);
+UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv = true);
 // `drop`: 0 above the screen, 1 in place. `unfold`: 0 badge alone, 1 whole band.
 struct UnlockBannerFrame { float drop = 0.f, unfold = 0.f; };
 UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);

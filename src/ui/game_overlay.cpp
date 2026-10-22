@@ -170,8 +170,16 @@ RetroCardStyle retro_card_style(ImVec2 screen, bool tv) {
     style.max_width = std::max(320.f, std::min(1100.f, std::min(screen.x * .6f, screen.x - 2.f * style.top)));
     return style;
 }
-UnlockBannerStyle unlock_banner_style(ImVec2 screen) {
+UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv) {
     UnlockBannerStyle style;
+    if (!tv) {
+        style.margin = 10.f;
+        style.size = 64.f;
+        style.pad = 14.f;
+        style.radius = 10.f;
+        style.max_width = std::max(style.size * 3.f, std::min(560.f, screen.x - 2.f * style.margin));
+        return style;
+    }
     style.margin = std::max(16.f, std::min(screen.x, screen.y) * .05f);
     style.size = std::clamp(screen.y * .11f, 72.f, 160.f);
     style.pad = style.size * .19f;
@@ -246,15 +254,15 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const Retr
     if(!line2.empty())
         d->AddText(font,font->FontSize,{tx,ty+style.line},with_alpha(color::text,alpha),line2.c_str());
 }
-// Draws the TV unlock banner at `elapsed` seconds into its notice; returns
-// the bottom edge it reaches, or 0 when nothing is drawn.
+// Draws the unlock banner at `elapsed` seconds into its notice; returns the
+// bottom edge it reaches, or 0 when nothing is drawn.
 float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2 screen,
-                    const ravenemudsk_ra::Popup& popup, double elapsed) {
-    const auto style = unlock_banner_style(screen);
+                    const ravenemudsk_ra::Popup& popup, double elapsed, bool tv) {
+    const auto style = unlock_banner_style(screen, tv);
     const auto frame = unlock_banner_frame(elapsed);
     if (frame.drop <= 0.f) return 0.f;
-    ImFont* heading_font = fonts.tv_body ? fonts.tv_body : fonts.body;
-    ImFont* title_font = fonts.tv_title ? fonts.tv_title : fonts.strong;
+    ImFont* heading_font = tv ? fonts.tv_body : fonts.caption;
+    ImFont* title_font = tv ? fonts.tv_title : fonts.strong;
     const float space = std::max(80.f, style.max_width - style.size - 2.f * style.pad);
     const auto heading = ellipsize(heading_font, popup.heading, space);
     const auto title = ellipsize(title_font, popup.title, space);
@@ -345,20 +353,10 @@ float GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     auto* d=ImGui::GetForegroundDrawList();
     const auto style=retro_card_style(screen,tv_);
     float top=style.top;
-    if(notice_ && tv_) {
-        // TV: the unlock banner, top center; the progress card goes below it.
-        const float bottom=unlock_banner(d,fonts_,badges_,screen,*notice_,now-notice_since_);
-        if(bottom>0.f){top=std::max(top,bottom+14.f);lowest=bottom;}
-    } else if(notice_) {
-        const double elapsed=now-notice_since_;
-        const float alpha=static_cast<float>(std::clamp(
-            std::min(elapsed/0.3,(5.1-elapsed)/0.3),0.0,1.0));
-        if(alpha>0.f) {
-            retro_card(d,fonts_,badges_,style,screen,top,
-                notice_->text,notice_->detail,notice_->badge,alpha);
-            lowest=top+style.height;
-            top+=style.height+(style.tv?14.f:8.f);
-        }
+    if(notice_) {
+        // The unlock banner, top center, in both modes; the progress card goes below it.
+        const float bottom=unlock_banner(d,fonts_,badges_,screen,*notice_,now-notice_since_,tv_);
+        if(bottom>0.f){top=std::max(top,bottom+(tv_?14.f:8.f));lowest=bottom;}
     }
     if(last_progress_) {
         const float alpha=progress_visible_?
