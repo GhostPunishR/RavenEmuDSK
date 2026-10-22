@@ -4,30 +4,14 @@
 #include <utility>
 
 namespace ravenemudsk_ui {
-namespace {
-int pad_of(Uint8 button) {
-    switch (button) {
-    case SDL_CONTROLLER_BUTTON_A: return RAVENEMU_A;
-    case SDL_CONTROLLER_BUTTON_B: return RAVENEMU_B;
-    case SDL_CONTROLLER_BUTTON_START: return RAVENEMU_START;
-    case SDL_CONTROLLER_BUTTON_BACK: return RAVENEMU_SELECT;
-    case SDL_CONTROLLER_BUTTON_DPAD_UP: return RAVENEMU_UP;
-    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return RAVENEMU_DOWN;
-    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return RAVENEMU_LEFT;
-    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return RAVENEMU_RIGHT;
-    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return RAVENEMU_L;
-    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return RAVENEMU_R;
-    default: return -1;
-    }
-}
-}
-GameInput::GameInput(std::function<void(int, bool)> set_button,KeyboardBindings keys)
-    : set_button_(std::move(set_button)),keys_(std::move(keys)) {}
+GameInput::GameInput(std::function<void(int, bool)> set_button,KeyboardBindings keys,PadBindings pads)
+    : set_button_(std::move(set_button)),keys_(std::move(keys)),pads_(pads) {}
 
 void GameInput::release_all() {
     keyboard_held_.fill(false);controller_held_.fill(false);
     // Releases may never arrive (focus lost, controller gone): start afresh.
     start_down_ = select_down_ = chord_ = false;
+    trigger_down_.fill(false);
     pending_ = tap_ = -1;
     for (int button = RAVENEMU_UP; button <= RAVENEMU_R; ++button)
         set_button_(button, false);
@@ -64,42 +48,55 @@ bool GameInput::process_event(const SDL_Event& event, SDL_JoystickID controller)
         }
     }
     if ((event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) &&
-        controller >= 0 && event.cbutton.which == controller) {
-        const bool pressed = event.type == SDL_CONTROLLERBUTTONDOWN;
-        const int button = pad_of(event.cbutton.button);
-        if (button == RAVENEMU_START || button == RAVENEMU_SELECT) {
-            bool& down = button == RAVENEMU_START ? start_down_ : select_down_;
-            const bool other = button == RAVENEMU_START ? select_down_ : start_down_;
-            down = pressed;
-            if (pressed && other) {
-                // Select + Start: the menu. Whatever already reached the game
-                // is released; the rest never will.
-                chord_ = true;
-                pending_ = -1;
-                for (const int b : {RAVENEMU_START, RAVENEMU_SELECT})
-                    if (controller_held_[b] || tap_ == b) hold_controller(b, false);
-                tap_ = -1;
-                return true;
-            }
-            if (chord_) {
-                if (!start_down_ && !select_down_) chord_ = false;
-                return false;
-            }
-            if (pressed) {
-                // Held back: the other half of the chord may follow.
-                if (!menu_open_) { pending_ = button; pending_since_ = event.cbutton.timestamp; }
-                return false;
-            }
-            if (pending_ == button) {
-                pending_ = -1;
-                hold_controller(button, true);
-                tap_ = button;
-                tap_until_ = event.cbutton.timestamp + tap_ms;
-                return false;
-            }
-        }
-        if (button >= 0 && (!pressed || !menu_open_)) hold_controller(button, pressed);
+        controller >= 0 && event.cbutton.which == controller)
+        return controller_input(pads_.button(event.cbutton.button), event.type == SDL_CONTROLLERBUTTONDOWN,
+                                event.cbutton.timestamp);
+    // The analog triggers, as buttons: pressed past one level, released below
+    // a lower one, so a trigger resting halfway does not flicker.
+    if (event.type == SDL_CONTROLLERAXISMOTION && controller >= 0 && event.caxis.which == controller &&
+        (event.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || event.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) {
+        const bool left = event.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+        bool& down = trigger_down_[left ? 0 : 1];
+        const bool now = down ? event.caxis.value > trigger_release : event.caxis.value >= trigger_press;
+        if (now == down) return false;
+        down = now;
+        return controller_input(pads_.button(left ? pad_left_trigger : pad_right_trigger), now, event.caxis.timestamp);
     }
+    return false;
+}
+bool GameInput::controller_input(int button, bool pressed, Uint32 timestamp) {
+    if (button == RAVENEMU_START || button == RAVENEMU_SELECT) {
+        bool& down = button == RAVENEMU_START ? start_down_ : select_down_;
+        const bool other = button == RAVENEMU_START ? select_down_ : start_down_;
+        down = pressed;
+        if (pressed && other) {
+            // Select + Start: the menu. Whatever already reached the game
+            // is released; the rest never will.
+            chord_ = true;
+            pending_ = -1;
+            for (const int b : {RAVENEMU_START, RAVENEMU_SELECT})
+                if (controller_held_[b] || tap_ == b) hold_controller(b, false);
+            tap_ = -1;
+            return true;
+        }
+        if (chord_) {
+            if (!start_down_ && !select_down_) chord_ = false;
+            return false;
+        }
+        if (pressed) {
+            // Held back: the other half of the chord may follow.
+            if (!menu_open_) { pending_ = button; pending_since_ = timestamp; }
+            return false;
+        }
+        if (pending_ == button) {
+            pending_ = -1;
+            hold_controller(button, true);
+            tap_ = button;
+            tap_until_ = timestamp + tap_ms;
+            return false;
+        }
+    }
+    if (button >= 0 && (!pressed || !menu_open_)) hold_controller(button, pressed);
     return false;
 }
 } // namespace ravenemudsk_ui

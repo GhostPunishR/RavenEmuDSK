@@ -155,4 +155,60 @@ int main() {
     KeyboardBindings{}.store(restarted);restarted.save();settings.load();restored.load(settings);
     require(restored.key(KeyAction::A)==SDLK_z&&restored.key(KeyAction::LoadState)==SDLK_F9&&settings.get("pseudo")=="Keep my profile",
         "Restoring defaults lost bindings or changed unrelated settings");
+
+    // Controller buttons: defaults, exchanges, the reserved Guide button, and
+    // Select and Start, the menu's chord, never left unbound.
+    PadBindings pads;
+    require(pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A&&pads.button(SDL_CONTROLLER_BUTTON_BACK)==RAVENEMU_SELECT&&
+            pads.button(SDL_CONTROLLER_BUTTON_X)==-1&&pads.button(pad_left_trigger)==-1,"Controller defaults");
+    require(pads.assign(KeyAction::A,SDL_CONTROLLER_BUTTON_X)&&pads.button(SDL_CONTROLLER_BUTTON_X)==RAVENEMU_A&&
+            pads.button(SDL_CONTROLLER_BUTTON_A)==-1,"Moving A to X");
+    require(pads.assign(KeyAction::B,SDL_CONTROLLER_BUTTON_X)&&pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_B,
+        "A button taken by another action must be exchanged");
+    require(pads.assign(KeyAction::L,pad_left_trigger)&&pads.button(pad_left_trigger)==RAVENEMU_L,"Trigger binding");
+    require(!pads.assign(KeyAction::A,SDL_CONTROLLER_BUTTON_GUIDE),"The Guide button stays the system's");
+    require(!pads.assign(KeyAction::A,SDL_CONTROLLER_BUTTON_MAX)&&!pads.assign(KeyAction::A,99),"Unknown inputs refused");
+    require(!pads.assign(KeyAction::Start,pad_unbound)&&!pads.assign(KeyAction::Select,pad_unbound),
+        "Select and Start must stay bound");
+    require(pads.assign(KeyAction::R,pad_unbound)&&pads.input(KeyAction::R)==pad_unbound,"Unbinding R");
+    require(!pads.assign(KeyAction::R,SDL_CONTROLLER_BUTTON_BACK)&&pads.input(KeyAction::Select)==SDL_CONTROLLER_BUTTON_BACK,
+        "An unbound action must not leave Select unbound by taking its button");
+    require(!pads.assign(KeyAction::Menu,SDL_CONTROLLER_BUTTON_Y),"Only the console buttons are bound on the controller");
+    require(pads.assign(KeyAction::Select,SDL_CONTROLLER_BUTTON_Y)&&pads.assign(KeyAction::Start,pad_right_trigger),
+        "Moving the menu's chord");
+    pads.store(settings);settings.save();
+    Settings again(file);again.load();PadBindings kept;kept.load(again);
+    for(int i=0;i<PadBindings::count;++i)
+        require(kept.input(static_cast<KeyAction>(i))==pads.input(static_cast<KeyAction>(i)),"Restart lost a controller binding");
+    require(again.get("pseudo")=="Keep my profile"&&again.get("key_a")==settings.get("key_a"),
+        "Saving controller bindings changed other settings");
+    again.set("pad_start","-1");again.set("pad_a","5");again.set("pad_b","nonsense");kept.load(again);
+    require(kept.input(KeyAction::Start)==SDL_CONTROLLER_BUTTON_START&&kept.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A&&
+            kept.input(KeyAction::B)==SDL_CONTROLLER_BUTTON_B,"Invalid saved controller bindings fall back to the defaults");
+
+    // In game: the bound buttons reach the core, triggers press past their
+    // threshold, and the menu is the bound Select + Start.
+    std::array<bool, RAVENEMU_R + 1> pad_game{};
+    GameInput remapped([&](int button,bool pressed){pad_game.at(button)=pressed;},KeyboardBindings{},pads);
+    auto button=[&](Uint8 b,bool down,Uint32 at){
+        SDL_Event e{};e.type=down?SDL_CONTROLLERBUTTONDOWN:SDL_CONTROLLERBUTTONUP;e.cbutton.which=3;e.cbutton.button=b;
+        e.cbutton.timestamp=at;return remapped.process_event(e,3);
+    };
+    auto trigger=[&](bool left,Sint16 value,Uint32 at){
+        SDL_Event e{};e.type=SDL_CONTROLLERAXISMOTION;e.caxis.which=3;e.caxis.value=value;e.caxis.timestamp=at;
+        e.caxis.axis=left?SDL_CONTROLLER_AXIS_TRIGGERLEFT:SDL_CONTROLLER_AXIS_TRIGGERRIGHT;return remapped.process_event(e,3);
+    };
+    button(SDL_CONTROLLER_BUTTON_X,true,10);
+    require(pad_game[RAVENEMU_B]&&!pad_game[RAVENEMU_A],"A remapped button must press its console button");
+    button(SDL_CONTROLLER_BUTTON_X,false,20);require(!pad_game[RAVENEMU_B],"Its release too");
+    button(SDL_CONTROLLER_BUTTON_A,true,30);require(!pad_game[RAVENEMU_A],"A button bound elsewhere no longer presses A");
+    button(SDL_CONTROLLER_BUTTON_A,false,40);
+    trigger(true,GameInput::trigger_press-1,50);require(!pad_game[RAVENEMU_L],"Below the threshold, a trigger is not pressed");
+    trigger(true,GameInput::trigger_press,60);require(pad_game[RAVENEMU_L],"Past the threshold, it presses L");
+    trigger(true,(GameInput::trigger_press+GameInput::trigger_release)/2,70);require(pad_game[RAVENEMU_L],"No flicker halfway back");
+    trigger(true,GameInput::trigger_release,80);require(!pad_game[RAVENEMU_L],"Released below the lower level");
+    require(!button(SDL_CONTROLLER_BUTTON_Y,true,100),"Select alone waits for Start");
+    require(trigger(false,32767,120),"The bound Select + Start opens the menu");
+    require(!pad_game[RAVENEMU_SELECT]&&!pad_game[RAVENEMU_START],"The chord never reaches the game");
+    button(SDL_CONTROLLER_BUTTON_BACK,true,130);require(!pad_game[RAVENEMU_SELECT],"The old Select no longer presses Select");
 }

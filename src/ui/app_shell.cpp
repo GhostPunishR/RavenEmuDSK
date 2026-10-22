@@ -13,6 +13,7 @@
 #include <ravenemudsk/achievements/achievement_list.hpp>
 #include <ravenemudsk/achievements/library_progress.hpp>
 #include <ravenemudsk/ui/pad_glyphs.hpp>
+#include <ravenemudsk/ui/game_input.hpp>
 #include <rc_client.h>
 #include <ravenemudsk/ui/badge_cache.hpp>
 #include <SDL.h>
@@ -65,7 +66,7 @@ constexpr float card_gap = 20.f;
 constexpr float content_pad = 32.f;
 
 enum class Page { Home, Library, Recent, Settings, Profile };
-enum class SettingsCategory { Library, Display, Controls, Retro, Updates, About };
+enum class SettingsCategory { Library, Display, Sound, Controls, Updates, About };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
 struct State {
@@ -85,6 +86,12 @@ struct State {
     Settings settings;
     int editing_key=-1;
     std::string key_error;
+    // Controller button being chosen in Commandes, as for editing_key.
+    int editing_pad=-1;
+    std::string pad_error;
+    // After a choice, the controller stays away from the interface until all
+    // its buttons are released: none reaches it as a new press.
+    bool pad_release_pending=false;
     Library* library = nullptr;
     bool tv = false;          // full screen TV / gamepad mode
     int tv_category = 0;
@@ -1355,6 +1362,15 @@ void ra_mode_controls(State& s) {
     else muted("Softcore actif : chargement des états autorisé.");
     muted("Le Hardcore interdit le chargement des états. Son activation pendant une partie réinitialise la console.");
     ImGui::PopFont();
+    ImGui::Dummy({0.f,space::sm});
+    bool sound=s.settings.flag("ra_unlock_sound",true);
+    if(toggle("##ra-unlock-sound",&sound)){s.settings.set_flag("ra_unlock_sound",sound);save_settings(s);}
+    ImGui::SameLine(0.f,space::md);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Son des succès");
+    ImGui::PushFont(s.fonts.caption);
+    muted("Un court carillon, créé par RavenEmu, accompagne chaque succès débloqué et chaque jeu maîtrisé. Pris en compte à la prochaine partie.");
+    ImGui::PopFont();
 }
 void ra_login_controls(State& s, ravenemudsk_ra::Client& ra) {
     const auto snap = ra.snapshot();
@@ -1513,7 +1529,10 @@ std::vector<int> tv_games(const Library& lib, int category) {
         }), ids.end());
     return ids;
 }
-// `remember` stores the mode so that the next launch reopens it.
+// TV mode lasts for this run of RavenEmu: back from a game it reopens, but
+// the application itself always starts in desktop mode.
+bool& tv_this_run() { static bool on = false; return on; }
+// `remember` keeps the mode for the next launcher of this run.
 void set_tv(State& s, bool on, bool remember) {
     s.tv = on;
     s.tv_menu = -1;
@@ -1530,9 +1549,7 @@ void set_tv(State& s, bool on, bool remember) {
         s.tv_index = 0;
         s.tv_scroll = 0.f;
     }
-    if (!remember) return;
-    s.settings.set_flag("tv_mode", on);
-    save_settings(s);
+    if (remember) tv_this_run() = on;
 }
 bool pressed(std::initializer_list<ImGuiKey> keys, bool repeat) {
     for (const ImGuiKey key : keys)
@@ -1904,38 +1921,71 @@ void settings_library(State& s, Library& lib) {
 }
 
 // Controller column of the controls table, named as on the connected controller.
-std::string controller_label(KeyAction action, const char* fallback, const std::optional<PadFamily>& pad) {
-    if (!pad) return fallback;
-    switch (action) {
-    case KeyAction::A: return pad_button_name(*pad, PadButton::South);
-    case KeyAction::B: return pad_button_name(*pad, PadButton::East);
-    case KeyAction::Start: return pad_button_name(*pad, PadButton::Start);
-    case KeyAction::Select: return pad_button_name(*pad, PadButton::Back);
-    case KeyAction::L: return pad_button_name(*pad, PadButton::LeftShoulder);
-    case KeyAction::R: return pad_button_name(*pad, PadButton::RightShoulder);
-    case KeyAction::Menu:
-        return std::string(pad_button_name(*pad, PadButton::Back)) + " + " + pad_button_name(*pad, PadButton::Start);
-    default: return fallback;
+// The console buttons show their bound input; the menu, the chord of the
+// bound Select and Start; the other shortcuts are in the pause menu.
+std::string controller_label(KeyAction action, const char* fallback, const PadBindings& pads, PadFamily family) {
+    if (static_cast<int>(action) < PadBindings::count) return pad_input_name(pads.input(action), family);
+    if (action == KeyAction::Menu)
+        return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
+    return fallback;
+}
+// A switch with its label and an explanation below, saved at once.
+void setting_switch(State& s, const char* key, bool fallback, const char* label, const char* help) {
+    bool value = s.settings.flag(key, fallback);
+    ImGui::PushID(key);
+    if (toggle("##switch", &value)) {
+        s.settings.set_flag(key, value);
+        save_settings(s);
     }
+    ImGui::PopID();
+    ImGui::SameLine(0.f, space::md);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::PushFont(s.fonts.caption);
+    muted(help);
+    ImGui::PopFont();
 }
 void settings_display(State& s) {
-    begin_card("##tv");
-    card_title(s, Icon::Gamepad, "Mode TV / manette");
-    const char* start = pad_button_name(connected_pad().value_or(PadFamily::Generic), PadButton::Start);
-    muted((std::string("Plein écran, grandes jaquettes et navigation à la manette depuis le canapé, sans curseur de souris. ") +
-           start + " ou Échap ouvre son menu, qui ramène au mode bureau ; RavenEmu s'en souvient au prochain lancement.").c_str());
-    ImGui::Dummy({0.f, space::xs});
-    if (button("Passer en mode TV", Icon::Fullscreen, ButtonStyle::Primary)) set_tv(s, true);
+    begin_card("##image");
+    card_title(s, Icon::Fullscreen, "Image du jeu");
+    setting_switch(s, "smooth_image", false, "Lisser l’image",
+                   "Adoucit les pixels quand l’image est agrandie. Désactivé, les pixels restent nets, comme sur la "
+                   "console. Pris en compte au lancement du jeu.");
+    end_card();
+}
+void settings_sound(State& s) {
+    begin_card("##sound");
+    card_title(s, Icon::Volume, "Son du jeu");
+    int volume = std::clamp(s.settings.number("volume", 100), 0, 100);
+    const bool muted_game = s.settings.flag("mute", false);
+    ImGui::TextUnformatted("Volume");
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (muted_game) ImGui::BeginDisabled();
+    // The card is the theme's frame color: the track needs its own.
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    if (ImGui::SliderInt("##volume", &volume, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
+        s.settings.set("volume", std::to_string(volume));
+    // Saved once the slider is let go, not at every step of the drag.
+    if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
+    ImGui::PopStyleColor(3);
+    if (muted_game) ImGui::EndDisabled();
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "mute", false, "Couper le son",
+                   "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
     end_card();
 }
 
 void settings_controls(State& s) {
     KeyboardBindings keys;keys.load(s.settings);
-    const auto pad=connected_pad();
+    PadBindings pads;pads.load(s.settings);
+    const auto family=connected_pad().value_or(PadFamily::Generic);
     begin_card("##controls");
     card_title(s, Icon::Gamepad, "Commandes en jeu");
-    muted("Cliquez sur une touche pour la modifier. Les changements sont enregistrés automatiquement.");
-    muted("Les touches déjà utilisées sont échangées. Échap reste toujours disponible pour ouvrir le menu.");
+    muted("Cliquez sur une touche ou un bouton pour le modifier. Les changements sont enregistrés automatiquement.");
+    muted("Les touches et boutons déjà utilisés sont échangés. Échap reste toujours disponible pour ouvrir le menu ; "
+          "à la manette, Select et Start pressés ensemble l'ouvrent, tels qu'attribués ici.");
     if (ImGui::BeginTable("##keys", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX |
                           ImGuiTableFlags_SizingStretchProp)) {
         ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImVec4(0, 0, 0, 0));
@@ -1962,17 +2012,27 @@ void settings_controls(State& s) {
                 s.editing_key=static_cast<int>(i);s.key_error.clear();
             }
             if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",key_name.c_str());
-            ImGui::TableNextColumn();ImGui::AlignTextToFramePadding();
-            ImGui::TextDisabled("%s",controller_label(static_cast<KeyAction>(i),command.controller,pad).c_str());
+            ImGui::TableNextColumn();
+            const auto pad_name=controller_label(static_cast<KeyAction>(i),command.controller,pads,family);
+            if(static_cast<int>(i)<PadBindings::count){
+                const float pad_width=ImGui::GetContentRegionAvail().x;
+                const auto pad_caption=ellipsize(s.fonts.body,pad_name,std::max(16.f,pad_width-64.f));
+                if(button(pad_caption.c_str(),Icon::Gamepad,ButtonStyle::Secondary,{pad_width,34.f})){
+                    s.editing_pad=static_cast<int>(i);s.pad_error.clear();
+                }
+                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",pad_name.c_str());
+            }else{
+                ImGui::AlignTextToFramePadding();ImGui::TextDisabled("%s",pad_name.c_str());
+            }
             ImGui::PopID();
         }
         ImGui::PopStyleColor(2);
         ImGui::EndTable();
     }
-    if(button("Rétablir les touches par défaut",Icon::Reset,ButtonStyle::Secondary)){
-        auto settings=s.settings;KeyboardBindings{}.store(settings);
-        try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Touches réinitialisées");}
-        catch(const std::exception& e){notify(s,Toast::Kind::Error,"Touches non enregistrées",e.what());}
+    if(button("Rétablir les commandes par défaut",Icon::Reset,ButtonStyle::Secondary)){
+        auto settings=s.settings;KeyboardBindings{}.store(settings);PadBindings{}.store(settings);
+        try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Commandes réinitialisées");}
+        catch(const std::exception& e){notify(s,Toast::Kind::Error,"Commandes non enregistrées",e.what());}
     }
     end_card();
 }
@@ -1998,6 +2058,68 @@ void key_capture_dialog(State& s){
         }
         ImGui::EndPopup();
     }
+}
+// Saves the controller input chosen for the edited console button.
+void choose_pad_input(State& s,int input){
+    auto settings=s.settings;PadBindings pads;pads.load(settings);
+    const auto action=static_cast<KeyAction>(s.editing_pad);
+    if(!pads.assign(action,input)){
+        s.pad_error=input==SDL_CONTROLLER_BUTTON_GUIDE?"Le bouton central reste au système (Xbox Game Bar, Steam). Choisissez-en un autre.":
+            "Select et Start ouvrent le menu ensemble : ils restent attribués.";
+        return;
+    }
+    pads.store(settings);
+    try{settings.save();s.settings=std::move(settings);s.editing_pad=-1;s.pad_release_pending=true;}
+    catch(const std::exception& e){s.pad_error=e.what();}
+}
+void pad_capture_dialog(State& s){
+    if(s.editing_pad>=0&&!ImGui::IsPopupOpen("##pad-capture"))ImGui::OpenPopup("##pad-capture");
+    ImGui::SetNextWindowSize({std::min(520.f,ImGui::GetIO().DisplaySize.x-48.f),0.f});
+    if(ImGui::BeginPopupModal("##pad-capture",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_AlwaysAutoResize)){
+        if(s.editing_pad<0)ImGui::CloseCurrentPopup();
+        else{
+            ImGui::TextWrapped("Nouveau bouton : %s",key_commands()[s.editing_pad].label);
+            ImGui::TextWrapped(connected_pad()?"Appuyez sur un bouton ou une gâchette de la manette. Échap annule.":
+                "Branchez une manette, puis appuyez sur un bouton ou une gâchette. Échap annule.");
+            if(!s.pad_error.empty())ImGui::TextWrapped("%s",s.pad_error.c_str());
+            if(button("Non attribué",Icon::Close,ButtonStyle::Secondary))choose_pad_input(s,pad_unbound);
+            ImGui::SameLine();
+            if(button("Annuler",Icon::Close,ButtonStyle::Ghost)){s.editing_pad=-1;s.pad_release_pending=true;}
+            if(s.editing_pad<0)ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+// While a controller button is being chosen, the controller's presses go to
+// it, not to the interface.
+bool capture_pad_event(State& s,const SDL_Event& event){
+    if(s.editing_pad<0)return false;
+    if(event.type==SDL_WINDOWEVENT&&event.window.event==SDL_WINDOWEVENT_FOCUS_LOST){
+        s.editing_pad=-1;s.pad_release_pending=true;return false;
+    }
+    if(event.type==SDL_KEYDOWN&&!event.key.repeat&&event.key.keysym.sym==SDLK_ESCAPE){
+        s.editing_pad=-1;s.pad_release_pending=true;return true;
+    }
+    if(event.type==SDL_CONTROLLERBUTTONDOWN){choose_pad_input(s,event.cbutton.button);return true;}
+    if(event.type==SDL_CONTROLLERAXISMOTION&&event.caxis.value>=GameInput::trigger_press&&
+       (event.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERLEFT||event.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERRIGHT)){
+        choose_pad_input(s,event.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERLEFT?pad_left_trigger:pad_right_trigger);
+        return true;
+    }
+    return event.type==SDL_CONTROLLERBUTTONUP||event.type==SDL_CONTROLLERAXISMOTION;
+}
+// Any button or trigger of an open controller still held.
+bool pad_input_held(){
+    for(int i=0;i<SDL_NumJoysticks();++i){
+        if(!SDL_IsGameController(i))continue;
+        SDL_GameController* pad=SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if(!pad)continue;
+        for(int b=0;b<SDL_CONTROLLER_BUTTON_MAX;++b)
+            if(SDL_GameControllerGetButton(pad,static_cast<SDL_GameControllerButton>(b)))return true;
+        if(SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_TRIGGERLEFT)>GameInput::trigger_release||
+           SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_TRIGGERRIGHT)>GameInput::trigger_release)return true;
+    }
+    return false;
 }
 bool capture_keyboard_event(State& s,const SDL_Event& event){
     if(s.editing_key<0)return false;
@@ -2027,6 +2149,11 @@ void settings_about(State& s) {
           "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
           "Les fonctions RetroAchievements transmettent au service les données du compte, du jeu et des succès. "
           "La recherche de mises à jour contacte GitHub.");
+    ImGui::Dummy({0.f, space::xs});
+    if (button("Confidentialité", Icon::Info, ButtonStyle::Ghost)) {
+        if (SDL_OpenURL("https://github.com/GhostPunishR/RavenEmuDSK/blob/main/docs/confidentialite.md") != 0)
+            notify(s, Toast::Kind::Error, "Ouverture du navigateur impossible", SDL_GetError());
+    }
     end_card();
 }
 void settings_view(State& s, Library& lib) {
@@ -2040,11 +2167,11 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment utiliser RavenEmu sur votre écran."},
+         "Choisissez comment l’image du jeu est agrandie."},
+        {SettingsCategory::Sound, Icon::Volume, "Son",
+         "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
-         "Retrouvez les commandes au clavier et à la manette."},
-        {SettingsCategory::Retro, Icon::Trophy, "RetroAchievements",
-         "Choisissez votre mode de jeu et gérez la synchronisation des succès."},
+         "Choisissez les touches du clavier et les boutons de la manette."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",
          "Vérifiez les nouvelles versions et gérez la recherche au démarrage."},
         {SettingsCategory::About, Icon::Info, "À propos",
@@ -2078,16 +2205,8 @@ void settings_view(State& s, Library& lib) {
     switch (s.settings_category) {
     case SettingsCategory::Library: settings_library(s, lib); break;
     case SettingsCategory::Display: settings_display(s); break;
+    case SettingsCategory::Sound: settings_sound(s); break;
     case SettingsCategory::Controls: settings_controls(s); break;
-    case SettingsCategory::Retro:
-        begin_card("##ra-settings");card_title(s,Icon::Trophy,"Mode et synchronisation");ra_mode_controls(s);
-        muted(retro_client(s).snapshot().status.c_str());
-        if(button("Ouvrir mon profil",Icon::Trophy,ButtonStyle::Primary))s.page=Page::Profile;
-        if(button("Confidentialité",Icon::Info,ButtonStyle::Ghost)){
-            if(SDL_OpenURL("https://github.com/GhostPunishR/RavenEmuDSK/blob/main/docs/confidentialite.md")!=0)
-                notify(s,Toast::Kind::Error,"Ouverture du navigateur impossible",SDL_GetError());
-        }
-        end_card();break;
     case SettingsCategory::Updates: updates_card(s); break;
     case SettingsCategory::About: settings_about(s); break;
     }
@@ -2452,9 +2571,9 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-    // TV mode reopens in full screen at once. Back from a game played in TV
-    // mode, its full-screen window and renderer carry on here.
-    const bool tv_start = state.settings.flag("tv_mode", false);
+    // Back from a game played in TV mode, TV mode reopens at once, and the
+    // game's full-screen window and renderer carry on here.
+    const bool tv_start = tv_this_run();
     const SharedScreen shared = take_screen();
     SDL_Window* window = shared.window;
     if (window) {
@@ -2530,6 +2649,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
             if(capture_keyboard_event(state,event))continue;
+            if(capture_pad_event(state,event))continue;
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) running = false;
             if (event.type == SDL_DROPFILE && event.drop.file) {
@@ -2556,6 +2676,13 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
             }
         }
         if (state.ra_images) state.ra_images->begin_frame();
+        // ImGui stops reading the controller while a button is being chosen,
+        // and until it is released.
+        if (state.pad_release_pending && state.editing_pad < 0 && !pad_input_held()) state.pad_release_pending = false;
+        if (state.editing_pad >= 0 || state.pad_release_pending)
+            ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+        else
+            ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
@@ -2563,6 +2690,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         retro_events(state);
         render(state, lib);
         key_capture_dialog(state);
+        pad_capture_dialog(state);
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 11, 12, 18, 255);
         SDL_RenderClear(renderer);
@@ -2628,6 +2756,26 @@ bool remember_hardcore(bool enabled){
 bool hardcore_preference(){
     try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_hardcore",false);}
     catch(...){return false;}
+}
+int game_volume_preference(){
+    try{
+        Settings settings(data_file().parent_path()/"reglages.txt");settings.load();
+        return settings.flag("mute",false)?0:std::clamp(settings.number("volume",100),0,100);
+    }catch(...){return 100;}
+}
+bool smooth_image_preference(){
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("smooth_image",false);}
+    catch(...){return false;}
+}
+bool unlock_sound_preference(){
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();return settings.flag("ra_unlock_sound",true);}
+    catch(...){return true;}
+}
+PadBindings pad_preferences(){
+    PadBindings pads;
+    try{Settings settings(data_file().parent_path()/"reglages.txt");settings.load();pads.load(settings);}
+    catch(...){ }
+    return pads;
 }
 KeyboardBindings keyboard_preferences(){
     KeyboardBindings keys;

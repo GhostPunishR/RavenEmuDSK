@@ -170,6 +170,35 @@ RetroCardStyle retro_card_style(ImVec2 screen, bool tv) {
     style.max_width = std::max(320.f, std::min(1100.f, std::min(screen.x * .6f, screen.x - 2.f * style.top)));
     return style;
 }
+UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv) {
+    UnlockBannerStyle style;
+    if (!tv) {
+        style.margin = 10.f;
+        style.size = 64.f;
+        style.pad = 14.f;
+        style.radius = 10.f;
+        style.max_width = std::max(style.size * 3.f, std::min(560.f, screen.x - 2.f * style.margin));
+        return style;
+    }
+    style.margin = std::max(16.f, std::min(screen.x, screen.y) * .05f);
+    style.size = std::clamp(screen.y * .11f, 72.f, 160.f);
+    style.pad = style.size * .19f;
+    style.radius = style.size * .12f;
+    style.max_width = std::max(style.size * 3.f, std::min(screen.x * .7f, screen.x - 2.f * style.margin));
+    return style;
+}
+UnlockBannerFrame unlock_banner_frame(double t) {
+    // Seconds: drop, unfold, hold, fold, rise. Within the 5.2 s a notice lasts.
+    constexpr double dropped = .30, unfolded = .65, folding = 4.40, folded = 4.75, gone = 5.05;
+    if (t < 0. || t >= gone) return {};
+    const auto ease_out = [](double x) { return static_cast<float>(1. - (1. - x) * (1. - x) * (1. - x)); };
+    const auto smooth = [](double x) { return static_cast<float>(x * x * (3. - 2. * x)); };
+    UnlockBannerFrame frame;
+    frame.drop = t < dropped ? ease_out(t / dropped) : t < folded ? 1.f : 1.f - ease_out((t - folded) / (gone - folded));
+    frame.unfold = t < dropped ? 0.f : t < unfolded ? smooth((t - dropped) / (unfolded - dropped)) :
+        t < folding ? 1.f : t < folded ? 1.f - smooth((t - folding) / (folded - folding)) : 0.f;
+    return frame;
+}
 namespace {
 // Five-pointed star, filled as a fan from its center.
 void draw_star(ImDrawList* d,ImVec2 c,float r,ImU32 col){
@@ -225,6 +254,54 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const Retr
     if(!line2.empty())
         d->AddText(font,font->FontSize,{tx,ty+style.line},with_alpha(color::text,alpha),line2.c_str());
 }
+// Draws the unlock banner at `elapsed` seconds into its notice; returns the
+// bottom edge it reaches, or 0 when nothing is drawn.
+float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2 screen,
+                    const ravenemudsk_ra::Popup& popup, double elapsed, bool tv) {
+    const auto style = unlock_banner_style(screen, tv);
+    const auto frame = unlock_banner_frame(elapsed);
+    if (frame.drop <= 0.f) return 0.f;
+    ImFont* heading_font = tv ? fonts.tv_body : fonts.caption;
+    ImFont* title_font = tv ? fonts.tv_title : fonts.strong;
+    const float space = std::max(80.f, style.max_width - style.size - 2.f * style.pad);
+    const auto heading = ellipsize(heading_font, popup.heading, space);
+    const auto title = ellipsize(title_font, popup.title, space);
+    const float text = std::max(text_width(heading_font, heading.c_str()), text_width(title_font, title.c_str()));
+    const float full = style.size + (text > 0.f ? 2.f * style.pad + text : 0.f);
+    const float width = style.size + (full - style.size) * frame.unfold;
+    const float x = (screen.x - width) * .5f;
+    const float y = style.margin - (style.size + style.margin) * (1.f - frame.drop);
+    d->AddRectFilled({x + 4.f, y + 6.f}, {x + width + 4.f, y + style.size + 6.f}, color::shadow, style.radius);
+    d->AddRectFilled({x, y}, {x + width, y + style.size}, with_alpha(color::background, .94f), style.radius);
+    // The badge fills its square; a gold frame marks an unlock or a completed game.
+    const float inset = style.size * .08f;
+    const ImVec2 badge_min{x + inset, y + inset}, badge_max{x + style.size - inset, y + style.size - inset};
+    if (SDL_Texture* image = cache.image(popup.badge)) {
+        d->AddImageRounded(reinterpret_cast<ImTextureID>(image), badge_min, badge_max, {0, 0}, {1, 1},
+                           IM_COL32_WHITE, style.radius * .6f);
+    } else {
+        d->AddRectFilled(badge_min, badge_max, color::surface, style.radius * .6f);
+        draw_star(d, {(badge_min.x + badge_max.x) * .5f, (badge_min.y + badge_max.y) * .5f},
+                  (badge_max.x - badge_min.x) * .34f, popup.trophy ? color::gold : color::accent);
+    }
+    d->AddRect(badge_min, badge_max, popup.trophy ? color::gold : color::border_strong, style.radius * .6f, 0, 2.f);
+    if (frame.unfold > 0.f && text > 0.f) {
+        // The text is uncovered as the band unfolds, never drawn past it.
+        d->PushClipRect({x + style.size, y}, {x + width, y + style.size}, true);
+        const float tx = x + style.size + style.pad * .6f;
+        const float gap = style.size * .06f;
+        const bool two = !title.empty() && !heading.empty();
+        const float block = two ? heading_font->FontSize + gap + title_font->FontSize : (title.empty() ? heading_font : title_font)->FontSize;
+        float ty = y + (style.size - block) * .5f;
+        if (!heading.empty()) {
+            d->AddText(heading_font, heading_font->FontSize, {tx, ty}, popup.trophy ? color::gold : color::text_muted, heading.c_str());
+            ty += heading_font->FontSize + gap;
+        }
+        if (!title.empty()) d->AddText(title_font, title_font->FontSize, {tx, ty}, color::text, title.c_str());
+        d->PopClipRect();
+    }
+    return y + style.size;
+}
 double seconds_now(){return static_cast<double>(SDL_GetTicks64())/1000.0;}
 }
 void GameOverlay::open_achievements() {
@@ -248,15 +325,20 @@ void GameOverlay::clear_retro() {
     progress_visible_=false;
     progress_hidden_at_=0.0;
 }
-void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
+float GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     notifications_.advance(static_cast<std::int64_t>(wall*1000), [&](const std::string& url) {
         return badges_.image(url) != nullptr;
     });
-    if(menu_open_)return;
-    const double now = notifications_.time();
     const auto& notice_ = notifications_.notice();
-    const auto& indicators_ = notifications_.indicators();
     const auto notice_since_ = notifications_.notice_since();
+    if(notice_ && notice_since_!=shown_notice_since_) {
+        shown_notice_since_=notice_since_;
+        if(notice_->trophy) unlock_sound_=true;
+    }
+    if(menu_open_)return 0.f;
+    const double now = notifications_.time();
+    const auto& indicators_ = notifications_.indicators();
+    float lowest=0.f;
     const auto& current=notifications_.progress();
     if(current) {
         if(!progress_visible_ || !last_progress_ || last_progress_->id!=current->id) {
@@ -272,25 +354,22 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
     const auto style=retro_card_style(screen,tv_);
     float top=style.top;
     if(notice_) {
-        const double elapsed=now-notice_since_;
-        const float alpha=static_cast<float>(std::clamp(
-            std::min(elapsed/0.3,(5.1-elapsed)/0.3),0.0,1.0));
-        if(alpha>0.f) {
-            retro_card(d,fonts_,badges_,style,screen,top,
-                notice_->text,notice_->detail,notice_->badge,alpha);
-            top+=style.height+(style.tv?14.f:8.f);
-        }
+        // The unlock banner, top center, in both modes; the progress card goes below it.
+        const float bottom=unlock_banner(d,fonts_,badges_,screen,*notice_,now-notice_since_,tv_);
+        if(bottom>0.f){top=std::max(top,bottom+(tv_?14.f:8.f));lowest=bottom;}
     }
     if(last_progress_) {
         const float alpha=progress_visible_?
             static_cast<float>(std::clamp((now-progress_started_)/0.3,0.0,1.0)):
             static_cast<float>(std::clamp(1.0-(now-progress_hidden_at_)/0.3,0.0,1.0));
-        if(alpha>0.f)
+        if(alpha>0.f){
             retro_card(d,fonts_,badges_,style,screen,top,
                 "Progression \xC2\xB7 "+last_progress_->title,
                 last_progress_->detail,last_progress_->badge_url,alpha);
+            lowest=top+style.height;
+        }
     }
-    if(indicators_.empty())return;
+    if(indicators_.empty())return lowest;
     // Active challenges, at the bottom center.
     ImFont* font=card_font(fonts_,style);
     const std::size_t count=std::min<std::size_t>(indicators_.size(),4);
@@ -304,6 +383,7 @@ void GameOverlay::draw_retro(double wall,const ImVec2 screen) {
         const auto label=ellipsize(font,indicators_[i].second,w-inset*2.f);
         d->AddText(font,font->FontSize,{x+inset,y+first+static_cast<float>(i)*row},color::text,label.c_str());
     }
+    return lowest;
 }
 
 // "Succès et classements" read from a couch: large panel and text, each
@@ -464,7 +544,9 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         ImFont* font = tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.caption;
         const float bar_h = tv_ ? 52.f : 32.f;
         const float bottom = tv_ ? retro_card_style(screen, true).bottom : 20.f;
-        if (info.pad && !info.hardcore) {
+        const bool usual_chord = info.pads.input(KeyAction::Select) == SDL_CONTROLLER_BUTTON_BACK &&
+                                 info.pads.input(KeyAction::Start) == SDL_CONTROLLER_BUTTON_START;
+        if (info.pad && !info.hardcore && usual_chord) {
             const float gh = tv_ ? 34.f : 22.f;
             const char* label = "  Menu";
             const float gw = pad_menu_combo(nullptr, {}, *info.pad, fonts_.strong, gh);
@@ -475,7 +557,10 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             bg->AddText(font, font->FontSize, {a.x + 16.f + gw, a.y + (bar_h - font->FontSize) * .5f},
                         with_alpha(color::text_muted, alpha), label);
         } else {
+            // A controller whose Select or Start was moved: its chord, in words.
             const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+                info.pad?pad_input_name(info.pads.input(KeyAction::Select),*info.pad)+" + "+
+                    pad_input_name(info.pads.input(KeyAction::Start),*info.pad)+" : menu":
                 "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
                 info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
             const auto fitted=ellipsize(font,hint_text,std::max(40.f,screen.x-64.f));
@@ -630,9 +715,10 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
             ellipsize(fonts_.caption,info.retro_status,screen.x-32.f).c_str());
     }
     // RetroAchievements cards use RavenEmu's dedicated top-center style.
-    draw_retro(seconds_now(),screen);
-    // Non-achievement local notifications still use the desktop toast style.
-    if (!menu_open_) draw_toasts(toasts_, fonts_);
+    const float retro_bottom=draw_retro(seconds_now(),screen);
+    // Local notifications join them at the top center, just below.
+    if (!menu_open_)
+        draw_toasts(toasts_, fonts_, retro_bottom>0.f?retro_bottom+space::sm:space::lg, true);
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);
     return action;

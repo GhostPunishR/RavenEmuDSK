@@ -11,7 +11,7 @@ namespace ravenemudsk_ui {
 enum class Icon {
     Home, Library, Recent, Trophy, Settings, Search, Play, Plus, Folder,
     Close, Minimize, Maximize, Restore, Pause, Save, Load, Reset,
-    Fullscreen, Exit, Clock, Check, Lock, Gamepad, Keyboard, Info, Trash
+    Fullscreen, Exit, Clock, Check, Lock, Gamepad, Keyboard, Info, Trash, Volume
 };
 // Draws the icon `size` pixels wide, centred, from the current ImGui context's
 // font atlas; nothing until register_icons has filled that atlas.
@@ -66,5 +66,6 @@ struct Toast {
     double lifetime = 4.0;
 };
 // Stacked toasts in the top-right corner; expired ones are removed.
-void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top = space::lg);
+// `centered`: at the top center, sliding down (in game); otherwise at the right, sliding in.
+void draw_toasts(std::vector<Toast>& toasts, const Fonts& fonts, float top = space::lg, bool centered = false);
 } // namespace ravenemudsk_ui

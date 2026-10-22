@@ -24,25 +24,38 @@ void Notifications::event(const Event& event) {
         }
         return;
     }
-    std::string label;
+    std::string heading;
     std::string badge;
+    bool trophy=false;
     if(event.kind=="achievement") {
         if (!event.id.empty() && unlocked_.contains(event.id)) return;
         if (queue_.size() >= 2048) return;
         if (!event.id.empty()) unlocked_.insert(event.id);
-        label="Succès débloqué \xC2\xB7 "+event.title+
-            " ("+std::to_string(event.points)+" pts)";
+        heading="Succès débloqué \xC2\xB7 "+std::to_string(event.points)+(event.points>1?" points":" point");
         badge=event.badge_url;
-    } else if(event.kind=="leaderboard_started")label="Classement commencé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_failed")label="Classement annulé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_submitted")label="Classement envoyé \xC2\xB7 "+event.title;
-    else if(event.kind=="leaderboard_scoreboard")label="Classement terminé \xC2\xB7 "+event.title;
+        trophy=true;
+    } else if(event.kind=="mastered"||event.kind=="completed") {
+        heading=event.kind=="mastered"?"Jeu maîtrisé":"Jeu terminé";
+        badge=event.badge_url;
+        trophy=true;
+    } else if(event.kind=="leaderboard_started")heading="Classement commencé";
+    else if(event.kind=="leaderboard_failed")heading="Classement annulé";
+    else if(event.kind=="leaderboard_submitted")heading="Classement envoyé";
+    else if(event.kind=="leaderboard_scoreboard")heading="Classement terminé";
     else if(event.kind=="notice"||event.kind=="info"||event.kind=="login"||event.kind=="offline"||event.kind=="online"||
-            event.kind=="hardcore_reset")label=event.title;
-    if(label.empty())return;
-    if(queue_.size()<2048) queue_.push_back({label,
-        event.kind=="achievement"||event.kind.starts_with("leaderboard_")?std::string{}:event.detail,
-        badge});
+            event.kind=="hardcore_reset") {
+        if(event.title.empty())return;
+        // A notice is its own heading; its detail is the second line. A game
+        // that starts shows its icon.
+        if(queue_.size()<2048) queue_.push_back({event.title,event.detail,event.badge_url,event.title,event.detail,false});
+        return;
+    }
+    if(heading.empty())return;
+    // Desktop card: one line naming the award, the points in parentheses.
+    std::string text=event.kind=="achievement"?
+        "Succès débloqué \xC2\xB7 "+event.title+" ("+std::to_string(event.points)+" pts)":
+        heading+" \xC2\xB7 "+event.title;
+    if(queue_.size()<2048) queue_.push_back({std::move(text),"",badge,heading,event.title,trophy});
 }
 void Notifications::update(const std::vector<Achievement>& entries, std::int64_t wall) {
     tick(wall);
