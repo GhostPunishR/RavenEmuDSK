@@ -117,5 +117,10 @@ private:
     // Returns the lowest edge it drew, 0 when nothing; toasts go below it.
     float draw_retro(double now_seconds, ImVec2 screen);
     void draw_achievements_tv(const OverlayInfo& info, ImVec2 screen);
+    // The parts of draw(), in drawing order.
+    void draw_status(const OverlayInfo& info, ImDrawList* bg);
+    void draw_start_hint(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg, float time);
+    OverlayAction draw_pause_menu(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg);
+    void draw_achievements_window(const OverlayInfo& info, ImVec2 screen);
 };
 } // namespace ravenemudsk_ui

@@ -513,20 +513,11 @@ void GameOverlay::draw_achievements_tv(const OverlayInfo& info, ImVec2 screen) {
     ImGui::PopStyleColor(8);
 }
 
-OverlayAction GameOverlay::draw(const OverlayInfo& info) {
-    badges_.begin_frame();
-    ImGui_ImplSDLRenderer2_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
-    OverlayAction action = OverlayAction::None;
-    if (tv_) ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-    const ImVec2 screen = ImGui::GetIO().DisplaySize;
-    auto* bg = ImGui::GetBackgroundDrawList();
-    const auto time = static_cast<float>(ImGui::GetTime());
+// The Hardcore badge, the demo panel and the pause line, at the top left.
+void GameOverlay::draw_status(const OverlayInfo& info, ImDrawList* bg) {
     if(info.hardcore_preferred){
         pill(bg,{16.f,16.f},info.hardcore&&!info.hardcore_waiting?"HARDCORE":"HARDCORE EN ATTENTE",color::gold,fonts_.caption);
     }
-
     if (info.demo && !menu_open_) demo_panel(fonts_, info);
     if (info.paused && !menu_open_) {
         const auto pause_label="Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre";
@@ -537,41 +528,186 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         draw_icon(bg,Icon::Pause,{38,top+20.f},14.f,color::accent_hover);
         bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
     }
-    if (time < 6.f && !menu_open_) {
-        // Short reminder of the essential keys when a game starts, with the
-        // buttons of the controller in use when there is one.
-        const float alpha = std::clamp(6.f - time, 0.f, 1.f) * std::clamp(time * 2.f, 0.f, 1.f);
-        ImFont* font = tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.caption;
-        const float bar_h = tv_ ? 52.f : 32.f;
-        const float bottom = tv_ ? retro_card_style(screen, true).bottom : 20.f;
-        const bool usual_chord = info.pads.input(KeyAction::Select) == SDL_CONTROLLER_BUTTON_BACK &&
-                                 info.pads.input(KeyAction::Start) == SDL_CONTROLLER_BUTTON_START;
-        if (info.pad && !info.hardcore && usual_chord) {
-            const float gh = tv_ ? 34.f : 22.f;
-            const char* label = "  Menu";
-            const float gw = pad_menu_combo(nullptr, {}, *info.pad, fonts_.strong, gh);
-            const float w = gw + text_width(font, label) + 32.f;
-            const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
-            bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
-            pad_menu_combo(bg, {a.x + 16.f, a.y + (bar_h - gh) * .5f}, *info.pad, fonts_.strong, gh, alpha);
-            bg->AddText(font, font->FontSize, {a.x + 16.f + gw, a.y + (bar_h - font->FontSize) * .5f},
-                        with_alpha(color::text_muted, alpha), label);
-        } else {
-            // A controller whose Select or Start was moved: its chord, in words.
-            const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
-                info.pad?pad_input_name(info.pads.input(KeyAction::Select),*info.pad)+" + "+
-                    pad_input_name(info.pads.input(KeyAction::Start),*info.pad)+" : menu":
-                "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
-                info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
-            const auto fitted=ellipsize(font,hint_text,std::max(40.f,screen.x-64.f));
-            const char* hint=fitted.c_str();
-            const float w = text_width(font, hint) + 32.f;
-            const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
-            bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
-            bg->AddText(font, font->FontSize, {a.x + 16.f, a.y + (bar_h - font->FontSize) * .5f},
-                        with_alpha(color::text_muted, alpha), hint);
-        }
+}
+// Short reminder of the essential keys when a game starts, with the
+// buttons of the controller in use when there is one.
+void GameOverlay::draw_start_hint(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg, float time) {
+    const float alpha = std::clamp(6.f - time, 0.f, 1.f) * std::clamp(time * 2.f, 0.f, 1.f);
+    ImFont* font = tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.caption;
+    const float bar_h = tv_ ? 52.f : 32.f;
+    const float bottom = tv_ ? retro_card_style(screen, true).bottom : 20.f;
+    const bool usual_chord = info.pads.input(KeyAction::Select) == SDL_CONTROLLER_BUTTON_BACK &&
+                             info.pads.input(KeyAction::Start) == SDL_CONTROLLER_BUTTON_START;
+    if (info.pad && !info.hardcore && usual_chord) {
+        const float gh = tv_ ? 34.f : 22.f;
+        const char* label = "  Menu";
+        const float gw = pad_menu_combo(nullptr, {}, *info.pad, fonts_.strong, gh);
+        const float w = gw + text_width(font, label) + 32.f;
+        const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
+        bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
+        pad_menu_combo(bg, {a.x + 16.f, a.y + (bar_h - gh) * .5f}, *info.pad, fonts_.strong, gh, alpha);
+        bg->AddText(font, font->FontSize, {a.x + 16.f + gw, a.y + (bar_h - font->FontSize) * .5f},
+                    with_alpha(color::text_muted, alpha), label);
+    } else {
+        // A controller whose Select or Start was moved: its chord, in words.
+        const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+            info.pad?pad_input_name(info.pads.input(KeyAction::Select),*info.pad)+" + "+
+                pad_input_name(info.pads.input(KeyAction::Start),*info.pad)+" : menu":
+            "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
+            info.keyboard.label(KeyAction::SaveState)+" / "+info.keyboard.label(KeyAction::LoadState)+" : états";
+        const auto fitted=ellipsize(font,hint_text,std::max(40.f,screen.x-64.f));
+        const char* hint=fitted.c_str();
+        const float w = text_width(font, hint) + 32.f;
+        const ImVec2 a{(screen.x - w) * .5f, screen.y - bottom - bar_h};
+        bg->AddRectFilled(a, {a.x + w, a.y + bar_h}, with_alpha(color::elevated, .92f * alpha), bar_h * .5f);
+        bg->AddText(font, font->FontSize, {a.x + 16.f, a.y + (bar_h - font->FontSize) * .5f},
+                    with_alpha(color::text_muted, alpha), hint);
     }
+}
+// The pause menu; returns the entry chosen this frame, or None.
+OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg) {
+    OverlayAction action = OverlayAction::None;
+    const bool compact = tv_ && screen.y < 900.f;
+    const MenuStyle m = menu_style(fonts_, tv_, compact);
+    bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, tv_ ? 215 : 200));
+    const float w = std::min(tv_ ? 760.f : 440.f, screen.x - 32.f);
+    ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
+    ImGui::SetNextWindowSize({w, 0.f});
+    ImGui::SetNextWindowSizeConstraints({w,100.f},{w,std::max(100.f,screen.y-32.f)});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, !tv_ ? ImVec2{space::lg, space::xl} :
+                        ImVec2{36.f, compact ? 24.f : 32.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, !tv_ ? 2.f : compact ? 4.f : 6.f});
+    // TV rows show their focus by their fill alone.
+    ImGui::PushStyleColor(ImGuiCol_NavCursor, tv_ ? ImVec4(0, 0, 0, 0) : ImGui::GetStyleColorVec4(ImGuiCol_NavCursor));
+    ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    auto* d = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float inner = ImGui::GetContentRegionAvail().x;
+    if (tv_) {
+        d->AddText(fonts_.strong, fonts_.strong->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
+        d->AddText(fonts_.tv_title, fonts_.tv_title->FontSize, {p.x + space::sm, p.y + (compact ? 22.f : 26.f)},
+                   color::text, ellipsize(fonts_.tv_title, info.game_title, inner - space::lg).c_str());
+        pill(d, {p.x + space::sm, p.y + (compact ? 62.f : 72.f)}, system_name(info.system), system_color(info.system),
+             fonts_.strong);
+        ImGui::Dummy({inner, compact ? 96.f : 124.f});
+    } else {
+        d->AddText(fonts_.caption, fonts_.caption->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
+        d->AddText(fonts_.title, fonts_.title->FontSize, {p.x + space::sm, p.y + 20.f}, color::text,
+                   ellipsize(fonts_.title, info.game_title, inner - space::lg).c_str());
+        pill(d, {p.x + space::sm, p.y + 52.f}, system_name(info.system), system_color(info.system), fonts_.caption);
+        ImGui::Dummy({inner, 84.f});
+    }
+    auto focus_here = [](bool& request) {
+        if (!request) return;
+        ImGui::SetKeyboardFocusHere();
+        ImGui::SetNavCursorVisible(true);
+        request = false;
+    };
+    focus_here(focus_first_);
+    // Opened with the controller: the keyboard shortcuts would not apply.
+    const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
+    if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
+    if (menu_item(fonts_, m, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
+    if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
+        action = OverlayAction::LoadState;
+    focus_here(focus_retro_entry_);
+    if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
+    if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
+        action = OverlayAction::ToggleHardcore;
+    if (menu_item(fonts_, m, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
+    // TV mode stays in full screen, from the launcher to the game and back.
+    if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
+                          shortcut(KeyAction::Fullscreen).c_str()))
+        action = OverlayAction::ToggleFullscreen;
+    ImGui::Dummy({inner, space::sm});
+    p = ImGui::GetCursorScreenPos();
+    // One whole pixel row: a line between two rows is drawn in two halves.
+    const float rule = std::floor(p.y);
+    d->AddRectFilled({p.x + space::sm, rule}, {p.x + inner - space::sm, rule + 1.f}, color::border);
+    ImGui::Dummy({inner, space::sm});
+    if (menu_item(fonts_, m, "Quitter vers la bibliothèque", Icon::Exit, nullptr, true, true))
+        action = OverlayAction::Quit;
+    if (info.has_achievement) {
+        ImGui::Dummy({inner, space::md});
+        p = ImGui::GetCursorScreenPos();
+        // Larger text in TV mode; the 720p menu still fits with it.
+        const float h = tv_ ? 66.f : 62.f, text_x = tv_ ? 68.f : 58.f;
+        ImFont* title = tv_ ? fonts_.tv_body : fonts_.strong;
+        ImFont* detail = tv_ ? fonts_.strong : fonts_.caption;
+        const ImVec2 b{p.x + inner, p.y + h};
+        d->AddRectFilled(p, b, color::surface, radius::md);
+        const bool done = info.achievement_unlocked;
+        const ImVec2 c{p.x + (tv_ ? 34.f : 30.f), p.y + h * .5f};
+        d->AddCircleFilled(c, tv_ ? 22.f : 18.f, done ? color::gold_soft : color::elevated, 32);
+        draw_icon(d, done ? Icon::Trophy : Icon::Lock, c, tv_ ? 20.f : 16.f, done ? color::gold : color::text_faint);
+        d->AddText(title, title->FontSize, {p.x + text_x, p.y + (tv_ ? 8.f : 11.f)}, color::text,
+                   ellipsize(title, info.achievement_title, inner - text_x - 12.f).c_str());
+        const std::string state = std::to_string(info.achievement_points) + " pts  \xC2\xB7  " +
+                                  (done ? "Débloqué" : "À débloquer");
+        d->AddText(detail, detail->FontSize, {p.x + text_x, p.y + (tv_ ? 38.f : 35.f)},
+                   done ? color::gold : color::text_muted, state.c_str());
+        ImGui::Dummy({inner, h});
+    }
+    if (tv_) {
+        ImGui::Dummy({inner, space::md});
+        p = ImGui::GetCursorScreenPos();
+        hint_row(d, {p.x + space::sm, p.y}, info.pad, fonts_,
+                 {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Reprendre"}});
+        ImGui::Dummy({inner, 34.f});
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(3);
+    return action;
+}
+// "Succès et classements" in a desktop window over the pause menu.
+void GameOverlay::draw_achievements_window(const OverlayInfo& info, ImVec2 screen) {
+    ImGui::SetNextWindowPos({screen.x*.5f,screen.y*.5f},ImGuiCond_Always,{.5f,.5f});
+    ImGui::SetNextWindowSize({std::min(680.f,screen.x-32.f),std::min(620.f,screen.y-48.f)});
+    ImGui::Begin("Succès et classements",&retro_open_,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoCollapse);
+    auto& client=retro_?*retro_:ravenemudsk_ra::client();const auto snapshot=client.snapshot();
+    ImGui::TextWrapped("%s",snapshot.game_title.empty()?snapshot.status.c_str():snapshot.game_title.c_str());
+    ImGui::TextDisabled("%s",info.hardcore?"Mode Hardcore":"Mode Softcore");
+    if(button("Retour au menu",Icon::Close,ButtonStyle::Ghost))retro_open_=false;
+    if(ImGui::BeginTabBar("##retro-tabs")){
+        if(ImGui::BeginTabItem("Succès")){
+            ImGui::Text("%d / %d succès",snapshot.unlocked_count,snapshot.total_count);
+            for(const auto& a:snapshot.achievements){
+                ImGui::PushID(a.id.c_str());ImGui::Separator();
+                ImGui::TextWrapped("%s  (%d pts)",a.title.c_str(),a.points);
+                ImGui::TextWrapped("%s",a.description.c_str());
+                ImGui::TextDisabled("%s",a.unlocked?"Débloqué":a.progress.empty()?"À obtenir":a.progress.c_str());
+                if(!a.unlocked&&a.measured_percent>0)ImGui::ProgressBar(std::clamp(a.measured_percent/100.f,0.f,1.f));
+                ImGui::PopID();
+            }
+            ImGui::EndTabItem();
+        }
+        if(ImGui::BeginTabItem("Classements")){draw_leaderboards(client,snapshot,fonts_);ImGui::EndTabItem();}
+        if(ImGui::BeginTabItem("Activité")){
+            ImGui::TextWrapped("%s",snapshot.rich_presence.empty()?"Aucune activité détaillée disponible pour ce jeu.":snapshot.rich_presence.c_str());
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::End();
+}
+OverlayAction GameOverlay::draw(const OverlayInfo& info) {
+    badges_.begin_frame();
+    ImGui_ImplSDLRenderer2_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+    OverlayAction action = OverlayAction::None;
+    if (tv_) ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    auto* bg = ImGui::GetBackgroundDrawList();
+    const auto time = static_cast<float>(ImGui::GetTime());
+    draw_status(info, bg);
+    if (time < 6.f && !menu_open_) draw_start_hint(info, screen, bg, time);
     // B (Circle on PlayStation) goes back: from the achievements to the menu,
     // from the menu to the game.
     bool back = menu_open_ && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false);
@@ -582,134 +718,12 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     }
     if (back) action = OverlayAction::Resume;
     if (menu_open_ && !retro_open_) {
-        const bool compact = tv_ && screen.y < 900.f;
-        const MenuStyle m = menu_style(fonts_, tv_, compact);
-        bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, tv_ ? 215 : 200));
-        const float w = std::min(tv_ ? 760.f : 440.f, screen.x - 32.f);
-        ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
-        ImGui::SetNextWindowSize({w, 0.f});
-        ImGui::SetNextWindowSizeConstraints({w,100.f},{w,std::max(100.f,screen.y-32.f)});
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, !tv_ ? ImVec2{space::lg, space::xl} :
-                            ImVec2{36.f, compact ? 24.f : 32.f});
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, !tv_ ? 2.f : compact ? 4.f : 6.f});
-        // TV rows show their focus by their fill alone.
-        ImGui::PushStyleColor(ImGuiCol_NavCursor, tv_ ? ImVec4(0, 0, 0, 0) : ImGui::GetStyleColorVec4(ImGuiCol_NavCursor));
-        ImGui::Begin("##pause", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
-        auto* d = ImGui::GetWindowDrawList();
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        const float inner = ImGui::GetContentRegionAvail().x;
-        if (tv_) {
-            d->AddText(fonts_.strong, fonts_.strong->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
-            d->AddText(fonts_.tv_title, fonts_.tv_title->FontSize, {p.x + space::sm, p.y + (compact ? 22.f : 26.f)},
-                       color::text, ellipsize(fonts_.tv_title, info.game_title, inner - space::lg).c_str());
-            pill(d, {p.x + space::sm, p.y + (compact ? 62.f : 72.f)}, system_name(info.system), system_color(info.system),
-                 fonts_.strong);
-            ImGui::Dummy({inner, compact ? 96.f : 124.f});
-        } else {
-            d->AddText(fonts_.caption, fonts_.caption->FontSize, {p.x + space::sm, p.y}, color::accent_hover, "PAUSE");
-            d->AddText(fonts_.title, fonts_.title->FontSize, {p.x + space::sm, p.y + 20.f}, color::text,
-                       ellipsize(fonts_.title, info.game_title, inner - space::lg).c_str());
-            pill(d, {p.x + space::sm, p.y + 52.f}, system_name(info.system), system_color(info.system), fonts_.caption);
-            ImGui::Dummy({inner, 84.f});
-        }
-        auto focus_here = [](bool& request) {
-            if (!request) return;
-            ImGui::SetKeyboardFocusHere();
-            ImGui::SetNavCursorVisible(true);
-            request = false;
-        };
-        focus_here(focus_first_);
-        // Opened with the controller: the keyboard shortcuts would not apply.
-        const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
-        if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
-        if (menu_item(fonts_, m, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
-        if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
-            action = OverlayAction::LoadState;
-        focus_here(focus_retro_entry_);
-        if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
-        if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
-            action = OverlayAction::ToggleHardcore;
-        if (menu_item(fonts_, m, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
-        // TV mode stays in full screen, from the launcher to the game and back.
-        if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
-                              shortcut(KeyAction::Fullscreen).c_str()))
-            action = OverlayAction::ToggleFullscreen;
-        ImGui::Dummy({inner, space::sm});
-        p = ImGui::GetCursorScreenPos();
-        // One whole pixel row: a line between two rows is drawn in two halves.
-        const float rule = std::floor(p.y);
-        d->AddRectFilled({p.x + space::sm, rule}, {p.x + inner - space::sm, rule + 1.f}, color::border);
-        ImGui::Dummy({inner, space::sm});
-        if (menu_item(fonts_, m, "Quitter vers la bibliothèque", Icon::Exit, nullptr, true, true))
-            action = OverlayAction::Quit;
-        if (info.has_achievement) {
-            ImGui::Dummy({inner, space::md});
-            p = ImGui::GetCursorScreenPos();
-            // Larger text in TV mode; the 720p menu still fits with it.
-            const float h = tv_ ? 66.f : 62.f, text_x = tv_ ? 68.f : 58.f;
-            ImFont* title = tv_ ? fonts_.tv_body : fonts_.strong;
-            ImFont* detail = tv_ ? fonts_.strong : fonts_.caption;
-            const ImVec2 b{p.x + inner, p.y + h};
-            d->AddRectFilled(p, b, color::surface, radius::md);
-            const bool done = info.achievement_unlocked;
-            const ImVec2 c{p.x + (tv_ ? 34.f : 30.f), p.y + h * .5f};
-            d->AddCircleFilled(c, tv_ ? 22.f : 18.f, done ? color::gold_soft : color::elevated, 32);
-            draw_icon(d, done ? Icon::Trophy : Icon::Lock, c, tv_ ? 20.f : 16.f, done ? color::gold : color::text_faint);
-            d->AddText(title, title->FontSize, {p.x + text_x, p.y + (tv_ ? 8.f : 11.f)}, color::text,
-                       ellipsize(title, info.achievement_title, inner - text_x - 12.f).c_str());
-            const std::string state = std::to_string(info.achievement_points) + " pts  \xC2\xB7  " +
-                                      (done ? "Débloqué" : "À débloquer");
-            d->AddText(detail, detail->FontSize, {p.x + text_x, p.y + (tv_ ? 38.f : 35.f)},
-                       done ? color::gold : color::text_muted, state.c_str());
-            ImGui::Dummy({inner, h});
-        }
-        if (tv_) {
-            ImGui::Dummy({inner, space::md});
-            p = ImGui::GetCursorScreenPos();
-            hint_row(d, {p.x + space::sm, p.y}, info.pad, fonts_,
-                     {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Reprendre"}});
-            ImGui::Dummy({inner, 34.f});
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(4);
-        ImGui::PopStyleColor(3);
+        // An entry chosen this frame wins over B going back.
+        const OverlayAction chosen = draw_pause_menu(info, screen, bg);
+        if (chosen != OverlayAction::None) action = chosen;
     }
     if (retro_open_ && menu_open_ && tv_) draw_achievements_tv(info, screen);
-    if(retro_open_&&menu_open_&&!tv_){
-        ImGui::SetNextWindowPos({screen.x*.5f,screen.y*.5f},ImGuiCond_Always,{.5f,.5f});
-        ImGui::SetNextWindowSize({std::min(680.f,screen.x-32.f),std::min(620.f,screen.y-48.f)});
-        ImGui::Begin("Succès et classements",&retro_open_,ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoCollapse);
-        auto& client=retro_?*retro_:ravenemudsk_ra::client();const auto snapshot=client.snapshot();
-        ImGui::TextWrapped("%s",snapshot.game_title.empty()?snapshot.status.c_str():snapshot.game_title.c_str());
-        ImGui::TextDisabled("%s",info.hardcore?"Mode Hardcore":"Mode Softcore");
-        if(button("Retour au menu",Icon::Close,ButtonStyle::Ghost))retro_open_=false;
-        if(ImGui::BeginTabBar("##retro-tabs")){
-            if(ImGui::BeginTabItem("Succès")){
-                ImGui::Text("%d / %d succès",snapshot.unlocked_count,snapshot.total_count);
-                for(const auto& a:snapshot.achievements){
-                    ImGui::PushID(a.id.c_str());ImGui::Separator();
-                    ImGui::TextWrapped("%s  (%d pts)",a.title.c_str(),a.points);
-                    ImGui::TextWrapped("%s",a.description.c_str());
-                    ImGui::TextDisabled("%s",a.unlocked?"Débloqué":a.progress.empty()?"À obtenir":a.progress.c_str());
-                    if(!a.unlocked&&a.measured_percent>0)ImGui::ProgressBar(std::clamp(a.measured_percent/100.f,0.f,1.f));
-                    ImGui::PopID();
-                }
-                ImGui::EndTabItem();
-            }
-            if(ImGui::BeginTabItem("Classements")){draw_leaderboards(client,snapshot,fonts_);ImGui::EndTabItem();}
-            if(ImGui::BeginTabItem("Activité")){
-                ImGui::TextWrapped("%s",snapshot.rich_presence.empty()?"Aucune activité détaillée disponible pour ce jeu.":snapshot.rich_presence.c_str());
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
-        }
-        ImGui::End();
-    }
+    if (retro_open_ && menu_open_ && !tv_) draw_achievements_window(info, screen);
     if(!info.retro_status.empty() && info.hardcore_preferred && info.hardcore_waiting){
         bg->AddText(fonts_.caption,fonts_.caption->FontSize,{16.f,48.f},color::text_muted,
             ellipsize(fonts_.caption,info.retro_status,screen.x-32.f).c_str());
