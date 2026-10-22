@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Exercise the production home view, including its private grid composition.
-#include "../src/ui/app_shell.cpp"
+#include "../src/ui/shell/shell.hpp"
 #include <imgui_internal.h>
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
+namespace ravenemudsk_ui { using namespace shell; }
 
 namespace {
 void require(bool condition, const char* message) {

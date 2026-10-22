@@ -172,8 +172,9 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
     if(!texture)throw std::runtime_error(SDL_GetError());
+    const auto prefs=ravenemudsk_ui::game_preferences();
     // Sharp pixels whatever scaling hint the launcher left behind.
-    SDL_SetTextureScaleMode(texture.get(),ravenemudsk_ui::smooth_image_preference()?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
+    SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
     spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
     SDL_AudioDeviceID audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
@@ -187,17 +188,14 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     std::vector<std::int16_t> pcm(8192);
     ravenemudsk_ui::GameOverlay overlay(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
-    const auto chime=ravenemudsk_ui::unlock_sound_preference()?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
+    const auto chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     ravenemudsk_ui::SoundMixer effects;
-    const int volume=ravenemudsk_ui::game_volume_preference();
-    const auto keyboard=ravenemudsk_ui::keyboard_preferences();
-    const auto pads=ravenemudsk_ui::pad_preferences();
     ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
-    },keyboard,pads);
+    },prefs.keyboard,prefs.pads);
     ravenemudsk_ui::OverlayInfo info{};
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
-    info.keyboard=keyboard;info.pads=pads;info.pad=family_of(pad.get());
+    info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
     auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
         overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
     };
@@ -230,7 +228,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             if(e.type==SDL_KEYDOWN && !e.key.repeat) {
                 using Key=ravenemudsk_ui::KeyAction;
                 const auto action=overlay.menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
-                    Key::Count:keyboard.action(e.key.keysym.sym);
+                    Key::Count:prefs.keyboard.action(e.key.keysym.sym);
                 switch(action) {
                     case Key::Menu:
                         if(overlay.menu_open())overlay.close_menu();
@@ -277,7 +275,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
             ravenemudsk_ra::client().pump(true);
             const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
             effects.mix(pcm.data(),n);
-            ravenemudsk_ui::scale_volume(pcm.data(),n,volume);
+            ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
             if(audio_device && n) {
                 if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
                     SDL_ClearQueuedAudio(audio_device);
@@ -374,7 +372,7 @@ int entry(int argc,char** argv) {
             }
             if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu " RAVENEMUDSK_VERSION "\n";return 0;}
             if(argc!=3)throw std::runtime_error("Usage : RavenEmuDSK [gb|gbc|gba ROM]");
-            ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::hardcore_preference());
+            ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::game_preferences().hardcore);
             play({argv[1],argv[2],false});return 0;
         }
         // SDL stays up for the whole session: the launcher and the game never

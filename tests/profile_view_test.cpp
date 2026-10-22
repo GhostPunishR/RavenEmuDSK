@@ -2,12 +2,13 @@
 // Render the production Profile page with a synthetic RetroAchievements
 // account: stable account and game columns on every tab and width, search,
 // and the sign-out confirmation that announces unsent submissions.
-#include "../src/ui/app_shell.cpp"
+#include "../src/ui/shell/shell.hpp"
 #include "retro_test_storage.hpp"
 #include <imgui_internal.h>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+namespace ravenemudsk_ui { using namespace shell; }
 
 namespace {
 void require(bool condition, const std::string& message) {

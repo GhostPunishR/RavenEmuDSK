@@ -3,6 +3,7 @@
 #include <ravenemu/bridge.h>
 #include <array>
 #include <ravenemudsk/ui/settings.hpp>
+#include <ravenemudsk/ui/game_preferences.hpp>
 #include <chrono>
 #include <stdexcept>
 
@@ -211,4 +212,19 @@ int main() {
     require(trigger(false,32767,120),"The bound Select + Start opens the menu");
     require(!pad_game[RAVENEMU_SELECT]&&!pad_game[RAVENEMU_START],"The chord never reaches the game");
     button(SDL_CONTROLLER_BUTTON_BACK,true,130);require(!pad_game[RAVENEMU_SELECT],"The old Select no longer presses Select");
+
+    // A game's preferences, read once: defaults, then each setting.
+    Settings fresh;
+    const auto defaults=game_preferences(fresh);
+    require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image,"Default game preferences");
+    require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
+            defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
+    Settings chosen;
+    chosen.set_flag("ra_hardcore",true);chosen.set_flag("ra_unlock_sound",false);chosen.set("volume","35");
+    chosen.set_flag("smooth_image",true);chosen.set("pad_a",std::to_string(SDL_CONTROLLER_BUTTON_X));
+    const auto prefs=game_preferences(chosen);
+    require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image,"Chosen game preferences");
+    require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
+    chosen.set("volume","250");require(game_preferences(chosen).volume==100,"Volume above 100 % is full volume");
+    chosen.set_flag("mute",true);require(game_preferences(chosen).volume==0,"Muted means silent, whatever the volume");
 }

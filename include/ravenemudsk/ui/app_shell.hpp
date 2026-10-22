@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
 #include <ravenemudsk/ui/storage.hpp>
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
-#include <ravenemudsk/ui/pad_bindings.hpp>
+#include <ravenemudsk/ui/game_preferences.hpp>
 #include <optional>
 #include <string>
 struct SDL_Window;
@@ -32,13 +31,6 @@ void record_session(const LaunchRequest& selection, unsigned long long seconds);
 // folder when the program folder is read-only.
 Folders app_folders();
 bool remember_hardcore(bool enabled);
-bool hardcore_preference();
-// "Son des succès" in the settings; on unless turned off.
-bool unlock_sound_preference();
-// Réglages > Son: 0-100, 0 when the sound is cut.
-int game_volume_preference();
-// Réglages > Affichage: smooth scaling instead of sharp pixels.
-bool smooth_image_preference();
-KeyboardBindings keyboard_preferences();
-PadBindings pad_preferences();
+// The settings a game starts with, read once from the settings file.
+GamePreferences game_preferences();
 } // namespace ravenemudsk_ui
