@@ -73,5 +73,12 @@ int main() {
     n.advance(1600000,ready);
     require(n.notice() && n.notice()->heading=="RetroAchievements hors ligne" && n.notice()->title=="Envois en attente" &&
             n.notice()->text=="RetroAchievements hors ligne" && n.notice()->detail=="Envois en attente");
+    // A game that starts shows its icon, waiting for it like an unlock does.
+    n.clear();
+    n.event({"info","Succès disponibles","Pokémon Jaune","","game.png"});
+    n.advance(1700000,missing);require(!n.notice());
+    n.advance(1700000,ready);
+    require(n.notice() && n.notice()->heading=="Succès disponibles" && n.notice()->title=="Pokémon Jaune" &&
+            n.notice()->badge=="game.png" && !n.notice()->trophy);
     std::cout << "FIFO unlocks, deduplication, indicators, badge timeout, menu pause and banner lines passed\n";
 }

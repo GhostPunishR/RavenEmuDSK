@@ -567,7 +567,11 @@ struct Client::Impl {
             impl.state.rom_path = impl.active_rom_path;
             impl.game_failures = 0;
             impl.profile_dirty = true;
-            impl.events.push_back({"info", summary.num_core_achievements ? "Succès disponibles" : "Aucun succès disponible", game->title});
+            // The game's own icon, as on the TV banner, rather than a plain star.
+            if(char image[256]{}; impl.game_badge.empty() && rc_client_game_get_image_url(game, image, sizeof(image)) == RC_OK)
+                impl.game_badge = image;
+            impl.events.push_back({"info", summary.num_core_achievements ? "Succès disponibles" : "Aucun succès disponible", game->title,
+                                   "", impl.game_badge});
             if(!impl.deferred_progress.empty()){
                 impl.restore_progress(impl.deferred_progress);impl.deferred_progress.clear();
             }

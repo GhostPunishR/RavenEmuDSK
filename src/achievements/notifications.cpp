@@ -45,8 +45,9 @@ void Notifications::event(const Event& event) {
     else if(event.kind=="notice"||event.kind=="info"||event.kind=="login"||event.kind=="offline"||event.kind=="online"||
             event.kind=="hardcore_reset") {
         if(event.title.empty())return;
-        // A notice is its own heading; its detail is the second line.
-        if(queue_.size()<2048) queue_.push_back({event.title,event.detail,"",event.title,event.detail,false});
+        // A notice is its own heading; its detail is the second line. A game
+        // that starts shows its icon.
+        if(queue_.size()<2048) queue_.push_back({event.title,event.detail,event.badge_url,event.title,event.detail,false});
         return;
     }
     if(heading.empty())return;

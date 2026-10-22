@@ -13,7 +13,11 @@ void unlock_on_real_core(int system) {
     require(c.snapshot().achievements[0].badge_url.find("_lock")!=std::string::npos,"A locked achievement must use its locked badge");
     require(c.game_snapshot(path) && c.game_snapshot(path)->unlocked_count==0 && c.game_snapshot(path)->total_count==1,
         "The library summary must appear when the SDK recognizes this ROM");
-    c.drain_events();c.pump(true); // initial false memory exits SDK waiting state
+    const auto loaded=c.drain_events();
+    require(std::any_of(loaded.begin(),loaded.end(),[](const Event& e){
+        return e.kind=="info"&&e.detail=="Synthetic game"&&e.badge_url=="https://media.retroachievements.org/Images/1.png";}),
+        "The game's start banner must carry the game's icon");
+    c.pump(true); // initial false memory exits SDK waiting state
     std::vector<std::uint32_t> pixels(ravenemu_video_width(core.handle)*ravenemu_video_height(core.handle));
     require(ravenemu_run_frame(core.handle,pixels.data(),pixels.size()),"Synthetic ROM frame failed");
     std::uint8_t memory=0;const auto address=system==RAVENEMU_GBA?0x8000u:0xc000u;
