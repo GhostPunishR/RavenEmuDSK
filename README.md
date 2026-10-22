@@ -1,4 +1,4 @@
-[![CI](https://img.shields.io/github/actions/workflow/status/GhostPunishR/RavenEmuDSK/build.yml?branch=main&style=plastic&label=CI)](https://github.com/GhostPunishR/RavenEmuDSK/actions/workflows/build.yml)
+[![Build](https://github.com/GhostPunishR/RavenEmuDSK/actions/workflows/build.yml/badge.svg)](https://github.com/GhostPunishR/RavenEmuDSK/actions/workflows/build.yml)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-D97757?style=plastic&logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 [![Licence AGPL-3.0](https://img.shields.io/badge/Licence-AGPL--3.0-663399?style=plastic&logo=gnu&logoColor=white)](LICENSE)
 
