@@ -104,43 +104,134 @@ int system_of(const std::string& code) {
     if(code=="gba")return RAVENEMU_GBA;
     throw std::runtime_error("Console inconnue : "+code);
 }
-void play(const ravenemudsk_ui::LaunchRequest& req) {
-    const auto rom_path=ravenemudsk_ui::from_utf8(req.rom);
-    auto rom=read_file(rom_path,64u<<20);
+// From TV mode the launcher's full-screen window and renderer carry on:
+// no window opens or closes, so the desktop never shows. They are handed
+// back to the launcher afterwards. Leaving full screen later restores a
+// usual window.
+struct GameScreen {
+    bool shared = false;
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    GameScreen() = default;
+    GameScreen(const GameScreen&) = delete;
+    GameScreen& operator=(const GameScreen&) = delete;
+    ~GameScreen() {
+        if (shared) {
+            ravenemudsk_ui::keep_screen({window, renderer});
+            return;
+        }
+        if (renderer) SDL_DestroyRenderer(renderer);
+        if (window) SDL_DestroyWindow(window);
+    }
+};
+// One game, from its ROM to its last battery save. The members follow the
+// order in which the game opens them, so they close in the reverse order.
+class GameSession {
+public:
+    explicit GameSession(const ravenemudsk_ui::LaunchRequest& request);
+    GameSession(const GameSession&) = delete;
+    GameSession& operator=(const GameSession&) = delete;
+    // Leaves the game's RetroAchievements session and the audio device, also
+    // when the game stops on an error.
+    ~GameSession();
+    // The frame loop, until the player quits; then the last saves.
+    void run();
+private:
+    using Action=ravenemudsk_ui::OverlayAction;
+    void open_screen();
+    void toast(ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="");
+    bool pause_allowed();
+    void handle(const SDL_Event& e);
+    void handle_key(ravenemudsk_ui::KeyAction action);
+    void emulate(Clock::time_point now,bool waiting);
+    void take_retro_events();
+    void draw(bool waiting);
+    void apply(Action action);
+    void finish();
+
+    const ravenemudsk_ui::LaunchRequest& req;
+    fs::path rom_path;
+    std::vector<std::uint8_t> rom;
+    Core core{nullptr,&ravenemu_destroy};
+    fs::path battery_path,state_path,preview_path;
+    int w=0,h=0,hz=0;
+    double fps=0;
+    std::optional<Sdl> sdl;
+    std::string title;
+    GameScreen screen;
+    SDL_Window* window=nullptr;
+    SDL_Renderer* renderer=nullptr;
+    Ptr<SDL_Texture,SDL_DestroyTexture> texture{nullptr,SDL_DestroyTexture};
+    ravenemudsk_ui::GamePreferences prefs;
+    SDL_AudioDeviceID audio_device=0;
+    Ptr<SDL_GameController,SDL_GameControllerClose> pad{nullptr,SDL_GameControllerClose};
+    std::vector<std::uint32_t> pixels;
+    std::vector<std::int16_t> pcm;
+    std::optional<ravenemudsk_ui::GameOverlay> overlay;
+    // An unlock's chime is mixed into the game's sound, when the settings allow it.
+    std::vector<std::int16_t> chime;
+    ravenemudsk_ui::SoundMixer effects;
+    std::optional<ravenemudsk_ui::GameInput> input;
+    ravenemudsk_ui::OverlayInfo info{};
+    bool running=true,paused=false;
+    Clock::time_point next,last_save,next_progress;
+    Clock::duration duration{};
+};
+GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(request) {
+    rom_path=ravenemudsk_ui::from_utf8(req.rom);
+    rom=read_file(rom_path,64u<<20);
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
-    Core core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
+    core=Core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
     const auto folders=ravenemudsk_ui::app_folders();
-    const auto battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
-    const auto state_path=ravenemudsk_ui::save_path(folders,rom_path,".rstate");
-    const auto preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
+    battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
+    state_path=ravenemudsk_ui::save_path(folders,rom_path,".rstate");
+    preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
            "Chargement ROM");
-    const int w=ravenemu_video_width(core.get()),h=ravenemu_video_height(core.get());
-    const int hz=ravenemu_audio_rate(core.get());
-    const double fps=ravenemu_video_fps(core.get());
+    w=ravenemu_video_width(core.get());h=ravenemu_video_height(core.get());
+    hz=ravenemu_audio_rate(core.get());
+    fps=ravenemu_video_fps(core.get());
     if(w<1||w>1024||h<1||h>1024||!std::isfinite(fps)||fps<30||fps>120||hz<8000||hz>192000)
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
-    Sdl sdl;
-    const auto title=ravenemudsk_ui::display_title({rom_path,req.system});
-    // From TV mode the launcher's full-screen window and renderer carry on:
-    // no window opens or closes, so the desktop never shows. They are handed
-    // back to the launcher afterwards. Leaving full screen later restores a
-    // usual window.
-    struct GameScreen {
-        bool shared = false;
-        SDL_Window* window = nullptr;
-        SDL_Renderer* renderer = nullptr;
-        ~GameScreen() {
-            if (shared) {
-                ravenemudsk_ui::keep_screen({window, renderer});
-                return;
-            }
-            if (renderer) SDL_DestroyRenderer(renderer);
-            if (window) SDL_DestroyWindow(window);
-        }
-    } screen;
+    sdl.emplace();
+    title=ravenemudsk_ui::display_title({rom_path,req.system});
+    open_screen();
+    // Black at once, before the first emulated frame.
+    SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
+    texture.reset(SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h));
+    if(!texture)throw std::runtime_error(SDL_GetError());
+    prefs=ravenemudsk_ui::game_preferences();
+    // Sharp pixels whatever scaling hint the launcher left behind.
+    SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
+    SDL_AudioSpec spec{};
+    spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
+    audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
+    if(audio_device)SDL_PauseAudioDevice(audio_device,0);
+    for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
+        pad.reset(SDL_GameControllerOpen(i));if(pad)break;
+    }
+    ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
+    pixels.resize(static_cast<std::size_t>(w)*h);
+    pcm.resize(8192);
+    overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
+    chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
+    input.emplace([this](int button, bool pressed) {
+        ravenemu_set_button(core.get(),button,pressed);
+    },prefs.keyboard,prefs.pads);
+    info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
+    info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
+    next=last_save=next_progress=Clock::now();
+    duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
+}
+GameSession::~GameSession() {
+    ravenemudsk_ra::client().end_game();
+    if(audio_device)SDL_CloseAudioDevice(audio_device);
+}
+// The launcher's window from TV mode, or a window of its own, with the
+// RavenEmu icon and a renderer.
+void GameSession::open_screen() {
     if (req.fullscreen) {
         const auto kept = ravenemudsk_ui::take_screen();
         screen.window = kept.window;
@@ -152,7 +243,7 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
         SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
         SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
     if(!screen.window)throw std::runtime_error(SDL_GetError());
-    SDL_Window* const window=screen.window;
+    window=screen.window;
     // Played from the couch: no mouse cursor over the game.
     SDL_ShowCursor(req.fullscreen?SDL_DISABLE:SDL_ENABLE);
     if(char* base=SDL_GetBasePath()) {
@@ -166,205 +257,191 @@ void play(const ravenemudsk_ui::LaunchRequest& req) {
     if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
     if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     if(!screen.renderer)throw std::runtime_error(SDL_GetError());
-    SDL_Renderer* const renderer=screen.renderer;
-    // Black at once, before the first emulated frame.
-    SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
-    Ptr<SDL_Texture,SDL_DestroyTexture> texture(SDL_CreateTexture(renderer,
-        SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h),SDL_DestroyTexture);
-    if(!texture)throw std::runtime_error(SDL_GetError());
-    // Sharp pixels whatever scaling hint the launcher left behind.
-    SDL_SetTextureScaleMode(texture.get(),ravenemudsk_ui::smooth_image_preference()?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
-    SDL_AudioSpec spec{};
-    spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
-    SDL_AudioDeviceID audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
-    if(audio_device)SDL_PauseAudioDevice(audio_device,0);
-    Ptr<SDL_GameController,SDL_GameControllerClose> pad(nullptr,SDL_GameControllerClose);
-    for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
-        pad.reset(SDL_GameControllerOpen(i));if(pad)break;
-    }
-    ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
-    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(w)*h);
-    std::vector<std::int16_t> pcm(8192);
-    ravenemudsk_ui::GameOverlay overlay(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
-    // An unlock's chime is mixed into the game's sound, when the settings allow it.
-    const auto chime=ravenemudsk_ui::unlock_sound_preference()?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
-    ravenemudsk_ui::SoundMixer effects;
-    const int volume=ravenemudsk_ui::game_volume_preference();
-    const auto keyboard=ravenemudsk_ui::keyboard_preferences();
-    const auto pads=ravenemudsk_ui::pad_preferences();
-    ravenemudsk_ui::GameInput input([&](int button, bool pressed) {
-        ravenemu_set_button(core.get(),button,pressed);
-    },keyboard,pads);
-    ravenemudsk_ui::OverlayInfo info{};
-    info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
-    info.keyboard=keyboard;info.pads=pads;info.pad=family_of(pad.get());
-    auto toast=[&](ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="") {
-        overlay.notify({kind,std::move(heading),std::move(message),-1.0,5.0});
-    };
-    bool running=true,paused=false;
-    // Hardcore limits pauses: when the SDK refuses one, say how long to play first.
-    auto pause_allowed=[&]{
-        std::uint32_t frames=0;
-        if(ravenemudsk_ra::client().may_pause(&frames))return true;
-        const auto seconds=std::max<std::uint32_t>(1,(frames+59)/60);
-        toast(ravenemudsk_ui::Toast::Kind::Info,"Pause indisponible",
-              "Le Hardcore limite les pauses : réessayez dans "+std::to_string(seconds)+" s.");
-        return false;
-    };
-    using Action=ravenemudsk_ui::OverlayAction;
-    auto next=Clock::now();
-    auto last_save=Clock::now();
-    auto next_progress=Clock::now();
-    const auto duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
-    try {
-      while(running) {
+    renderer=screen.renderer;
+}
+void GameSession::toast(ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message) {
+    overlay->notify({kind,std::move(heading),std::move(message),-1.0,5.0});
+}
+// Hardcore limits pauses: when the SDK refuses one, say how long to play first.
+bool GameSession::pause_allowed() {
+    std::uint32_t frames=0;
+    if(ravenemudsk_ra::client().may_pause(&frames))return true;
+    const auto seconds=std::max<std::uint32_t>(1,(frames+59)/60);
+    toast(ravenemudsk_ui::Toast::Kind::Info,"Pause indisponible",
+          "Le Hardcore limite les pauses : réessayez dans "+std::to_string(seconds)+" s.");
+    return false;
+}
+void GameSession::run() {
+    while(running) {
         SDL_Event e{};
-        while(SDL_PollEvent(&e)) {
-            overlay.process_event(e);
-            if(e.type==SDL_QUIT)running=false;
-            if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
-                { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
-            if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
-               SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-                { input.release_all(); pad.reset(); info.pad.reset(); }
-            if(e.type==SDL_KEYDOWN && !e.key.repeat) {
-                using Key=ravenemudsk_ui::KeyAction;
-                const auto action=overlay.menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
-                    Key::Count:keyboard.action(e.key.keysym.sym);
-                switch(action) {
-                    case Key::Menu:
-                        if(overlay.menu_open())overlay.close_menu();
-                        else if(pause_allowed())overlay.open_menu();
-                        break;
-                    case Key::Pause:
-                        if(paused || pause_allowed()) {
-                            paused=!paused;input.release_all();
-                        }
-                        break;
-                    case Key::Reset:
-                        input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();break;
-                    case Key::SaveState:
-                        save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
-                        break;
-                    case Key::LoadState:
-                        if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
-                        else if(fs::exists(state_path)){
-                            const bool restored=load_state(core.get(),state_path);input.release_all();overlay.clear_retro();
-                            toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
-                        break;
-                    case Key::Fullscreen:
-                        SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
-                        break;
-                    default:break;
-                }
-            }
-            // Back and Start together, in either order, open or close the menu,
-            // and neither reaches the game. The Guide button stays with the
-            // system: Windows opens the Xbox Game Bar on it (Steam its overlay),
-            // which would show too.
-            input.set_menu_open(overlay.menu_open()||paused);
-            if(input.process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
-                if(overlay.menu_open())overlay.close_menu();
-                else if(pause_allowed())overlay.open_menu(true);
-                input.release_all();
-            }
-        }
-        input.update(SDL_GetTicks());
+        while(SDL_PollEvent(&e))handle(e);
+        input->update(SDL_GetTicks());
         const auto now=Clock::now();
         const bool waiting=ravenemudsk_ra::client().frames_on_hold();
-        if(!waiting&&!paused&&!overlay.menu_open() && now>=next) {
-            verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
-            ravenemudsk_ra::client().pump(true);
-            const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
-            effects.mix(pcm.data(),n);
-            ravenemudsk_ui::scale_volume(pcm.data(),n,volume);
-            if(audio_device && n) {
-                if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
-                    SDL_ClearQueuedAudio(audio_device);
-                SDL_QueueAudio(audio_device,pcm.data(),static_cast<Uint32>(n*sizeof(std::int16_t)));
-            }
-            SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
-            next+=duration;
-            if(now>next+std::chrono::milliseconds(150))next=now+duration;
-        } else ravenemudsk_ra::client().pump(false);
+        emulate(now,waiting);
+        take_retro_events();
         auto& retro=ravenemudsk_ra::client();
-        for(const auto& event:retro.drain_events()) {
-            if(event.kind=="hardcore_refused"){
-                if(!ravenemudsk_ui::remember_hardcore(false))
-                    toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le Hardcore reste sélectionné dans les réglages.");
-                continue;
-            }
-            if(event.kind=="hardcore_reset"){
-                input.release_all();paused=false;next=Clock::now();
-                overlay.clear_retro();overlay.close_menu();
-            }
-            if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
-            else overlay.retro_event(event);
-        }
         if(now>=next_progress) {
-            overlay.update_retro_progress(retro.snapshot().achievements);
+            overlay->update_retro_progress(retro.snapshot().achievements);
             next_progress=now+std::chrono::milliseconds(350);
         }
         if(now-last_save>std::chrono::seconds(30)) {
             save_battery(core.get(),battery_path);last_save=now;
         }
-        SDL_SetRenderDrawColor(renderer,11,12,18,255);
-        SDL_RenderClear(renderer);
-        int out_w=0,out_h=0;
-        SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
-        const auto factor=std::min(double(out_w)/w,double(out_h)/h);
-        const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
-        SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
-        info.hardcore=retro.hardcore();
-        info.hardcore_preferred=retro.snapshot().hardcore_preferred;
-        info.hardcore_waiting=waiting;
-        info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
-        info.paused=paused;
-        info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
-        const auto action=overlay.draw(info);
-        if(overlay.take_unlock_sound()&&!chime.empty())effects.play(chime);
-        switch(action) {
-            case Action::None:break;
-            case Action::Resume:overlay.close_menu();break;
-            case Action::SaveState:
-                save_state(core.get(),state_path);info.has_state=true;
-                overlay.close_menu();break;
-            case Action::LoadState:
-                if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && fs::exists(state_path)){
-                    load_state(core.get(),state_path);input.release_all();overlay.clear_retro();}
-                overlay.close_menu();break;
-            case Action::ToggleHardcore:
-                input.release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
-                if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
-                    toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
-                overlay.close_menu();paused=false;break;
-            case Action::Reset:
-                input.release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay.clear_retro();overlay.close_menu();break;
-            case Action::ToggleFullscreen:
-                SDL_SetWindowFullscreen(window,info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
-            case Action::Quit:running=false;break;
-        }
-        SDL_RenderPresent(renderer);
-        if(waiting||paused||overlay.menu_open())SDL_Delay(16);
+        draw(waiting);
+        if(waiting||paused||overlay->menu_open())SDL_Delay(16);
         else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-      if(req.fullscreen) {
-          // Left on screen, black, until the launcher's window is up.
-          SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
-      }
-      save_battery(core.get(),battery_path);
-      if(!pixels.empty()) {
-          SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(),w,h,32,
-              w*static_cast<int>(sizeof(std::uint32_t)),SDL_PIXELFORMAT_ARGB8888);
-          if(bitmap){SDL_SaveBMP(bitmap,ravenemudsk_ui::utf8(preview_path).c_str());SDL_FreeSurface(bitmap);}
-      }
-    } catch(...) {
-        ravenemudsk_ra::client().end_game();
-        if(audio_device)SDL_CloseAudioDevice(audio_device);
-        throw;
     }
-    ravenemudsk_ra::client().end_game();
-    if(audio_device)SDL_CloseAudioDevice(audio_device);
+    finish();
+}
+void GameSession::handle(const SDL_Event& e) {
+    overlay->process_event(e);
+    if(e.type==SDL_QUIT)running=false;
+    if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
+        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
+    if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
+       SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
+        { input->release_all(); pad.reset(); info.pad.reset(); }
+    if(e.type==SDL_KEYDOWN && !e.key.repeat) {
+        using Key=ravenemudsk_ui::KeyAction;
+        handle_key(overlay->menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
+            Key::Count:prefs.keyboard.action(e.key.keysym.sym));
+    }
+    // Back and Start together, in either order, open or close the menu,
+    // and neither reaches the game. The Guide button stays with the
+    // system: Windows opens the Xbox Game Bar on it (Steam its overlay),
+    // which would show too.
+    input->set_menu_open(overlay->menu_open()||paused);
+    if(input->process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
+        if(overlay->menu_open())overlay->close_menu();
+        else if(pause_allowed())overlay->open_menu(true);
+        input->release_all();
+    }
+}
+void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
+    using Key=ravenemudsk_ui::KeyAction;
+    switch(action) {
+        case Key::Menu:
+            if(overlay->menu_open())overlay->close_menu();
+            else if(pause_allowed())overlay->open_menu();
+            break;
+        case Key::Pause:
+            if(paused || pause_allowed()) {
+                paused=!paused;input->release_all();
+            }
+            break;
+        case Key::Reset:
+            input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();break;
+        case Key::SaveState:
+            save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
+            break;
+        case Key::LoadState:
+            if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
+            else if(fs::exists(state_path)){
+                const bool restored=load_state(core.get(),state_path);input->release_all();overlay->clear_retro();
+                toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
+            break;
+        case Key::Fullscreen:
+            SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
+            break;
+        default:break;
+    }
+}
+// One emulated frame when it is due, its sound queued with the chime and the
+// volume; otherwise the SDK still runs between frames.
+void GameSession::emulate(Clock::time_point now,bool waiting) {
+    if(!waiting&&!paused&&!overlay->menu_open() && now>=next) {
+        verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+        ravenemudsk_ra::client().pump(true);
+        const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
+        effects.mix(pcm.data(),n);
+        ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
+        if(audio_device && n) {
+            if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
+                SDL_ClearQueuedAudio(audio_device);
+            SDL_QueueAudio(audio_device,pcm.data(),static_cast<Uint32>(n*sizeof(std::int16_t)));
+        }
+        SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+        next+=duration;
+        if(now>next+std::chrono::milliseconds(150))next=now+duration;
+    } else ravenemudsk_ra::client().pump(false);
+}
+void GameSession::take_retro_events() {
+    for(const auto& event:ravenemudsk_ra::client().drain_events()) {
+        if(event.kind=="hardcore_refused"){
+            if(!ravenemudsk_ui::remember_hardcore(false))
+                toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le Hardcore reste sélectionné dans les réglages.");
+            continue;
+        }
+        if(event.kind=="hardcore_reset"){
+            input->release_all();paused=false;next=Clock::now();
+            overlay->clear_retro();overlay->close_menu();
+        }
+        if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
+        else overlay->retro_event(event);
+    }
+}
+// The picture scaled into the window, the overlay over it, then its action.
+void GameSession::draw(bool waiting) {
+    auto& retro=ravenemudsk_ra::client();
+    SDL_SetRenderDrawColor(renderer,11,12,18,255);
+    SDL_RenderClear(renderer);
+    int out_w=0,out_h=0;
+    SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
+    const auto factor=std::min(double(out_w)/w,double(out_h)/h);
+    const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
+    SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
+    info.hardcore=retro.hardcore();
+    info.hardcore_preferred=retro.snapshot().hardcore_preferred;
+    info.hardcore_waiting=waiting;
+    info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
+    info.paused=paused;
+    info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
+    const auto action=overlay->draw(info);
+    if(overlay->take_unlock_sound()&&!chime.empty())effects.play(chime);
+    apply(action);
+    SDL_RenderPresent(renderer);
+}
+void GameSession::apply(Action action) {
+    auto& retro=ravenemudsk_ra::client();
+    switch(action) {
+        case Action::None:break;
+        case Action::Resume:overlay->close_menu();break;
+        case Action::SaveState:
+            save_state(core.get(),state_path);info.has_state=true;
+            overlay->close_menu();break;
+        case Action::LoadState:
+            if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && fs::exists(state_path)){
+                load_state(core.get(),state_path);input->release_all();overlay->clear_retro();}
+            overlay->close_menu();break;
+        case Action::ToggleHardcore:
+            input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
+            if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
+                toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
+            overlay->close_menu();paused=false;break;
+        case Action::Reset:
+            input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;
+        case Action::ToggleFullscreen:
+            SDL_SetWindowFullscreen(window,info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
+        case Action::Quit:running=false;break;
+    }
+}
+// The battery save and the library's preview of the last frame.
+void GameSession::finish() {
+    if(req.fullscreen) {
+        // Left on screen, black, until the launcher's window is up.
+        SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
+    }
+    save_battery(core.get(),battery_path);
+    if(!pixels.empty()) {
+        SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(),w,h,32,
+            w*static_cast<int>(sizeof(std::uint32_t)),SDL_PIXELFORMAT_ARGB8888);
+        if(bitmap){SDL_SaveBMP(bitmap,ravenemudsk_ui::utf8(preview_path).c_str());SDL_FreeSurface(bitmap);}
+    }
+}
+void play(const ravenemudsk_ui::LaunchRequest& req) {
+    GameSession game(req);
+    game.run();
 }
 int entry(int argc,char** argv) {
     try {
@@ -374,7 +451,7 @@ int entry(int argc,char** argv) {
             }
             if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu " RAVENEMUDSK_VERSION "\n";return 0;}
             if(argc!=3)throw std::runtime_error("Usage : RavenEmuDSK [gb|gbc|gba ROM]");
-            ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::hardcore_preference());
+            ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::game_preferences().hardcore);
             play({argv[1],argv[2],false});return 0;
         }
         // SDL stays up for the whole session: the launcher and the game never

@@ -75,7 +75,8 @@ target_include_directories(ravenemudsk_ui_library PUBLIC include)
 target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
 target_link_libraries(ravenemudsk_ui_library PRIVATE ravenemu_common)
 
-add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp src/ui/keyboard_bindings.cpp src/ui/pad_bindings.cpp)
+add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp src/ui/keyboard_bindings.cpp src/ui/pad_bindings.cpp
+  src/ui/game_preferences.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api ravenemudsk_ui_library)
 add_library(ravenemudsk_game_state STATIC src/ui/game_state.cpp)
@@ -108,26 +109,49 @@ elseif(UNIX)
   endif()
 endif()
 
-add_executable(RavenEmuDSK
-  src/desktop.cpp
+# The RetroAchievements client and what it reports to the screens.
+add_library(ravenemudsk_achievements STATIC
   src/achievements/client.cpp src/achievements/progress.cpp src/achievements/notifications.cpp
-  src/achievements/achievement_list.cpp src/achievements/library_progress.cpp
-  src/ui/badge_cache.cpp
-  src/ui/app_shell.cpp src/ui/game_overlay.cpp
-  src/ui/image_loader.cpp src/ui/theme.cpp
-  src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp
-  src/ui/game_sound.cpp)
+  src/achievements/achievement_list.cpp src/achievements/library_progress.cpp)
+target_include_directories(ravenemudsk_achievements PUBLIC include)
+target_link_libraries(ravenemudsk_achievements PUBLIC ravenemudsk_rcheevos ravenemudsk_session_store
+  ravenemudsk_user_agent ravenemu_c_api PRIVATE CURL::libcurl)
+
+# Interface pieces shared by the launcher and the game: theme, widgets, icons, images.
+add_library(ravenemudsk_ui_kit STATIC
+  src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp
+  src/ui/badge_cache.cpp src/ui/image_loader.cpp src/ui/update_check.cpp)
+target_include_directories(ravenemudsk_ui_kit PUBLIC include PRIVATE "${stb_SOURCE_DIR}")
+target_compile_definitions(ravenemudsk_ui_kit PRIVATE RAVENEMUDSK_HAVE_CURL)
+target_link_libraries(ravenemudsk_ui_kit PUBLIC ravenemudsk_imgui ravenemudsk_achievements ravenemudsk_game_input
+  ravenemudsk_ui_library PRIVATE CURL::libcurl)
+if(WIN32)
+  target_link_libraries(ravenemudsk_ui_kit PRIVATE winhttp)
+endif()
+
+# Drawn over the game: pause menu, RetroAchievements banner, sounds.
+add_library(ravenemudsk_game_ui STATIC src/ui/game_overlay.cpp src/ui/game_sound.cpp)
+target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
+
+# The launcher, one file per screen (src/ui/shell); the program sees app_shell.hpp.
+add_library(ravenemudsk_launcher STATIC
+  src/ui/shell/common.cpp src/ui/shell/chrome.cpp src/ui/shell/library_view.cpp src/ui/shell/profile_view.cpp
+  src/ui/shell/tv_view.cpp src/ui/shell/updates_view.cpp src/ui/shell/settings_view.cpp
+  src/ui/shell/game_detail.cpp src/ui/shell/launcher_frame.cpp src/ui/shell/launcher.cpp
+  src/ui/shell/preferences.cpp)
+target_compile_definitions(ravenemudsk_launcher PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
+target_link_libraries(ravenemudsk_launcher PUBLIC ravenemudsk_ui_kit)
+if(WIN32)
+  target_link_libraries(ravenemudsk_launcher PRIVATE comdlg32 shell32 ole32)
+endif()
+
+add_executable(RavenEmuDSK src/desktop.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
-target_compile_definitions(RavenEmuDSK PRIVATE
-  RAVENEMUDSK_VERSION="${PROJECT_VERSION}" RAVENEMUDSK_HAVE_CURL)
-target_include_directories(RavenEmuDSK PRIVATE include "${stb_SOURCE_DIR}")
-target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_user_agent
-  ravenemudsk_ui_library ravenemudsk_imgui ravenemudsk_game_input ravenemudsk_game_state ravenemu_c_api
-  ravenemudsk_rcheevos ravenemudsk_session_store ${RAVENEMUDSK_SDL} CURL::libcurl)
+target_compile_definitions(RavenEmuDSK PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
+target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state)
 if(WIN32)
   target_compile_definitions(RavenEmuDSK PRIVATE SDL_MAIN_HANDLED)
   set_target_properties(RavenEmuDSK PROPERTIES WIN32_EXECUTABLE TRUE)
-  target_link_libraries(RavenEmuDSK PRIVATE comdlg32 shell32 ole32 winhttp)
   add_custom_command(TARGET RavenEmuDSK POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       $<TARGET_RUNTIME_DLLS:RavenEmuDSK> $<TARGET_FILE_DIR:RavenEmuDSK>
@@ -180,11 +204,12 @@ add_custom_command(TARGET RavenEmuDSK POST_BUILD
   VERBATIM)
 
 if(BUILD_TESTING)
-  add_executable(ravenemudsk_notifications_test tests/notifications_test.cpp src/achievements/notifications.cpp src/achievements/progress.cpp)
-  target_include_directories(ravenemudsk_notifications_test PRIVATE include)
+  add_executable(ravenemudsk_notifications_test tests/notifications_test.cpp)
+  target_link_libraries(ravenemudsk_notifications_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_notifications COMMAND ravenemudsk_notifications_test)
-  add_executable(ravenemudsk_game_sound_test tests/game_sound_test.cpp src/ui/game_sound.cpp)
-  target_include_directories(ravenemudsk_game_sound_test PRIVATE include)
+  add_executable(ravenemudsk_game_sound_test tests/game_sound_test.cpp)
+  target_compile_definitions(ravenemudsk_game_sound_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_game_sound_test PRIVATE ravenemudsk_game_ui)
   add_test(NAME game_sound COMMAND ravenemudsk_game_sound_test)
   add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
   target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
@@ -192,27 +217,22 @@ if(BUILD_TESTING)
   add_executable(ravenemudsk_outbox_test tests/outbox_test.cpp)
   target_link_libraries(ravenemudsk_outbox_test PRIVATE ravenemudsk_session_store)
   add_test(NAME retro_outbox COMMAND ravenemudsk_outbox_test)
-  add_executable(ravenemudsk_badge_cache_test tests/badge_cache_test.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp)
+  add_executable(ravenemudsk_badge_cache_test tests/badge_cache_test.cpp)
   target_compile_definitions(ravenemudsk_badge_cache_test PRIVATE SDL_MAIN_HANDLED)
-  target_include_directories(ravenemudsk_badge_cache_test PRIVATE include "${stb_SOURCE_DIR}")
-  target_link_libraries(ravenemudsk_badge_cache_test PRIVATE ravenemudsk_user_agent ${RAVENEMUDSK_SDL} CURL::libcurl)
+  target_link_libraries(ravenemudsk_badge_cache_test PRIVATE ravenemudsk_ui_kit)
   add_test(NAME retro_badge_cache COMMAND ravenemudsk_badge_cache_test "${RAVENEMUDSK_RA_LOGO}")
-  add_executable(ravenemudsk_progress_test
-    tests/progress_test.cpp src/achievements/progress.cpp)
-  target_include_directories(ravenemudsk_progress_test PRIVATE include)
+  add_executable(ravenemudsk_progress_test tests/progress_test.cpp)
+  target_link_libraries(ravenemudsk_progress_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_progress COMMAND ravenemudsk_progress_test)
-  add_executable(ravenemudsk_achievement_list_test
-    tests/achievement_list_test.cpp src/achievements/achievement_list.cpp)
-  target_include_directories(ravenemudsk_achievement_list_test PRIVATE include "${rcheevos_SOURCE_DIR}/include")
+  add_executable(ravenemudsk_achievement_list_test tests/achievement_list_test.cpp)
+  target_link_libraries(ravenemudsk_achievement_list_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_achievement_list COMMAND ravenemudsk_achievement_list_test)
-add_executable(ravenemudsk_library_progress_test tests/library_progress_test.cpp
-  src/achievements/library_progress.cpp src/achievements/achievement_list.cpp)
-target_include_directories(ravenemudsk_library_progress_test PRIVATE include "${rcheevos_SOURCE_DIR}/include")
-add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
-  add_executable(ravenemudsk_icons_test tests/icons_test.cpp src/ui/icons.cpp)
-  target_include_directories(ravenemudsk_icons_test PRIVATE include)
-  target_link_libraries(ravenemudsk_icons_test PRIVATE ravenemudsk_imgui)
+  add_executable(ravenemudsk_library_progress_test tests/library_progress_test.cpp)
+  target_link_libraries(ravenemudsk_library_progress_test PRIVATE ravenemudsk_achievements)
+  add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
+  add_executable(ravenemudsk_icons_test tests/icons_test.cpp)
   target_compile_definitions(ravenemudsk_icons_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_icons_test PRIVATE ravenemudsk_ui_kit)
   add_test(NAME icons COMMAND ravenemudsk_icons_test)
   add_executable(ravenemudsk_library_test tests/library_test.cpp)
   target_link_libraries(ravenemudsk_library_test PRIVATE ravenemudsk_ui_library)
@@ -224,49 +244,26 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   target_compile_definitions(ravenemudsk_game_input_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_game_input_test PRIVATE ravenemudsk_game_input)
   add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
-  add_executable(ravenemudsk_home_grid_test tests/home_grid_test.cpp
-    src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
-  target_include_directories(ravenemudsk_home_grid_test PRIVATE include "${stb_SOURCE_DIR}")
-  target_compile_definitions(ravenemudsk_home_grid_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
-  target_link_libraries(ravenemudsk_home_grid_test PRIVATE ravenemudsk_user_agent ravenemudsk_ui_library
-    ravenemudsk_imgui ravenemudsk_game_input ravenemu_c_api ravenemudsk_rcheevos ravenemudsk_session_store ${RAVENEMUDSK_SDL} CURL::libcurl)
-  if(WIN32)
-    target_link_libraries(ravenemudsk_home_grid_test PRIVATE comdlg32 shell32 ole32 winhttp)
-  endif()
-  add_test(NAME home_grid COMMAND ravenemudsk_home_grid_test)
+  # The launcher's screens, driven through their internal header.
+  foreach(view home_grid profile_view)
+    add_executable(ravenemudsk_${view}_test tests/${view}_test.cpp)
+    target_compile_definitions(ravenemudsk_${view}_test PRIVATE SDL_MAIN_HANDLED)
+    target_link_libraries(ravenemudsk_${view}_test PRIVATE ravenemudsk_launcher)
+    add_test(NAME ${view} COMMAND ravenemudsk_${view}_test)
+  endforeach()
   set_tests_properties(home_grid PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1")
-  add_executable(ravenemudsk_profile_view_test tests/profile_view_test.cpp
-    src/achievements/client.cpp src/achievements/achievement_list.cpp src/achievements/library_progress.cpp src/ui/badge_cache.cpp src/ui/image_loader.cpp
-    src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/update_check.cpp)
-  target_include_directories(ravenemudsk_profile_view_test PRIVATE include "${stb_SOURCE_DIR}")
-  target_compile_definitions(ravenemudsk_profile_view_test PRIVATE SDL_MAIN_HANDLED RAVENEMUDSK_HAVE_CURL)
-  target_link_libraries(ravenemudsk_profile_view_test PRIVATE ravenemudsk_user_agent ravenemudsk_ui_library
-    ravenemudsk_imgui ravenemudsk_game_input ravenemu_c_api ravenemudsk_rcheevos ravenemudsk_session_store ${RAVENEMUDSK_SDL} CURL::libcurl)
-  if(WIN32)
-    target_link_libraries(ravenemudsk_profile_view_test PRIVATE comdlg32 shell32 ole32 winhttp)
-  endif()
-  add_test(NAME profile_view COMMAND ravenemudsk_profile_view_test)
   set_tests_properties(profile_view PROPERTIES TIMEOUT 30 ENVIRONMENT "RAVENEMUDSK_UI_SMOKE=1;SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
-  add_executable(ravenemudsk_ra_game_test tests/ra_game_test.cpp src/achievements/client.cpp)
-  target_include_directories(ravenemudsk_ra_game_test PRIVATE include)
-  target_link_libraries(ravenemudsk_ra_game_test PRIVATE ravenemudsk_user_agent ravenemudsk_session_store ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
+  add_executable(ravenemudsk_ra_game_test tests/ra_game_test.cpp)
+  target_link_libraries(ravenemudsk_ra_game_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_game_integration COMMAND ravenemudsk_ra_game_test)
   set_tests_properties(retro_game_integration PROPERTIES TIMEOUT 30)
-  add_executable(ravenemudsk_ra_features_test tests/ra_features_test.cpp src/achievements/client.cpp)
-  target_include_directories(ravenemudsk_ra_features_test PRIVATE include)
-  target_link_libraries(ravenemudsk_ra_features_test PRIVATE ravenemudsk_user_agent ravenemudsk_session_store ravenemudsk_game_state
-    ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
+  add_executable(ravenemudsk_ra_features_test tests/ra_features_test.cpp)
+  target_link_libraries(ravenemudsk_ra_features_test PRIVATE ravenemudsk_achievements ravenemudsk_game_state)
   add_test(NAME retro_features COMMAND ravenemudsk_ra_features_test)
   set_tests_properties(retro_features PROPERTIES TIMEOUT 30)
-  add_executable(ravenemudsk_game_overlay_test tests/game_overlay_test.cpp
-    src/achievements/client.cpp src/achievements/notifications.cpp src/achievements/progress.cpp
-    src/ui/game_overlay.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp src/ui/theme.cpp
-    src/ui/badge_cache.cpp src/ui/image_loader.cpp)
-  target_include_directories(ravenemudsk_game_overlay_test PRIVATE include "${stb_SOURCE_DIR}")
+  add_executable(ravenemudsk_game_overlay_test tests/game_overlay_test.cpp)
   target_compile_definitions(ravenemudsk_game_overlay_test PRIVATE SDL_MAIN_HANDLED)
-  target_link_libraries(ravenemudsk_game_overlay_test PRIVATE ravenemudsk_user_agent ravenemudsk_ui_library ravenemudsk_imgui
-    ravenemudsk_game_input ravenemudsk_session_store ravenemu_c_api ravenemudsk_rcheevos ${RAVENEMUDSK_SDL} CURL::libcurl)
+  target_link_libraries(ravenemudsk_game_overlay_test PRIVATE ravenemudsk_game_ui)
   add_test(NAME game_overlay COMMAND ravenemudsk_game_overlay_test)
   set_tests_properties(game_overlay PROPERTIES TIMEOUT 30
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;RAVENEMUDSK_UI_SMOKE=1")
@@ -274,10 +271,8 @@ add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
   target_compile_definitions(ravenemudsk_user_agent_test PRIVATE EXPECTED_VERSION="${PROJECT_VERSION}")
   target_link_libraries(ravenemudsk_user_agent_test PRIVATE ravenemudsk_user_agent ravenemu_c_api)
   add_test(NAME user_agent COMMAND ravenemudsk_user_agent_test)
-  add_executable(ravenemudsk_session_test tests/session_test.cpp src/achievements/client.cpp)
-  target_include_directories(ravenemudsk_session_test PRIVATE include)
-  target_link_libraries(ravenemudsk_session_test PRIVATE ravenemudsk_user_agent ravenemudsk_session_store
-    ravenemu_c_api ravenemudsk_rcheevos CURL::libcurl)
+  add_executable(ravenemudsk_session_test tests/session_test.cpp)
+  target_link_libraries(ravenemudsk_session_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_session COMMAND ravenemudsk_session_test)
   set_tests_properties(retro_session PROPERTIES TIMEOUT 30)
   if(WIN32)

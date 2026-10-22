@@ -3,7 +3,8 @@
 from pathlib import Path
 import struct
 
-shell = Path("src/ui/app_shell.cpp").read_text(encoding="utf-8")
+# The launcher, one file per screen.
+shell = "\n".join(p.read_text(encoding="utf-8") for p in sorted(Path("src/ui/shell").glob("*.[ch]pp")))
 widgets = Path("src/ui/widgets.cpp").read_text(encoding="utf-8")
 head = Path("include/ravenemudsk/ui/widgets.hpp").read_text(encoding="utf-8")
 cmake = Path("CMakeLists.txt").read_text(encoding="utf-8")
