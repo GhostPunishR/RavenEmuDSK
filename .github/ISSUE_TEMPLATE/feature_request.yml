@@ -1,0 +1,32 @@
+name: Proposer une amélioration
+description: Expliquer un besoin et une proposition pour RavenEmu.
+title: "[Amélioration] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Consultez les propositions existantes. Expliquez le besoin concret et gardez une proposition par ticket.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Besoin ou problème rencontré
+      description: Dans quelle situation cette amélioration vous serait-elle utile ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Comportement souhaité
+      description: Décrivez le résultat attendu du point de vue de l'utilisateur.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+      description: Solutions actuelles ou autres approches possibles.
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexte et exemples
+      description: Systèmes concernés, maquette ou exemple d'utilisation. Masquez les informations personnelles et ne joignez pas de ROM commerciale.

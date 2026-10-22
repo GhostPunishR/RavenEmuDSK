@@ -1,0 +1,68 @@
+name: Signaler un bug
+description: Décrire un dysfonctionnement reproductible de RavenEmu.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Vérifiez les tickets existants avant de continuer. Ne joignez aucune ROM commerciale, aucun mot de passe ni jeton. Masquez les informations personnelles dans les captures et journaux.
+  - type: input
+    id: version
+    attributes:
+      label: Version ou commit
+      description: Version affichée dans l'application, commit ou lien vers la compilation GitHub Actions utilisée.
+      placeholder: "Exemple : 0.3.0, commit abc1234 ou lien vers une compilation"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Système
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environnement
+      description: Version du système, architecture et, si utile, carte graphique ou manette.
+      placeholder: "Exemple : Windows 11, x64"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: Décrivez un parcours précis, depuis le lancement de l'application si nécessaire.
+      placeholder: |
+        1. Ouvrir...
+        2. Sélectionner...
+        3. Observer...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Résultat attendu
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Résultat observé
+      description: Ajoutez le message exact ou une capture si cela aide.
+    validations:
+      required: true
+  - type: textarea
+    id: achievements
+    attributes:
+      label: Contexte RetroAchievements, si concerné
+      description: Jeu et plateforme GB/GBC/GBA, lien vers sa fiche RetroAchievements, mode Softcore ou Hardcore, statut de connexion, problème avant ou après lancement et différence avec le site. Ne partagez pas d'identifiants de connexion.
+  - type: textarea
+    id: details
+    attributes:
+      label: Informations complémentaires
+      description: Fréquence, dernière version fonctionnelle, journaux expurgés ou solution provisoire.
