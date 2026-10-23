@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Exercise the production home view, including its private grid composition.
-#include "../src/ui/shell/shell.hpp"
+#include "../src/launcher/shell.hpp"
 #include <imgui_internal.h>
 #include <chrono>
 #include <iostream>

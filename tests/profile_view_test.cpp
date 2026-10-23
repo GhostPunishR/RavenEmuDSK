@@ -2,7 +2,7 @@
 // Render the production Profile page with a synthetic RetroAchievements
 // account: stable account and game columns on every tab and width, search,
 // and the sign-out confirmation that announces unsent submissions.
-#include "../src/ui/shell/shell.hpp"
+#include "../src/launcher/shell.hpp"
 #include "retro_test_storage.hpp"
 #include <imgui_internal.h>
 #include <iostream>

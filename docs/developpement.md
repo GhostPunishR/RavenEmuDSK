@@ -6,15 +6,26 @@
 
 | Emplacement | Rôle |
 | --- | --- |
-| `src/desktop.cpp` | Point d'entrée, boucle SDL et intégration de l'application. |
-| `src/ui/` | Bibliothèque, interface ImGui, réglages, commandes et stockage local. |
-| `src/achievements/` | Client RetroAchievements, session, cache et journal des envois. |
-| `include/ravenemudsk/` | Interfaces C++ de ces modules. |
+| `src/desktop.cpp` | Point d'entrée : le lanceur, puis le jeu choisi, jusqu'à la fermeture. |
+| `src/player/` | La partie en cours : fenêtre, boucle d'images, sauvegardes, menu de pause dessiné par-dessus le jeu. |
+| `src/launcher/` | Lanceur, un fichier par écran (bibliothèque, fiche de jeu, profil, réglages, mode TV, mises à jour). |
+| `src/library/` | Bibliothèque de jeux, dossiers Sauvegardes et Jaquettes. |
+| `src/saves/` | États de jeu, couplés aux compteurs RetroAchievements. |
+| `src/input/` | Clavier et manette : attributions, combinaison du menu, noms et dessins des boutons. |
+| `src/audio/` | Son du jeu : volume et carillon des succès. |
+| `src/settings/` | Fichier de réglages et préférences lues au lancement d'un jeu. |
+| `src/updates/` | Vérification des nouvelles versions sur GitHub. |
+| `src/achievements/` | RetroAchievements : client, session, cache, journal des envois, badges et classements. |
+| `src/wireless/` | Câble link sans fil : protocole commun avec RavenEmu Android, mDNS/DNS-SD, connexions TCP et contrôleur. |
+| `src/ui/` | Kit d'interface commun au lanceur et au jeu : thème, widgets, icônes, images locales. |
+| `include/ravenemudsk/` | Interfaces C++ de ces modules, dans des dossiers du même nom. |
 | `tests/` | Tests CTest et données synthétiques. |
 | `assets/` | Logo, icônes et ressources de l'interface. |
 | `cmake/` | Intégration des dépendances et assemblage macOS. |
 | `tools/` | Vérifications Python et création des paquets Unix. |
 | `.github/workflows/build.yml` | Compilation, tests et paquets Windows, Linux et macOS. |
+
+Chaque fichier se range dans le dossier de son rôle, le même sous `src/` et sous `include/ravenemudsk/`. Les espaces de noms C++ (`ravenemudsk_ui`, `ravenemudsk_ra`, `ravenemudsk_link`...) et les bibliothèques CMake ne suivent pas ce découpage et restent inchangés.
 
 L'application porte le nom **RavenEmu**. `RavenEmuDSK` reste le nom du dépôt, de la cible CMake et de l'exécutable. Les moteurs GB/GBC/GBA sont maintenus dans [RavenCore](https://github.com/GhostPunishR/RavenCore).
 
@@ -43,6 +54,8 @@ python3 tools/check_text_style.py
 python3 tools/check_ra_navigation.py
 ```
 
+Les tests du câble link sans fil (`wireless_protocol`, `wireless_mdns`, `wireless_link`) n'utilisent que la boucle locale de l'ordinateur : deux jeux synthétiques s'y relient par le vrai contrôleur, sans découverte réseau. Les octets du protocole y sont vérifiés contre ceux de RavenEmu Android.
+
 Sous Windows, utilisez `python` si c'est le nom de votre commande Python. Les textes du dépôt utilisent le tiret simple `-`, conformément au contrôle de typographie.
 
 Le [workflow de compilation](../.github/workflows/build.yml) prévoit des builds et tests sur Ubuntu, Windows et macOS. Les résultats et artefacts sont consultables dans [GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions).
@@ -60,5 +73,7 @@ L'outil nécessite `patchelf` et les métadonnées des paquets Debian/Ubuntu sou
 ## Validation manuelle
 
 Pour une modification de l'interface, vérifiez le parcours concerné en petite et grande fenêtre, ainsi qu'au clavier et à la manette lorsque ces entrées s'appliquent. Joignez une capture si elle aide à comprendre le changement.
+
+Pour le câble link sans fil, reliez un jeu entre cet ordinateur et RavenEmu Android, puis entre deux ordinateurs, sur un même réseau : liaison automatique, choix entre plusieurs appareils, pause partagée, débranchement et reprise après la fermeture d'un côté.
 
 Pour RetroAchievements, suivez la [matrice de validation](retroachievements-validation.md) et la [politique de confidentialité](confidentialite.md). Les tests automatiques utilisent des ROMs synthétiques et des transports simulés ; ils n'accordent pas de succès sur un vrai compte. Ne présentez pas un résultat CTest comme une approbation officielle RetroAchievements.

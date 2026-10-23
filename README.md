@@ -14,6 +14,7 @@ Application open source pour **Windows, Linux et macOS**, écrite en C++20 avec 
 - Mode TV, clavier et manette personnalisables, volume réglable et lissage de l’image.
 - Sauvegardes de progression, états rapides et plein écran.
 - RetroAchievements : profil, succès, classements et modes Softcore / Hardcore.
+- Câble link sans fil : échanges et combats avec RavenEmu Android ou un autre ordinateur du même réseau.
 
 ## Télécharger et jouer
 
@@ -27,7 +28,7 @@ Consultez le [guide d'installation](docs/installation.md) pour les prérequis et
 
 ## Documentation
 
-- [Utilisation, commandes, sauvegardes et RetroAchievements](docs/utilisation.md)
+- [Utilisation, commandes, câble link sans fil, sauvegardes et RetroAchievements](docs/utilisation.md)
 - [Développement, tests et création des paquets](docs/developpement.md)
 - [Validation RetroAchievements et limites actuelles](docs/retroachievements-validation.md)
 - [Confidentialité et données locales](docs/confidentialite.md)

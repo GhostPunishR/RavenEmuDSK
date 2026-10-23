@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_input.hpp>
+#include <ravenemudsk/input/game_input.hpp>
 #include <ravenemu/bridge.h>
 #include <array>
-#include <ravenemudsk/ui/settings.hpp>
-#include <ravenemudsk/ui/game_preferences.hpp>
+#include <ravenemudsk/settings/settings.hpp>
+#include <ravenemudsk/settings/game_preferences.hpp>
 #include <chrono>
 #include <stdexcept>
 
@@ -216,14 +216,17 @@ int main() {
     // A game's preferences, read once: defaults, then each setting.
     Settings fresh;
     const auto defaults=game_preferences(fresh);
-    require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image,"Default game preferences");
+    require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image&&defaults.wireless_link,
+            "Default game preferences");
     require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
             defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
     Settings chosen;
     chosen.set_flag("ra_hardcore",true);chosen.set_flag("ra_unlock_sound",false);chosen.set("volume","35");
     chosen.set_flag("smooth_image",true);chosen.set("pad_a",std::to_string(SDL_CONTROLLER_BUTTON_X));
+    chosen.set_flag("wireless_link",false);
     const auto prefs=game_preferences(chosen);
-    require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image,"Chosen game preferences");
+    require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image&&!prefs.wireless_link,
+            "Chosen game preferences");
     require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
     chosen.set("volume","250");require(game_preferences(chosen).volume==100,"Volume above 100 % is full volume");
     chosen.set_flag("mute",true);require(game_preferences(chosen).volume==0,"Muted means silent, whatever the volume");

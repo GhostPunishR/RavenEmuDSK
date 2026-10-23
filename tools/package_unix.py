@@ -199,7 +199,11 @@ def macos(build: Path, stage: Path) -> tuple[Path, Path]:
                       "CFBundleDisplayName": "RavenEmu", "CFBundleIdentifier": "org.ravenemu.desktop",
                       "CFBundlePackageType": "APPL", "CFBundleVersion": version,
                       "CFBundleShortVersionString": version, "LSMinimumSystemVersion": "15.0",
-                      "NSHighResolutionCapable": True, "SDL_FILESYSTEM_BASE_DIR": "resource"}, stream)
+                      "NSHighResolutionCapable": True, "SDL_FILESYSTEM_BASE_DIR": "resource",
+                      # The wireless link cable: macOS asks once before the local network is used.
+                      "NSLocalNetworkUsageDescription":
+                          "RavenEmu relie le câble link de vos jeux à un autre appareil du réseau local.",
+                      "NSBonjourServices": ["_ravenemulink._tcp"]}, stream)
     # Homebrew's SDL2 may be sdl2-compat. It loads SDL3 with dlopen in a
     # constructor, so otool/BundleUtilities cannot discover this dependency.
     # Its macOS loader explicitly supports libSDL3.dylib beside the executable.

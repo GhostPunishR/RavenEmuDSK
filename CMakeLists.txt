@@ -18,7 +18,7 @@ set(RAVENEMUDSK_LOCAL_TESTING ${BUILD_TESTING})
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(ravencore
   GIT_REPOSITORY https://github.com/GhostPunishR/RavenCore.git
-  GIT_TAG 9fd041c6bc0b2a49357c93dd5fae707395c44d63
+  GIT_TAG 2dcfef7cf8dfce860c3adedea3c82e2b0773c063
   GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(ravencore)
 FetchContent_Declare(imgui
@@ -70,18 +70,29 @@ target_include_directories(ravenemudsk_imgui PUBLIC "${imgui_SOURCE_DIR}")
 target_link_libraries(ravenemudsk_imgui PUBLIC ${RAVENEMUDSK_SDL})
 
 add_library(ravenemudsk_ui_library STATIC
-  src/ui/library.cpp src/ui/settings.cpp src/ui/storage.cpp src/ui/updates.cpp)
+  src/library/library.cpp src/settings/settings.cpp src/library/storage.cpp src/updates/updates.cpp)
 target_include_directories(ravenemudsk_ui_library PUBLIC include)
 target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
 target_link_libraries(ravenemudsk_ui_library PRIVATE ravenemu_common)
 
-add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp src/ui/keyboard_bindings.cpp src/ui/pad_bindings.cpp
-  src/ui/game_preferences.cpp)
+add_library(ravenemudsk_game_input STATIC src/input/game_input.cpp src/input/keyboard_bindings.cpp src/input/pad_bindings.cpp
+  src/settings/game_preferences.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api ravenemudsk_ui_library)
-add_library(ravenemudsk_game_state STATIC src/ui/game_state.cpp)
+add_library(ravenemudsk_game_state STATIC src/saves/game_state.cpp)
 target_include_directories(ravenemudsk_game_state PUBLIC include)
 target_link_libraries(ravenemudsk_game_state PRIVATE ravenemu_common ravenemu_c_api)
+# The wireless link cable: the game's link port over the local network, with
+# RavenEmu Android or another computer (own protocol, own mDNS).
+find_package(Threads REQUIRED)
+add_library(ravenemudsk_wireless STATIC src/wireless/protocol.cpp src/wireless/net.cpp src/wireless/mdns.cpp
+  src/wireless/connection.cpp src/wireless/wireless_link.cpp)
+target_include_directories(ravenemudsk_wireless PUBLIC include)
+target_compile_features(ravenemudsk_wireless PUBLIC cxx_std_20)
+target_link_libraries(ravenemudsk_wireless PUBLIC ravenemu_c_api Threads::Threads)
+if(WIN32)
+  target_link_libraries(ravenemudsk_wireless PUBLIC ws2_32)
+endif()
 # The User-Agent of every request: product, system, engine and SDK versions.
 add_library(ravenemudsk_user_agent STATIC src/achievements/user_agent.cpp)
 target_include_directories(ravenemudsk_user_agent PUBLIC include)
@@ -119,8 +130,8 @@ target_link_libraries(ravenemudsk_achievements PUBLIC ravenemudsk_rcheevos raven
 
 # Interface pieces shared by the launcher and the game: theme, widgets, icons, images.
 add_library(ravenemudsk_ui_kit STATIC
-  src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp
-  src/ui/badge_cache.cpp src/ui/image_loader.cpp src/ui/update_check.cpp)
+  src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/input/pad_glyphs.cpp src/achievements/retro_widgets.cpp
+  src/achievements/badge_cache.cpp src/ui/image_loader.cpp src/updates/update_check.cpp)
 target_include_directories(ravenemudsk_ui_kit PUBLIC include PRIVATE "${stb_SOURCE_DIR}")
 target_compile_definitions(ravenemudsk_ui_kit PRIVATE RAVENEMUDSK_HAVE_CURL)
 target_link_libraries(ravenemudsk_ui_kit PUBLIC ravenemudsk_imgui ravenemudsk_achievements ravenemudsk_game_input
@@ -130,25 +141,26 @@ if(WIN32)
 endif()
 
 # Drawn over the game: pause menu, RetroAchievements banner, sounds.
-add_library(ravenemudsk_game_ui STATIC src/ui/game_overlay.cpp src/ui/game_sound.cpp)
+add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/audio/game_sound.cpp)
 target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
 
-# The launcher, one file per screen (src/ui/shell); the program sees app_shell.hpp.
+# The launcher, one file per screen (src/launcher); the program sees app_shell.hpp.
 add_library(ravenemudsk_launcher STATIC
-  src/ui/shell/common.cpp src/ui/shell/chrome.cpp src/ui/shell/library_view.cpp src/ui/shell/profile_view.cpp
-  src/ui/shell/tv_view.cpp src/ui/shell/updates_view.cpp src/ui/shell/settings_view.cpp
-  src/ui/shell/game_detail.cpp src/ui/shell/launcher_frame.cpp src/ui/shell/launcher.cpp
-  src/ui/shell/preferences.cpp)
+  src/launcher/common.cpp src/launcher/chrome.cpp src/launcher/library_view.cpp src/launcher/profile_view.cpp
+  src/launcher/tv_view.cpp src/launcher/updates_view.cpp src/launcher/settings_view.cpp
+  src/launcher/game_detail.cpp src/launcher/launcher_frame.cpp src/launcher/launcher.cpp
+  src/launcher/preferences.cpp)
 target_compile_definitions(ravenemudsk_launcher PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
 target_link_libraries(ravenemudsk_launcher PUBLIC ravenemudsk_ui_kit)
 if(WIN32)
   target_link_libraries(ravenemudsk_launcher PRIVATE comdlg32 shell32 ole32)
 endif()
 
-add_executable(RavenEmuDSK src/desktop.cpp)
+add_executable(RavenEmuDSK src/desktop.cpp src/player/game_session.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
 target_compile_definitions(RavenEmuDSK PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
-target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state)
+target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state
+  ravenemudsk_wireless)
 if(WIN32)
   target_compile_definitions(RavenEmuDSK PRIVATE SDL_MAIN_HANDLED)
   set_target_properties(RavenEmuDSK PROPERTIES WIN32_EXECUTABLE TRUE)
@@ -267,6 +279,16 @@ if(BUILD_TESTING)
   add_test(NAME game_overlay COMMAND ravenemudsk_game_overlay_test)
   set_tests_properties(game_overlay PROPERTIES TIMEOUT 30
     ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;RAVENEMUDSK_UI_SMOKE=1")
+  add_executable(ravenemudsk_wireless_protocol_test tests/wireless_protocol_test.cpp)
+  target_link_libraries(ravenemudsk_wireless_protocol_test PRIVATE ravenemudsk_wireless)
+  add_test(NAME wireless_protocol COMMAND ravenemudsk_wireless_protocol_test)
+  add_executable(ravenemudsk_mdns_test tests/mdns_test.cpp)
+  target_link_libraries(ravenemudsk_mdns_test PRIVATE ravenemudsk_wireless)
+  add_test(NAME wireless_mdns COMMAND ravenemudsk_mdns_test)
+  add_executable(ravenemudsk_wireless_link_test tests/wireless_link_test.cpp)
+  target_link_libraries(ravenemudsk_wireless_link_test PRIVATE ravenemudsk_wireless)
+  add_test(NAME wireless_link COMMAND ravenemudsk_wireless_link_test)
+  set_tests_properties(wireless_link PROPERTIES TIMEOUT 60)
   add_executable(ravenemudsk_user_agent_test tests/user_agent_test.cpp)
   target_compile_definitions(ravenemudsk_user_agent_test PRIVATE EXPECTED_VERSION="${PROJECT_VERSION}")
   target_link_libraries(ravenemudsk_user_agent_test PRIVATE ravenemudsk_user_agent ravenemu_c_api)

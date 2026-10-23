@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_overlay.hpp>
+#include <ravenemudsk/player/game_overlay.hpp>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
@@ -44,6 +44,51 @@ void navigation(SDL_Window* window,SDL_Renderer* renderer){
         require(key(ImGuiKey_Enter)==OverlayAction::ToggleHardcore,"Mode switch did not return its player action");
         overlay.close_menu();draw();
     }
+}
+// The wireless link cable: the partner chooser over the game, then, once
+// linked, no state loading and an entry to unplug.
+void link_cable(SDL_Window* window,SDL_Renderer* renderer){
+    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+    GameOverlay overlay(window,renderer,&client);OverlayInfo info;
+    info.game_title="Link cable";info.system="gb";info.has_state=true;info.link_own_label="PC Linux · 4F2A";
+    SDL_SetWindowSize(window,1024,768);
+    const auto draw=[&]{
+        SDL_PumpEvents();SDL_SetRenderDrawColor(renderer,11,12,18,255);SDL_RenderClear(renderer);
+        const auto action=overlay.draw(info);SDL_RenderPresent(renderer);
+        require(ImGui::GetCurrentContext()->DebugDrawIdConflicts==0,"Link overlay has conflicting widget IDs");
+        return action;
+    };
+    const auto key=[&](ImGuiKey key){
+        ImGui::GetIO().AddKeyEvent(key,true);const auto action=draw();
+        ImGui::GetIO().AddKeyEvent(key,false);const auto released=draw();
+        return action==OverlayAction::None?released:action;
+    };
+    info.link_choices={{0x20,"Pixel 7 · 0000"},{0x30,"Galaxy S23 · 0000"}};
+    for(int i=0;i<3;++i)draw();
+    const auto* chooser=ImGui::FindWindowByName("##link-chooser");
+    require(chooser&&chooser->Active&&chooser->Size.y<=768.f,"The partner chooser is up and fits");
+    require(key(ImGuiKey_Enter)==OverlayAction::ChooseLink&&overlay.chosen_link()==0x20,"Enter picks the first device");
+    key(ImGuiKey_DownArrow);
+    require(key(ImGuiKey_Enter)==OverlayAction::ChooseLink&&overlay.chosen_link()==0x30,"The second one by the arrows");
+    require(key(ImGuiKey_Escape)==OverlayAction::ChooseLinkLater,"Escape means later");
+    overlay.open_menu();for(int i=0;i<3;++i)draw();
+    chooser=ImGui::FindWindowByName("##link-chooser");
+    require(!chooser||!chooser->Active,"The menu goes first, the chooser waits");
+    overlay.close_menu();draw();
+    info.link_choices.clear();info.link_partner="Pixel 7 (Tetris)";info.link_partner_paused=true;
+    for(int i=0;i<2;++i)draw();
+    overlay.open_menu();for(int i=0;i<4;++i)draw();
+    const auto focused=[&](const char* label){
+        auto* menu=ImGui::FindWindowByName("##pause");
+        require(menu!=nullptr,"Pause window missing");
+        return ImGui::GetCurrentContext()->NavId==menu->GetID(label);
+    };
+    key(ImGuiKey_DownArrow);key(ImGuiKey_DownArrow);
+    require(focused("Succès et classements"),"Linked: no state loading, it would part the two games");
+    for(int i=0;i<4;++i)key(ImGuiKey_DownArrow);
+    require(focused("Débrancher le câble"),"Unplug entry reachable by keyboard");
+    require(key(ImGuiKey_Enter)==OverlayAction::UnplugLink,"Unplug returns its action");
+    overlay.close_menu();draw();
 }
 // Bounds of what is drawn on top of the game, from the foreground vertices,
 // `seconds` after an unlock (or only a toast) was raised: {left, top, right, bottom}.
@@ -220,6 +265,6 @@ int main(){
     SDL_Window* window=SDL_CreateWindow("Overlay regression",0,0,1024,768,0);
     require(window!=nullptr,"SDL window failed");SDL_Renderer* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     require(renderer!=nullptr,"SDL renderer failed");
-    navigation(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
-    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, TV cards, controller buttons, TV menu passed\n";
+    navigation(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
+    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, link cable, TV cards, controller buttons, TV menu passed\n";
 }

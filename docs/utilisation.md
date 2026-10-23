@@ -41,6 +41,25 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
 
+## Câble link sans fil
+
+Deux jeux se relient comme avec un câble link, sans câble : avec RavenEmu Android sur un téléphone ou avec un autre ordinateur, sur le même réseau Wi-Fi ou local.
+
+1. Lancez un jeu sur chaque appareil : le même, ou deux jeux faits pour se relier (Pokémon Rouge et Bleu, par exemple). Game Boy et Game Boy Color se relient entre eux ; un Game Boy Advance se relie à un autre Game Boy Advance.
+2. Dans le jeu, allez là où il se sert du câble (salle d'échange, combat à deux...). RavenEmu cherche alors un autre appareil et branche le câble tout seul : « Câble relié à... » s'affiche.
+3. Si plusieurs appareils sont prêts, **Relier le câble à...** vous laisse choisir, au clavier, à la souris ou à la manette ; **Plus tard** les écarte pour cette partie. Cet ordinateur apparaît chez les autres sous le nom de son système (PC Windows, Mac ou PC Linux) suivi d'un code de quatre caractères.
+
+Pendant la liaison :
+
+- Le menu de pause d'un côté met aussi l'autre jeu en attente (« Partenaire en pause »), comme deux consoles reliées.
+- Le chargement d'un état est désactivé : il séparerait les deux parties. Sauvegarder un état reste possible.
+- **Débrancher le câble**, dans le menu de pause, sépare les deux jeux ; ils ne se relient plus d'eux-mêmes pendant cette partie. Quitter le jeu débranche aussi le câble.
+- Au Game Boy Advance, l'un des deux appareils tient le rôle du joueur 1 (le parent), toujours le même pour une paire donnée.
+
+Les deux appareils doivent avoir une version récente de RavenEmu, avec le même câble : un appareil resté sur une version plus ancienne ne se relie pas. Mettez à jour RavenEmu sur chacun.
+
+Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
+
 ## Sauvegardes et jaquettes
 
 Sous Windows et Linux, l'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**.
