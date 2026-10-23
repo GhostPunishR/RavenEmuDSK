@@ -58,6 +58,8 @@ Pendant la liaison :
 
 Les deux appareils doivent avoir une version récente de RavenEmu, avec le même câble : un appareil resté sur une version plus ancienne ne se relie pas. Mettez à jour RavenEmu sur chacun.
 
+Chaque échange de données attend un aller-retour réseau : pendant que le câble sert, les deux jeux ralentissent ensemble, d'autant plus que le réseau est lent. Sur un échange Pokémon Rubis ↔ Émeraude, ils passent d'environ 60 images par seconde sans latence à 16 avec 6 ms d'aller-retour, et 5 avec 20 ms ; l'échange va au bout. Pour un échange plus fluide, préférez un câble Ethernet ou le Wi-Fi 5 GHz près de la box, et coupez un éventuel VPN, qui peut ralentir ou bloquer le trafic local.
+
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
 
 ## Sauvegardes et jaquettes
