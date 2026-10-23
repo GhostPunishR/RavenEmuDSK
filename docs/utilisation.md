@@ -56,6 +56,8 @@ Pendant la liaison :
 - **Débrancher le câble**, dans le menu de pause, sépare les deux jeux ; ils ne se relient plus d'eux-mêmes pendant cette partie. Quitter le jeu débranche aussi le câble.
 - Au Game Boy Advance, l'un des deux appareils tient le rôle du joueur 1 (le parent), toujours le même pour une paire donnée.
 
+Les deux appareils doivent avoir une version récente de RavenEmu, avec le même câble : un appareil resté sur une version plus ancienne ne se relie pas. Mettez à jour RavenEmu sur chacun.
+
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
 
 ## Sauvegardes et jaquettes

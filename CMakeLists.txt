@@ -18,7 +18,7 @@ set(RAVENEMUDSK_LOCAL_TESTING ${BUILD_TESTING})
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(ravencore
   GIT_REPOSITORY https://github.com/GhostPunishR/RavenCore.git
-  GIT_TAG 54912ad94220f9f2d2a8cd2b07389807741eff3b
+  GIT_TAG cbdd7886b66f7ce3ee049e2e253d9ee239da96de
   GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(ravencore)
 FetchContent_Declare(imgui
