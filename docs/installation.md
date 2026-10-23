@@ -25,7 +25,7 @@ Les paquets Unix contiennent les licences de leurs bibliothèques et un fichier 
 
 RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu sans marge grise est inclus dans `assets/ravenemu-logo.png`, à partir de l’[icône originale du projet RavenEmu](https://github.com/GhostPunishR/RavenEmu/blob/5f002726a68c1978f4cad273bf8b7b3786b9fb3b/docs/assets/ravenemu-icon.png). Il est utilisé dans l’interface et pour les icônes des fenêtres.
 
-La révision RavenCore intégrée est [`01a4aaa`](https://github.com/GhostPunishR/RavenCore/commit/01a4aaacc7bf69ae0885c14d522f45ad139be321), celle de la version 0.11.0. Elle apporte le câble link distant, qui relie la console à celle d'un autre appareil, dans sa version 2 qui rend possibles les échanges Pokémon, même sur un Wi-Fi lent, et garde la carte mémoire RetroAchievements Game Boy et Game Boy Color complète de la 0.8.0 ainsi que les corrections RTC GBA. Le moteur est compilé dans l'application : aucun téléchargement séparé de RavenCore n'est nécessaire pour jouer.
+La révision RavenCore intégrée est [`abe53ae`](https://github.com/GhostPunishR/RavenCore/commit/abe53ae06ccdbdba283427ac1b1e961ddd58f64d), celle de la version 0.11.0. Elle apporte le câble link distant, qui relie la console à celle d'un autre appareil, dans sa version 2 qui rend possibles les échanges Pokémon, même sur un Wi-Fi lent, et garde la carte mémoire RetroAchievements Game Boy et Game Boy Color complète de la 0.8.0 ainsi que les corrections RTC GBA. Le moteur est compilé dans l'application : aucun téléchargement séparé de RavenCore n'est nécessaire pour jouer.
 
 Récupérez les sources :
 
