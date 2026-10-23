@@ -13,7 +13,7 @@
 namespace ravenemudsk_ui {
 namespace {
 constexpr float pi = 3.14159265358979f;
-constexpr int icon_count = static_cast<int>(Icon::Volume) + 1;
+constexpr int icon_count = static_cast<int>(Icon::Link) + 1;
 // Sizes the screens use; others draw from the nearest one.
 constexpr std::array<int, 9> atlas_sizes{14, 15, 16, 17, 18, 20, 22, 24, 28};
 // Rasterized at twice the size: sharp on 2x screens, and an exact 2x2
@@ -161,6 +161,16 @@ Drawing drawing(Icon icon) {
         arc(far, {12, 12}, 8.f, -50, 50);
         return {path({{4, 9.5f}, {7.5f, 9.5f}, {12, 5.5f}, {12, 18.5f}, {7.5f, 14.5f}, {4, 14.5f}}, true),
                 path(near), path(far)};
+    }
+    case Icon::Link: {
+        // Two chain links holding each other, on the diagonal.
+        const auto turned = [](std::vector<Pt> pts) {
+            const float c = std::cos(-pi / 4), s = std::sin(-pi / 4);
+            for (auto& p : pts) p = {12 + (p.x - 12) * c - (p.y - 12) * s, 12 + (p.x - 12) * s + (p.y - 12) * c};
+            return pts;
+        };
+        return {path(turned(rounded_rect(2.5f, 8.5f, 13.5f, 15.5f, 3.5f)), true),
+                path(turned(rounded_rect(10.5f, 8.5f, 21.5f, 15.5f, 3.5f)), true)};
     }
     }
     return {};

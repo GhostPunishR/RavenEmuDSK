@@ -519,15 +519,20 @@ void GameOverlay::draw_status(const OverlayInfo& info, ImDrawList* bg) {
         pill(bg,{16.f,16.f},info.hardcore&&!info.hardcore_waiting?"HARDCORE":"HARDCORE EN ATTENTE",color::gold,fonts_.caption);
     }
     if (info.demo && !menu_open_) demo_panel(fonts_, info);
-    if (info.paused && !menu_open_) {
-        const auto pause_label="Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre";
-        const char* label=pause_label.c_str();
+    if (menu_open_) return;
+    float top=info.hardcore_waiting?76.f:info.hardcore_preferred?54.f:16.f;
+    const auto status_pill=[&](const std::string& text) {
+        const auto fitted=ellipsize(fonts_.body,text,std::max(40.f,ImGui::GetIO().DisplaySize.x-104.f));
+        const char* label=fitted.c_str();
         const ImVec2 size{text_width(fonts_.body, label) + 56.f, 40.f};
-        const float top=info.hardcore_waiting?76.f:info.hardcore_preferred?54.f:16.f;
         bg->AddRectFilled({16,top}, {16+size.x,top+size.y}, with_alpha(color::elevated,.95f),20.f);
         draw_icon(bg,Icon::Pause,{38,top+20.f},14.f,color::accent_hover);
         bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
-    }
+        top+=size.y+8.f;
+    };
+    if (info.paused) status_pill("Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre");
+    // The other game's menu is open: this one waits for it, as two consoles do.
+    if (info.link_partner_paused) status_pill("Partenaire en pause  \xC2\xB7  "+info.link_partner);
 }
 // Short reminder of the essential keys when a game starts, with the
 // buttons of the controller in use when there is one.
@@ -613,7 +618,9 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
     if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
     if (menu_item(fonts_, m, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
-    if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(), info.has_state && !info.hardcore_preferred))
+    // A state loaded on one side only would part the two linked games.
+    if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(),
+                  info.has_state && !info.hardcore_preferred && info.link_partner.empty()))
         action = OverlayAction::LoadState;
     focus_here(focus_retro_entry_);
     if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
@@ -624,6 +631,15 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
                           shortcut(KeyAction::Fullscreen).c_str()))
         action = OverlayAction::ToggleFullscreen;
+    if (!info.link_partner.empty()) {
+        ImGui::Dummy({inner, space::sm});
+        p = ImGui::GetCursorScreenPos();
+        ImFont* note = tv_ ? fonts_.strong : fonts_.caption;
+        d->AddText(note, note->FontSize, {p.x + space::sm, p.y}, color::text_muted,
+                   ellipsize(note, "Câble sans fil relié à " + info.link_partner, inner - space::lg).c_str());
+        ImGui::Dummy({inner, note->FontSize + 4.f});
+        if (menu_item(fonts_, m, "Débrancher le câble", Icon::Close, nullptr)) action = OverlayAction::UnplugLink;
+    }
     ImGui::Dummy({inner, space::sm});
     p = ImGui::GetCursorScreenPos();
     // One whole pixel row: a line between two rows is drawn in two halves.
@@ -658,6 +674,78 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
         p = ImGui::GetCursorScreenPos();
         hint_row(d, {p.x + space::sm, p.y}, info.pad, fonts_,
                  {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Reprendre"}});
+        ImGui::Dummy({inner, 34.f});
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(3);
+    return action;
+}
+// "Relier le câble à…": several devices wait for the wireless link cable,
+// the player picks one. The game waits meanwhile, as in the pause menu.
+OverlayAction GameOverlay::draw_link_chooser(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg) {
+    OverlayAction action = OverlayAction::None;
+    const bool compact = tv_ && screen.y < 900.f;
+    const MenuStyle m = menu_style(fonts_, tv_, compact);
+    bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, tv_ ? 215 : 200));
+    const float w = std::min(tv_ ? 760.f : 440.f, screen.x - 32.f);
+    ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
+    ImGui::SetNextWindowSize({w, 0.f});
+    ImGui::SetNextWindowSizeConstraints({w,100.f},{w,std::max(100.f,screen.y-32.f)});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, radius::lg);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, !tv_ ? ImVec2{space::lg, space::xl} :
+                        ImVec2{36.f, compact ? 24.f : 32.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, !tv_ ? 2.f : compact ? 4.f : 6.f});
+    ImGui::PushStyleColor(ImGuiCol_NavCursor, tv_ ? ImVec4(0, 0, 0, 0) : ImGui::GetStyleColorVec4(ImGuiCol_NavCursor));
+    ImGui::Begin("##link-chooser", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+    auto* d = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float inner = ImGui::GetContentRegionAvail().x;
+    ImFont* heading = tv_ ? fonts_.tv_title : fonts_.title;
+    d->AddText(tv_ ? fonts_.strong : fonts_.caption, (tv_ ? fonts_.strong : fonts_.caption)->FontSize,
+               {p.x + space::sm, p.y}, color::accent_hover, "CÂBLE LINK");
+    d->AddText(heading, heading->FontSize, {p.x + space::sm, p.y + (tv_ ? 26.f : 20.f)}, color::text,
+               "Relier le câble à\xE2\x80\xA6");
+    ImGui::Dummy({inner, (tv_ ? 26.f : 20.f) + heading->FontSize + space::sm});
+    ImGui::PushFont(tv_ && fonts_.tv_body ? fonts_.tv_body : fonts_.body);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::text_muted));
+    ImGui::Indent(space::sm);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner - space::lg);
+    ImGui::TextUnformatted(("Plusieurs appareils attendent un câble link. Cet ordinateur apparaît chez eux sous "
+                            "le nom " + info.link_own_label + ".").c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent(space::sm);
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+    ImGui::Dummy({inner, space::sm});
+    // Just shown: the first device takes the focus, for the controller.
+    if (!chooser_shown_) {
+        ImGui::SetKeyboardFocusHere();
+        ImGui::SetNavCursorVisible(true);
+    }
+    for (const auto& choice : info.link_choices) {
+        ImGui::PushID(static_cast<int>(choice.id ^ (choice.id >> 32)));
+        if (menu_item(fonts_, m, choice.label.c_str(), Icon::Gamepad, nullptr)) {
+            chosen_link_ = choice.id;
+            action = OverlayAction::ChooseLink;
+        }
+        ImGui::PopID();
+    }
+    ImGui::Dummy({inner, space::sm});
+    p = ImGui::GetCursorScreenPos();
+    const float rule = std::floor(p.y);
+    d->AddRectFilled({p.x + space::sm, rule}, {p.x + inner - space::sm, rule + 1.f}, color::border);
+    ImGui::Dummy({inner, space::sm});
+    if (menu_item(fonts_, m, "Plus tard", Icon::Close, nullptr)) action = OverlayAction::ChooseLinkLater;
+    if (tv_) {
+        ImGui::Dummy({inner, space::md});
+        p = ImGui::GetCursorScreenPos();
+        hint_row(d, {p.x + space::sm, p.y}, info.pad, fonts_,
+                 {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Plus tard"}});
         ImGui::Dummy({inner, 34.f});
     }
     ImGui::End();
@@ -722,6 +810,15 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         const OverlayAction chosen = draw_pause_menu(info, screen, bg);
         if (chosen != OverlayAction::None) action = chosen;
     }
+    // Over the game, not over the menu: the menu goes first.
+    const bool choosing = !info.link_choices.empty() && !menu_open_;
+    if (choosing) {
+        const OverlayAction chosen = draw_link_chooser(info, screen, bg);
+        if (chosen != OverlayAction::None) action = chosen;
+        else if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+            action = OverlayAction::ChooseLinkLater;
+    }
+    chooser_shown_ = choosing;
     if (retro_open_ && menu_open_ && tv_) draw_achievements_tv(info, screen);
     if (retro_open_ && menu_open_ && !tv_) draw_achievements_window(info, screen);
     if(!info.retro_status.empty() && info.hardcore_preferred && info.hardcore_waiting){

@@ -9,6 +9,7 @@
 | `src/desktop.cpp` | Point d'entrée, boucle SDL et intégration de l'application. |
 | `src/ui/` | Bibliothèque, interface ImGui, réglages, commandes et stockage local. |
 | `src/achievements/` | Client RetroAchievements, session, cache et journal des envois. |
+| `src/wireless/` | Câble link sans fil : protocole commun avec RavenEmu Android, mDNS/DNS-SD, connexions TCP et contrôleur. |
 | `include/ravenemudsk/` | Interfaces C++ de ces modules. |
 | `tests/` | Tests CTest et données synthétiques. |
 | `assets/` | Logo, icônes et ressources de l'interface. |
@@ -43,6 +44,8 @@ python3 tools/check_text_style.py
 python3 tools/check_ra_navigation.py
 ```
 
+Les tests du câble link sans fil (`wireless_protocol`, `wireless_mdns`, `wireless_link`) n'utilisent que la boucle locale de l'ordinateur : deux jeux synthétiques s'y relient par le vrai contrôleur, sans découverte réseau. Les octets du protocole y sont vérifiés contre ceux de RavenEmu Android.
+
 Sous Windows, utilisez `python` si c'est le nom de votre commande Python. Les textes du dépôt utilisent le tiret simple `-`, conformément au contrôle de typographie.
 
 Le [workflow de compilation](../.github/workflows/build.yml) prévoit des builds et tests sur Ubuntu, Windows et macOS. Les résultats et artefacts sont consultables dans [GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions).
@@ -60,5 +63,7 @@ L'outil nécessite `patchelf` et les métadonnées des paquets Debian/Ubuntu sou
 ## Validation manuelle
 
 Pour une modification de l'interface, vérifiez le parcours concerné en petite et grande fenêtre, ainsi qu'au clavier et à la manette lorsque ces entrées s'appliquent. Joignez une capture si elle aide à comprendre le changement.
+
+Pour le câble link sans fil, reliez un jeu entre cet ordinateur et RavenEmu Android, puis entre deux ordinateurs, sur un même réseau : liaison automatique, choix entre plusieurs appareils, pause partagée, débranchement et reprise après la fermeture d'un côté.
 
 Pour RetroAchievements, suivez la [matrice de validation](retroachievements-validation.md) et la [politique de confidentialité](confidentialite.md). Les tests automatiques utilisent des ROMs synthétiques et des transports simulés ; ils n'accordent pas de succès sur un vrai compte. Ne présentez pas un résultat CTest comme une approbation officielle RetroAchievements.

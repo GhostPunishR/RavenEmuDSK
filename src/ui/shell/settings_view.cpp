@@ -108,6 +108,19 @@ void settings_sound(State& s) {
                    "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
     end_card();
 }
+void settings_link(State& s) {
+    begin_card("##link");
+    card_title(s, Icon::Link, "Câble link sans fil");
+    setting_switch(s, "wireless_link", true, "Câble link sans fil",
+                   "Quand le jeu se sert de son port link (échanges, combats), RavenEmu le relie tout seul au jeu "
+                   "d'un autre appareil du même réseau Wi-Fi ou local : un téléphone avec RavenEmu Android ou un autre "
+                   "ordinateur. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::xs});
+    muted("Pendant la recherche, cet ordinateur s'annonce sur le réseau local seulement, sous le nom de son système "
+          "(PC Windows, Mac ou PC Linux). Rien ne passe par Internet. Au premier lancement, le pare-feu peut demander "
+          "l'autorisation : acceptez pour les réseaux privés.");
+    end_card();
+}
 } // namespace
 
 void settings_controls(State& s) {
@@ -309,6 +322,8 @@ void settings_view(State& s, Library& lib) {
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
          "Choisissez les touches du clavier et les boutons de la manette."},
+        {SettingsCategory::Link, Icon::Link, "Câble link",
+         "Reliez vos jeux à ceux d’un autre appareil, sans fil."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",
          "Vérifiez les nouvelles versions et gérez la recherche au démarrage."},
         {SettingsCategory::About, Icon::Info, "À propos",
@@ -344,6 +359,7 @@ void settings_view(State& s, Library& lib) {
     case SettingsCategory::Display: settings_display(s); break;
     case SettingsCategory::Sound: settings_sound(s); break;
     case SettingsCategory::Controls: settings_controls(s); break;
+    case SettingsCategory::Link: settings_link(s); break;
     case SettingsCategory::Updates: updates_card(s); break;
     case SettingsCategory::About: settings_about(s); break;
     }

@@ -7,6 +7,7 @@
 #include <ravenemudsk/ui/keyboard_bindings.hpp>
 #include <ravenemudsk/ui/pad_bindings.hpp>
 #include <ravenemudsk/ui/pad_glyphs.hpp>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <utility>
@@ -14,6 +15,11 @@
 #include <string>
 #include <vector>
 namespace ravenemudsk_ui {
+// A device on the local network ready for the wireless link cable.
+struct LinkChoiceItem {
+    std::uint64_t id = 0;
+    std::string label;  // "Pixel 7 · 4F2A"
+};
 struct OverlayInfo {
     KeyboardBindings keyboard;
     PadBindings pads;           // the menu chord is the bound Select + Start
@@ -32,6 +38,11 @@ struct OverlayInfo {
     bool achievement_unlocked = false;
     bool demo = false;            // bundled demo ROM: show the guided panel
     std::optional<PadFamily> pad; // controller in use: hints show its buttons
+    // Wireless link cable.
+    std::string link_partner;          // "Pixel 7 (Pokémon Bleu)" while linked, empty otherwise
+    bool link_partner_paused = false;  // the other game's menu is open: this one waits
+    std::vector<LinkChoiceItem> link_choices; // several devices wait: the player picks one
+    std::string link_own_label;        // this computer, as the others list it
 };
 // Top-center RetroAchievements cards (unlocks, progress) and the challenge
 // list: desktop sizes, or larger ones read from a couch in TV mode, inside a
@@ -58,7 +69,9 @@ UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv = true);
 // `drop`: 0 above the screen, 1 in place. `unfold`: 0 badge alone, 1 whole band.
 struct UnlockBannerFrame { float drop = 0.f, unfold = 0.f; };
 UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
-enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit };
+// ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
+enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
+                           UnplugLink, ChooseLink, ChooseLinkLater };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.
@@ -91,6 +104,8 @@ public:
     bool take_unlock_sound() { return std::exchange(unlock_sound_, false); }
     // Draws the overlay on top of the current frame and returns the menu choice.
     OverlayAction draw(const OverlayInfo& info);
+    // The device picked in "Relier le câble à…", with OverlayAction::ChooseLink.
+    std::uint64_t chosen_link() const { return chosen_link_; }
 
 private:
     SDL_Renderer* renderer_;
@@ -114,6 +129,8 @@ private:
     double progress_hidden_at_ = 0.0;
     double shown_notice_since_ = -1.0;
     bool unlock_sound_ = false;
+    bool chooser_shown_ = false;     // "Relier le câble à…" was up last frame
+    std::uint64_t chosen_link_ = 0;
     // Returns the lowest edge it drew, 0 when nothing; toasts go below it.
     float draw_retro(double now_seconds, ImVec2 screen);
     void draw_achievements_tv(const OverlayInfo& info, ImVec2 screen);
@@ -121,6 +138,7 @@ private:
     void draw_status(const OverlayInfo& info, ImDrawList* bg);
     void draw_start_hint(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg, float time);
     OverlayAction draw_pause_menu(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg);
+    OverlayAction draw_link_chooser(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg);
     void draw_achievements_window(const OverlayInfo& info, ImVec2 screen);
 };
 } // namespace ravenemudsk_ui

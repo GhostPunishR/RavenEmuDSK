@@ -57,7 +57,7 @@ inline constexpr float card_gap = 20.f;
 inline constexpr float content_pad = 32.f;
 
 enum class Page { Home, Library, Recent, Settings, Profile };
-enum class SettingsCategory { Library, Display, Sound, Controls, Updates, About };
+enum class SettingsCategory { Library, Display, Sound, Controls, Link, Updates, About };
 // What the "chemin" dialog imports: a ROM or folder, a cover, or the avatar.
 enum class PathTarget { Rom, Cover, Avatar };
 struct State {

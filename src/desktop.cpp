@@ -10,6 +10,7 @@
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/ui/game_sound.hpp>
 #include <ravenemudsk/achievements/client.hpp>
+#include <ravenemudsk/wireless/wireless_link.hpp>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -20,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -145,6 +147,8 @@ private:
     void handle_key(ravenemudsk_ui::KeyAction action);
     void emulate(Clock::time_point now,bool waiting);
     void take_retro_events();
+    void update_link();
+    bool link_holds() const;
     void draw(bool waiting);
     void apply(Action action);
     void finish();
@@ -153,6 +157,9 @@ private:
     fs::path rom_path;
     std::vector<std::uint8_t> rom;
     Core core{nullptr,&ravenemu_destroy};
+    // Held around every RavenCore call: the wireless link cable plugs in and
+    // answers the other console from its own threads, between two frames.
+    std::mutex core_mutex;
     fs::path battery_path,state_path,preview_path;
     int w=0,h=0,hz=0;
     double fps=0;
@@ -173,6 +180,8 @@ private:
     ravenemudsk_ui::SoundMixer effects;
     std::optional<ravenemudsk_ui::GameInput> input;
     ravenemudsk_ui::OverlayInfo info{};
+    // Closed before the core it plugs into.
+    std::unique_ptr<ravenemudsk_link::WirelessLink> link;
     bool running=true,paused=false;
     Clock::time_point next,last_save,next_progress;
     Clock::duration duration{};
@@ -224,6 +233,12 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
     next=last_save=next_progress=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
+    // Idle until the game uses its link port: then it looks for a partner.
+    if(prefs.wireless_link) {
+        link=std::make_unique<ravenemudsk_link::WirelessLink>(ravenemudsk_link::WirelessLink::Game{core.get(),
+            &core_mutex,req.system=="gba"?ravenemudsk_link::family_gba:ravenemudsk_link::family_gb,title});
+        info.link_own_label=link->view().own_label;
+    }
 }
 GameSession::~GameSession() {
     ravenemudsk_ra::client().end_game();
@@ -272,10 +287,14 @@ bool GameSession::pause_allowed() {
     return false;
 }
 void GameSession::run() {
+    // Let go while the picture is shown and while the loop sleeps: the link
+    // cable's moments.
+    std::unique_lock core_lock(core_mutex);
     while(running) {
         SDL_Event e{};
         while(SDL_PollEvent(&e))handle(e);
         input->update(SDL_GetTicks());
+        if(link)update_link();
         const auto now=Clock::now();
         const bool waiting=ravenemudsk_ra::client().frames_on_hold();
         emulate(now,waiting);
@@ -289,8 +308,11 @@ void GameSession::run() {
             save_battery(core.get(),battery_path);last_save=now;
         }
         draw(waiting);
-        if(waiting||paused||overlay->menu_open())SDL_Delay(16);
+        core_lock.unlock();
+        SDL_RenderPresent(renderer);
+        if(waiting||paused||overlay->menu_open()||link_holds())SDL_Delay(16);
         else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        core_lock.lock();
     }
     finish();
 }
@@ -302,16 +324,18 @@ void GameSession::handle(const SDL_Event& e) {
     if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
         { input->release_all(); pad.reset(); info.pad.reset(); }
+    // "Relier le câble à…" takes the keys while it is up.
+    const bool choosing=!info.link_choices.empty()&&!overlay->menu_open();
     if(e.type==SDL_KEYDOWN && !e.key.repeat) {
         using Key=ravenemudsk_ui::KeyAction;
-        handle_key(overlay->menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE?
+        handle_key(choosing||(overlay->menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE)?
             Key::Count:prefs.keyboard.action(e.key.keysym.sym));
     }
     // Back and Start together, in either order, open or close the menu,
     // and neither reaches the game. The Guide button stays with the
     // system: Windows opens the Xbox Game Bar on it (Steam its overlay),
     // which would show too.
-    input->set_menu_open(overlay->menu_open()||paused);
+    input->set_menu_open(overlay->menu_open()||paused||choosing);
     if(input->process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
         if(overlay->menu_open())overlay->close_menu();
         else if(pause_allowed())overlay->open_menu(true);
@@ -337,6 +361,8 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
             break;
         case Key::LoadState:
             if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
+            else if(!info.link_partner.empty())
+                toast(ravenemudsk_ui::Toast::Kind::Info,"Câble sans fil relié","Le chargement d'une sauvegarde d'état est désactivé.");
             else if(fs::exists(state_path)){
                 const bool restored=load_state(core.get(),state_path);input->release_all();overlay->clear_retro();
                 toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
@@ -350,8 +376,9 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
 // One emulated frame when it is due, its sound queued with the chime and the
 // volume; otherwise the SDK still runs between frames.
 void GameSession::emulate(Clock::time_point now,bool waiting) {
-    if(!waiting&&!paused&&!overlay->menu_open() && now>=next) {
+    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && now>=next) {
         verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+        if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
         ravenemudsk_ra::client().pump(true);
         const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
         effects.mix(pcm.data(),n);
@@ -381,6 +408,25 @@ void GameSession::take_retro_events() {
         else overlay->retro_event(event);
     }
 }
+// The wireless link cable: this side's pause for the other game, what to show
+// of the cable, and its news as notifications.
+void GameSession::update_link() {
+    link->set_paused(paused||overlay->menu_open());
+    const auto view=link->view();
+    const bool was_choosing=!info.link_choices.empty();
+    info.link_partner=view.partner;
+    info.link_partner_paused=view.partner_paused;
+    info.link_own_label=view.own_label;
+    info.link_choices.clear();
+    for(const auto& choice:view.choices)info.link_choices.push_back({choice.id,choice.label});
+    if(!was_choosing&&!info.link_choices.empty())input->release_all();
+    for(auto& notice:link->take_notices())toast(ravenemudsk_ui::Toast::Kind::Info,std::move(notice));
+}
+// The game waits while the other one's menu is open, as two linked consoles
+// do, and while the player picks a partner.
+bool GameSession::link_holds() const {
+    return info.link_partner_paused||!info.link_choices.empty();
+}
 // The picture scaled into the window, the overlay over it, then its action.
 void GameSession::draw(bool waiting) {
     auto& retro=ravenemudsk_ra::client();
@@ -400,7 +446,6 @@ void GameSession::draw(bool waiting) {
     const auto action=overlay->draw(info);
     if(overlay->take_unlock_sound()&&!chime.empty())effects.play(chime);
     apply(action);
-    SDL_RenderPresent(renderer);
 }
 void GameSession::apply(Action action) {
     auto& retro=ravenemudsk_ra::client();
@@ -411,7 +456,8 @@ void GameSession::apply(Action action) {
             save_state(core.get(),state_path);info.has_state=true;
             overlay->close_menu();break;
         case Action::LoadState:
-            if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && fs::exists(state_path)){
+            if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && info.link_partner.empty() &&
+               fs::exists(state_path)){
                 load_state(core.get(),state_path);input->release_all();overlay->clear_retro();}
             overlay->close_menu();break;
         case Action::ToggleHardcore:
@@ -424,6 +470,11 @@ void GameSession::apply(Action action) {
         case Action::ToggleFullscreen:
             SDL_SetWindowFullscreen(window,info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
         case Action::Quit:running=false;break;
+        case Action::UnplugLink:
+            if(link)link->unplug();
+            overlay->close_menu();break;
+        case Action::ChooseLink:if(link)link->choose(overlay->chosen_link());break;
+        case Action::ChooseLinkLater:if(link)link->choose(std::nullopt);break;
     }
 }
 // The battery save and the library's preview of the last frame.

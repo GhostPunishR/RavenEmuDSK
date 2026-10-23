@@ -13,7 +13,7 @@ void check(bool ok, const char* what, int icon, int size) {
     std::cerr << what << " (icône " << icon << ", " << size << " px)\n";
     ++failures;
 }
-constexpr int icon_count = static_cast<int>(Icon::Volume) + 1;
+constexpr int icon_count = static_cast<int>(Icon::Link) + 1;
 
 void every_icon_is_drawn_inside_its_square() {
     for (int icon = 0; icon < icon_count; ++icon)
