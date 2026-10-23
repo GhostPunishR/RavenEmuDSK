@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/pad_bindings.hpp>
-#include <ravenemudsk/ui/settings.hpp>
+#include <ravenemudsk/input/pad_bindings.hpp>
+#include <ravenemudsk/settings/settings.hpp>
 #include <SDL.h>
 namespace ravenemudsk_ui {
 namespace {

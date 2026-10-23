@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_overlay.hpp>
+#include <ravenemudsk/player/game_overlay.hpp>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>

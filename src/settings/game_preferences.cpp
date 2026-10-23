@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_preferences.hpp>
-#include <ravenemudsk/ui/settings.hpp>
+#include <ravenemudsk/settings/game_preferences.hpp>
+#include <ravenemudsk/settings/settings.hpp>
 #include <algorithm>
 namespace ravenemudsk_ui {
 GamePreferences game_preferences(const Settings& settings) {

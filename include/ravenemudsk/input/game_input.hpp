@@ -3,8 +3,8 @@
 #include <SDL.h>
 #include <array>
 #include <functional>
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
-#include <ravenemudsk/ui/pad_bindings.hpp>
+#include <ravenemudsk/input/keyboard_bindings.hpp>
+#include <ravenemudsk/input/pad_bindings.hpp>
 
 namespace ravenemudsk_ui {
 // Routes gameplay input to the core while keeping menu input separate.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "ra_fixture.hpp"
 #include "retro_test_storage.hpp"
-#include <ravenemudsk/ui/game_state.hpp>
+#include <ravenemudsk/saves/game_state.hpp>
 #include <fstream>
 #include <mutex>
 namespace ui=ravenemudsk_ui;

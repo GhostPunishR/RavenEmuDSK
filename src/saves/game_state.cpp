@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_state.hpp>
+#include <ravenemudsk/saves/game_state.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemu/bridge.h>
 #include <ravenemu/sha256.hpp>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // HTTPS request behind UpdateCheck: WinHTTP on Windows, libcurl elsewhere
 // when available. Only GET /repos/GhostPunishR/RavenEmuDSK/releases/latest.
-#include <ravenemudsk/ui/updates.hpp>
+#include <ravenemudsk/updates/updates.hpp>
 #include <ravenemudsk/achievements/user_agent.hpp>
 #include <cstddef>
 #include <string>

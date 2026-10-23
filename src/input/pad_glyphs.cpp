@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/pad_glyphs.hpp>
-#include <ravenemudsk/ui/pad_bindings.hpp>
+#include <ravenemudsk/input/pad_glyphs.hpp>
+#include <ravenemudsk/input/pad_bindings.hpp>
 #include <ravenemudsk/ui/theme.hpp>
 #include <algorithm>
 #include <cfloat>

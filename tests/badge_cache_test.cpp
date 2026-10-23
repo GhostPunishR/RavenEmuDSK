@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/badge_cache.hpp>
+#include <ravenemudsk/achievements/badge_cache.hpp>
 #include <curl/curl.h>
 #include <atomic>
 #include <chrono>

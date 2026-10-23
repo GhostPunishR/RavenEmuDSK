@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_sound.hpp>
+#include <ravenemudsk/audio/game_sound.hpp>
 #include <algorithm>
 #include <cmath>
 namespace ravenemudsk_ui {

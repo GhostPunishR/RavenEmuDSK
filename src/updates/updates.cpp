@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Version parsing for the update check; dependency-free and unit tested.
-#include <ravenemudsk/ui/updates.hpp>
+#include <ravenemudsk/updates/updates.hpp>
 #include <charconv>
 namespace ravenemudsk_ui {
 std::optional<Version> parse_version(std::string_view text) {

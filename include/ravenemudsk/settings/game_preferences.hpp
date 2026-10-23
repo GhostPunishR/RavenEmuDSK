@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
-#include <ravenemudsk/ui/pad_bindings.hpp>
+#include <ravenemudsk/input/keyboard_bindings.hpp>
+#include <ravenemudsk/input/pad_bindings.hpp>
 namespace ravenemudsk_ui {
 class Settings;
 // What a game reads from the settings when it starts, in one read.

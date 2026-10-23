@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
-#include <ravenemudsk/ui/storage.hpp>
-#include <ravenemudsk/ui/game_preferences.hpp>
+#include <ravenemudsk/library/storage.hpp>
+#include <ravenemudsk/settings/game_preferences.hpp>
 #include <optional>
 #include <string>
 struct SDL_Window;

@@ -2,11 +2,11 @@
 #pragma once
 #include <ravenemudsk/ui/theme.hpp>
 #include <ravenemudsk/ui/widgets.hpp>
-#include <ravenemudsk/ui/badge_cache.hpp>
+#include <ravenemudsk/achievements/badge_cache.hpp>
 #include <ravenemudsk/achievements/notifications.hpp>
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
-#include <ravenemudsk/ui/pad_bindings.hpp>
-#include <ravenemudsk/ui/pad_glyphs.hpp>
+#include <ravenemudsk/input/keyboard_bindings.hpp>
+#include <ravenemudsk/input/pad_bindings.hpp>
+#include <ravenemudsk/input/pad_glyphs.hpp>
 #include <cstdint>
 #include <deque>
 #include <optional>

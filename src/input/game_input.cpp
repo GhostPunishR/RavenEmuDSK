@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_input.hpp>
+#include <ravenemudsk/input/game_input.hpp>
 #include <ravenemu/bridge.h>
 #include <utility>
 

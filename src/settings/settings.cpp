@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/settings.hpp>
-#include <ravenemudsk/ui/library.hpp>
+#include <ravenemudsk/settings/settings.hpp>
+#include <ravenemudsk/library/library.hpp>
 #include <charconv>
 #include <fstream>
 #include <stdexcept>

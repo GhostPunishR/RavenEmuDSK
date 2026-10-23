@@ -2,22 +2,22 @@
 // The launcher's screens share this state and these functions. Internal to
 // the launcher library and its UI tests; the program sees app_shell.hpp.
 #pragma once
-#include <ravenemudsk/ui/app_shell.hpp>
+#include <ravenemudsk/launcher/app_shell.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
-#include <ravenemudsk/ui/library.hpp>
-#include <ravenemudsk/ui/settings.hpp>
-#include <ravenemudsk/ui/storage.hpp>
+#include <ravenemudsk/library/library.hpp>
+#include <ravenemudsk/settings/settings.hpp>
+#include <ravenemudsk/library/storage.hpp>
 #include <ravenemudsk/ui/theme.hpp>
-#include <ravenemudsk/ui/updates.hpp>
+#include <ravenemudsk/updates/updates.hpp>
 #include <ravenemudsk/ui/widgets.hpp>
-#include <ravenemudsk/ui/retro_widgets.hpp>
+#include <ravenemudsk/achievements/retro_widgets.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/achievements/achievement_list.hpp>
 #include <ravenemudsk/achievements/library_progress.hpp>
-#include <ravenemudsk/ui/pad_glyphs.hpp>
-#include <ravenemudsk/ui/game_input.hpp>
+#include <ravenemudsk/input/pad_glyphs.hpp>
+#include <ravenemudsk/input/game_input.hpp>
 #include <rc_client.h>
-#include <ravenemudsk/ui/badge_cache.hpp>
+#include <ravenemudsk/achievements/badge_cache.hpp>
 #include <SDL.h>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/game_overlay.hpp>
-#include <ravenemudsk/ui/retro_widgets.hpp>
+#include <ravenemudsk/player/game_overlay.hpp>
+#include <ravenemudsk/achievements/retro_widgets.hpp>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
 #include <backends/imgui_impl_sdlrenderer2.h>

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/library.hpp>
-#include <ravenemudsk/ui/settings.hpp>
-#include <ravenemudsk/ui/storage.hpp>
-#include <ravenemudsk/ui/updates.hpp>
+#include <ravenemudsk/library/library.hpp>
+#include <ravenemudsk/settings/settings.hpp>
+#include <ravenemudsk/library/storage.hpp>
+#include <ravenemudsk/updates/updates.hpp>
 #ifdef NDEBUG
 #undef NDEBUG
 #endif

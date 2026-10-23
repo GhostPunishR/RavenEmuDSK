@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/library.hpp>
+#include <ravenemudsk/library/library.hpp>
 #include <algorithm>
 #include <cctype>
 #include <chrono>

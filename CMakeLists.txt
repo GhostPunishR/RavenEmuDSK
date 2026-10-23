@@ -70,16 +70,16 @@ target_include_directories(ravenemudsk_imgui PUBLIC "${imgui_SOURCE_DIR}")
 target_link_libraries(ravenemudsk_imgui PUBLIC ${RAVENEMUDSK_SDL})
 
 add_library(ravenemudsk_ui_library STATIC
-  src/ui/library.cpp src/ui/settings.cpp src/ui/storage.cpp src/ui/updates.cpp)
+  src/library/library.cpp src/settings/settings.cpp src/library/storage.cpp src/updates/updates.cpp)
 target_include_directories(ravenemudsk_ui_library PUBLIC include)
 target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
 target_link_libraries(ravenemudsk_ui_library PRIVATE ravenemu_common)
 
-add_library(ravenemudsk_game_input STATIC src/ui/game_input.cpp src/ui/keyboard_bindings.cpp src/ui/pad_bindings.cpp
-  src/ui/game_preferences.cpp)
+add_library(ravenemudsk_game_input STATIC src/input/game_input.cpp src/input/keyboard_bindings.cpp src/input/pad_bindings.cpp
+  src/settings/game_preferences.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api ravenemudsk_ui_library)
-add_library(ravenemudsk_game_state STATIC src/ui/game_state.cpp)
+add_library(ravenemudsk_game_state STATIC src/saves/game_state.cpp)
 target_include_directories(ravenemudsk_game_state PUBLIC include)
 target_link_libraries(ravenemudsk_game_state PRIVATE ravenemu_common ravenemu_c_api)
 # The wireless link cable: the game's link port over the local network, with
@@ -130,8 +130,8 @@ target_link_libraries(ravenemudsk_achievements PUBLIC ravenemudsk_rcheevos raven
 
 # Interface pieces shared by the launcher and the game: theme, widgets, icons, images.
 add_library(ravenemudsk_ui_kit STATIC
-  src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/ui/pad_glyphs.cpp src/ui/retro_widgets.cpp
-  src/ui/badge_cache.cpp src/ui/image_loader.cpp src/ui/update_check.cpp)
+  src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/input/pad_glyphs.cpp src/achievements/retro_widgets.cpp
+  src/achievements/badge_cache.cpp src/ui/image_loader.cpp src/updates/update_check.cpp)
 target_include_directories(ravenemudsk_ui_kit PUBLIC include PRIVATE "${stb_SOURCE_DIR}")
 target_compile_definitions(ravenemudsk_ui_kit PRIVATE RAVENEMUDSK_HAVE_CURL)
 target_link_libraries(ravenemudsk_ui_kit PUBLIC ravenemudsk_imgui ravenemudsk_achievements ravenemudsk_game_input
@@ -141,22 +141,22 @@ if(WIN32)
 endif()
 
 # Drawn over the game: pause menu, RetroAchievements banner, sounds.
-add_library(ravenemudsk_game_ui STATIC src/ui/game_overlay.cpp src/ui/game_sound.cpp)
+add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/audio/game_sound.cpp)
 target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
 
-# The launcher, one file per screen (src/ui/shell); the program sees app_shell.hpp.
+# The launcher, one file per screen (src/launcher); the program sees app_shell.hpp.
 add_library(ravenemudsk_launcher STATIC
-  src/ui/shell/common.cpp src/ui/shell/chrome.cpp src/ui/shell/library_view.cpp src/ui/shell/profile_view.cpp
-  src/ui/shell/tv_view.cpp src/ui/shell/updates_view.cpp src/ui/shell/settings_view.cpp
-  src/ui/shell/game_detail.cpp src/ui/shell/launcher_frame.cpp src/ui/shell/launcher.cpp
-  src/ui/shell/preferences.cpp)
+  src/launcher/common.cpp src/launcher/chrome.cpp src/launcher/library_view.cpp src/launcher/profile_view.cpp
+  src/launcher/tv_view.cpp src/launcher/updates_view.cpp src/launcher/settings_view.cpp
+  src/launcher/game_detail.cpp src/launcher/launcher_frame.cpp src/launcher/launcher.cpp
+  src/launcher/preferences.cpp)
 target_compile_definitions(ravenemudsk_launcher PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
 target_link_libraries(ravenemudsk_launcher PUBLIC ravenemudsk_ui_kit)
 if(WIN32)
   target_link_libraries(ravenemudsk_launcher PRIVATE comdlg32 shell32 ole32)
 endif()
 
-add_executable(RavenEmuDSK src/desktop.cpp)
+add_executable(RavenEmuDSK src/desktop.cpp src/player/game_session.cpp)
 target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
 target_compile_definitions(RavenEmuDSK PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
 target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state

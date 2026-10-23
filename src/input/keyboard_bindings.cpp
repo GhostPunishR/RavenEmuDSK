@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
-#include <ravenemudsk/ui/settings.hpp>
+#include <ravenemudsk/input/keyboard_bindings.hpp>
+#include <ravenemudsk/settings/settings.hpp>
 #include <ravenemu/bridge.h>
 namespace ravenemudsk_ui {
 const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){

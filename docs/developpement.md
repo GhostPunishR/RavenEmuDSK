@@ -6,16 +6,26 @@
 
 | Emplacement | Rôle |
 | --- | --- |
-| `src/desktop.cpp` | Point d'entrée, boucle SDL et intégration de l'application. |
-| `src/ui/` | Bibliothèque, interface ImGui, réglages, commandes et stockage local. |
-| `src/achievements/` | Client RetroAchievements, session, cache et journal des envois. |
+| `src/desktop.cpp` | Point d'entrée : le lanceur, puis le jeu choisi, jusqu'à la fermeture. |
+| `src/player/` | La partie en cours : fenêtre, boucle d'images, sauvegardes, menu de pause dessiné par-dessus le jeu. |
+| `src/launcher/` | Lanceur, un fichier par écran (bibliothèque, fiche de jeu, profil, réglages, mode TV, mises à jour). |
+| `src/library/` | Bibliothèque de jeux, dossiers Sauvegardes et Jaquettes. |
+| `src/saves/` | États de jeu, couplés aux compteurs RetroAchievements. |
+| `src/input/` | Clavier et manette : attributions, combinaison du menu, noms et dessins des boutons. |
+| `src/audio/` | Son du jeu : volume et carillon des succès. |
+| `src/settings/` | Fichier de réglages et préférences lues au lancement d'un jeu. |
+| `src/updates/` | Vérification des nouvelles versions sur GitHub. |
+| `src/achievements/` | RetroAchievements : client, session, cache, journal des envois, badges et classements. |
 | `src/wireless/` | Câble link sans fil : protocole commun avec RavenEmu Android, mDNS/DNS-SD, connexions TCP et contrôleur. |
-| `include/ravenemudsk/` | Interfaces C++ de ces modules. |
+| `src/ui/` | Kit d'interface commun au lanceur et au jeu : thème, widgets, icônes, images locales. |
+| `include/ravenemudsk/` | Interfaces C++ de ces modules, dans des dossiers du même nom. |
 | `tests/` | Tests CTest et données synthétiques. |
 | `assets/` | Logo, icônes et ressources de l'interface. |
 | `cmake/` | Intégration des dépendances et assemblage macOS. |
 | `tools/` | Vérifications Python et création des paquets Unix. |
 | `.github/workflows/build.yml` | Compilation, tests et paquets Windows, Linux et macOS. |
+
+Chaque fichier se range dans le dossier de son rôle, le même sous `src/` et sous `include/ravenemudsk/`. Les espaces de noms C++ (`ravenemudsk_ui`, `ravenemudsk_ra`, `ravenemudsk_link`...) et les bibliothèques CMake ne suivent pas ce découpage et restent inchangés.
 
 L'application porte le nom **RavenEmu**. `RavenEmuDSK` reste le nom du dépôt, de la cible CMake et de l'exécutable. Les moteurs GB/GBC/GBA sont maintenus dans [RavenCore](https://github.com/GhostPunishR/RavenCore).
 

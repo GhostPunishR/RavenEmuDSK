@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#include <ravenemudsk/ui/storage.hpp>
-#include <ravenemudsk/ui/library.hpp>
+#include <ravenemudsk/library/storage.hpp>
+#include <ravenemudsk/library/library.hpp>
 #include <ravenemu/sha256.hpp>
 #include <algorithm>
 #include <array>

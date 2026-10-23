@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
-#include <ravenemudsk/ui/keyboard_bindings.hpp>
+#include <ravenemudsk/input/keyboard_bindings.hpp>
 #include <array>
 namespace ravenemudsk_ui {
 class Settings;
