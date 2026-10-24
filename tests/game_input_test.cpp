@@ -217,16 +217,19 @@ int main() {
     Settings fresh;
     const auto defaults=game_preferences(fresh);
     require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image&&defaults.wireless_link&&
-            defaults.pause_unfocused,"Default game preferences");
+            defaults.pause_unfocused&&defaults.rumble&&defaults.motion_sensors&&defaults.solar_light==50,
+            "Default game preferences");
     require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
             defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
     Settings chosen;
     chosen.set_flag("ra_hardcore",true);chosen.set_flag("ra_unlock_sound",false);chosen.set("volume","35");
     chosen.set_flag("smooth_image",true);chosen.set("pad_a",std::to_string(SDL_CONTROLLER_BUTTON_X));
     chosen.set_flag("wireless_link",false);chosen.set_flag("pause_unfocused",false);
+    chosen.set_flag("rumble",false);chosen.set_flag("motion_sensors",false);chosen.set("solar_light","80");
     const auto prefs=game_preferences(chosen);
     require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image&&!prefs.wireless_link&&
-            !prefs.pause_unfocused,"Chosen game preferences");
+            !prefs.pause_unfocused&&!prefs.rumble&&!prefs.motion_sensors&&prefs.solar_light==80,"Chosen game preferences");
+    chosen.set("solar_light","-3");require(game_preferences(chosen).solar_light==0,"Sunlight below 0 % is darkness");
     require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
     chosen.set("volume","250");require(game_preferences(chosen).volume==100,"Volume above 100 % is full volume");
     chosen.set_flag("mute",true);require(game_preferences(chosen).volume==0,"Muted means silent, whatever the volume");

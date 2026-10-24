@@ -49,6 +49,16 @@ L'image et le son restent synchronisés :
 
 Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
 
+## Vibrations et capteurs
+
+Certaines cartouches avaient un moteur ou des capteurs. RavenEmu les fait passer par la manette, réglables dans **Réglages > Commandes**, carte **Vibrations et capteurs** :
+
+- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...).
+- **Capteurs de mouvement de la manette** : Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le gyroscope de la manette, si elle en a (DualShock 4, DualSense, Switch Pro, Joy-Con). La position de la manette au lancement du jeu, et à chaque sortie du menu ou de la pause, compte comme à plat : pour recentrer, ouvrez puis fermez le menu en tenant la manette comme vous jouez. Le stick gauche incline et tourne aussi, avec ou sans capteurs : poussé à fond, il vaut une inclinaison de 1 g, ou un demi-tour par seconde.
+- **Soleil sur le capteur solaire (Boktai)** : la part du plein soleil que reçoit la cartouche, 50 % par défaut.
+
+Ces réglages sont pris en compte au lancement du jeu suivant.
+
 ## Câble link sans fil
 
 Deux jeux se relient comme avec un câble link, sans câble : avec RavenEmu Android sur un téléphone ou avec un autre ordinateur, sur le même réseau Wi-Fi ou local.

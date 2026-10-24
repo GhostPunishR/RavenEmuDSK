@@ -77,6 +77,23 @@ void setting_switch(State& s, const char* key, bool fallback, const char* label,
     muted(help);
     ImGui::PopFont();
 }
+// A 0-100 % slider on the card, saved once let go, not at every step.
+void percent_slider(State& s, const char* key, int fallback, bool disabled = false) {
+    int value = std::clamp(s.settings.number(key, fallback), 0, 100);
+    ImGui::PushID(key);
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (disabled) ImGui::BeginDisabled();
+    // The card is the theme's frame color: the track needs its own.
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    if (ImGui::SliderInt("##percent", &value, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
+        s.settings.set(key, std::to_string(value));
+    if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
+    ImGui::PopStyleColor(3);
+    if (disabled) ImGui::EndDisabled();
+    ImGui::PopID();
+}
 void settings_display(State& s) {
     begin_card("##image");
     card_title(s, Icon::Fullscreen, "Image du jeu");
@@ -95,21 +112,8 @@ void settings_display(State& s) {
 void settings_sound(State& s) {
     begin_card("##sound");
     card_title(s, Icon::Volume, "Son du jeu");
-    int volume = std::clamp(s.settings.number("volume", 100), 0, 100);
-    const bool muted_game = s.settings.flag("mute", false);
     ImGui::TextUnformatted("Volume");
-    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
-    if (muted_game) ImGui::BeginDisabled();
-    // The card is the theme's frame color: the track needs its own.
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    if (ImGui::SliderInt("##volume", &volume, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
-        s.settings.set("volume", std::to_string(volume));
-    // Saved once the slider is let go, not at every step of the drag.
-    if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
-    ImGui::PopStyleColor(3);
-    if (muted_game) ImGui::EndDisabled();
+    percent_slider(s, "volume", 100, s.settings.flag("mute", false));
     ImGui::Dummy({0.f, space::sm});
     setting_switch(s, "mute", false, "Couper le son",
                    "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
@@ -187,6 +191,24 @@ void settings_controls(State& s) {
         try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Commandes réinitialisées");}
         catch(const std::exception& e){notify(s,Toast::Kind::Error,"Commandes non enregistrées",e.what());}
     }
+    end_card();
+    begin_card("##sensors");
+    card_title(s, Icon::Gamepad, "Vibrations et capteurs");
+    setting_switch(s, "rumble", true, "Vibrations",
+                   "La manette vibre avec le moteur des cartouches qui en ont un : Pokémon Pinball, Drill Dozer, "
+                   "WarioWare: Twisted!... Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "motion_sensors", true, "Capteurs de mouvement de la manette",
+                   "Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le "
+                   "gyroscope de la manette, s'il en a (DualShock 4, DualSense, Switch Pro, Joy-Con). Au lancement du "
+                   "jeu et à chaque reprise, la position de la manette compte comme à plat. Le stick gauche incline "
+                   "et tourne aussi, avec ou sans capteurs. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Soleil sur le capteur solaire (Boktai)");
+    percent_slider(s, "solar_light", 50);
+    ImGui::PushFont(s.fonts.caption);
+    muted("Part du plein soleil que reçoit le capteur de la cartouche. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
     end_card();
 }
 
@@ -329,7 +351,7 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
-         "Choisissez les touches du clavier et les boutons de la manette."},
+         "Choisissez les touches du clavier et les boutons de la manette, ses vibrations et ses capteurs."},
         {SettingsCategory::Link, Icon::Link, "Câble link",
          "Reliez vos jeux à ceux d’un autre appareil, sans fil."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",

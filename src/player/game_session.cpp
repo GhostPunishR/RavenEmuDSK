@@ -6,6 +6,7 @@
 #include <ravenemu/bridge.h>
 #include <ravenemudsk/player/game_overlay.hpp>
 #include <ravenemudsk/input/game_input.hpp>
+#include <ravenemudsk/input/motion.hpp>
 #include <ravenemudsk/saves/game_state.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
@@ -147,6 +148,10 @@ private:
     void handle_key(ravenemudsk_ui::KeyAction action);
     void emulate(Clock::time_point now,bool waiting);
     void queue_sound(std::size_t samples);
+    void start_motion();
+    void feed_motion();
+    void update_rumble(Clock::time_point now);
+    void stop_rumble();
     void take_retro_events();
     void update_link();
     bool link_holds() const;
@@ -189,6 +194,11 @@ private:
     ravenemudsk_ui::Resampler resampler;
     std::vector<std::int16_t> resampled;
     std::optional<ravenemudsk_ui::GameInput> input;
+    // The cartridge's sensors (RAVENEMU_SENSOR_*) and motor, on the controller.
+    int sensors=0;
+    ravenemudsk_ui::MotionInput motion;
+    bool rumbling=false;
+    Clock::time_point rumble_refresh;
     ravenemudsk_ui::OverlayInfo info{};
     // Closed before the core it plugs into.
     std::unique_ptr<ravenemudsk_link::WirelessLink> link;
@@ -233,6 +243,9 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
         pad.reset(SDL_GameControllerOpen(i));if(pad)break;
     }
+    sensors=ravenemu_sensors(core.get());
+    if(sensors&RAVENEMU_SENSOR_SOLAR)ravenemu_set_solar_light(core.get(),prefs.solar_light*255/100);
+    start_motion();
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
     pcm.resize(8192);
@@ -254,6 +267,7 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     }
 }
 GameSession::~GameSession() {
+    stop_rumble();
     ravenemudsk_ra::client().end_game();
     if(audio_device)SDL_CloseAudioDevice(audio_device);
 }
@@ -331,6 +345,10 @@ void GameSession::run() {
         const bool still=waiting||paused||overlay->menu_open()||link_holds();
         const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
         if(!still&&!was_still)pacer->presented(seconds(shown-last_present),seconds(shown-last_present-slept));
+        // Back in the game, the controller's position counts as level again;
+        // stopped, its motor stops.
+        if(!still&&was_still)motion.recenter();
+        if(still&&!was_still)stop_rumble();
         last_present=shown;was_still=still;slept={};
         if(still)SDL_Delay(16);
         else if(!pacer->locked()&&Clock::now()<next) {
@@ -354,10 +372,10 @@ void GameSession::handle(const SDL_Event& e) {
             paused=paused_unfocused=false;
     }
     if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
-        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
+        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); start_motion(); }
     if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-        { input->release_all(); pad.reset(); info.pad.reset(); }
+        { input->release_all(); pad.reset(); info.pad.reset(); motion=ravenemudsk_ui::MotionInput{}; rumbling=false; }
     // "Relier le câble à…" takes the keys while it is up.
     const bool choosing=!info.link_choices.empty()&&!overlay->menu_open();
     if(e.type==SDL_KEYDOWN && !e.key.repeat) {
@@ -414,7 +432,9 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
 void GameSession::emulate(Clock::time_point now,bool waiting) {
     const bool due=pacer->locked()?now>=last_frame+duration/2:now>=next;
     if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
+        feed_motion();
         verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+        update_rumble(now);
         if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
         ravenemudsk_ra::client().pump(true);
         const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
@@ -449,6 +469,50 @@ void GameSession::queue_sound(std::size_t samples) {
     resampler.process(pcm.data(),samples/2,pacer->audio_ratio()*ravenemudsk_ui::rate_correction(audio_level,audio_target),
                       resampled);
     SDL_QueueAudio(audio_device,resampled.data(),static_cast<Uint32>(resampled.size()*sizeof(std::int16_t)));
+}
+// The controller's accelerometer and gyroscope, for a game that tilts or
+// turns: switched on (they cost battery), the controller's position as level.
+void GameSession::start_motion() {
+    motion.recenter();
+    if(!pad||!prefs.motion_sensors)return;
+    if((sensors&RAVENEMU_SENSOR_TILT)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_ACCEL))
+        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_ACCEL,SDL_TRUE);
+    if((sensors&RAVENEMU_SENSOR_ROTATION)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_GYRO))
+        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_GYRO,SDL_TRUE);
+}
+// Before each frame: the left stick and the controller's sensors tilt and
+// turn the cartridge.
+void GameSession::feed_motion() {
+    if(!(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION)))return;
+    if(pad) {
+        motion.stick(SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTX),
+                     SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTY));
+        // A sensor that is off reads level and still.
+        float acceleration[3]={0.f,SDL_STANDARD_GRAVITY,0.f},rotation[3]={0.f,0.f,0.f};
+        bool sensed=false;
+        for(const auto [type,values]:{std::pair{SDL_SENSOR_ACCEL,acceleration},std::pair{SDL_SENSOR_GYRO,rotation}})
+            if(SDL_GameControllerIsSensorEnabled(pad.get(),type)&&SDL_GameControllerGetSensorData(pad.get(),type,values,3)==0)
+                sensed=true;
+        if(sensed)motion.sense(acceleration,rotation);
+    } else motion.stick(0,0);
+    const auto reading=motion.reading();
+    if(sensors&RAVENEMU_SENSOR_TILT)ravenemu_set_tilt(core.get(),reading.tilt_x,reading.tilt_y);
+    if(sensors&RAVENEMU_SENSOR_ROTATION)ravenemu_set_rotation(core.get(),reading.rotation);
+}
+// The cartridge's motor on the controller: started when it starts, renewed
+// every half second while it runs (each order lasts one), stopped with it.
+void GameSession::update_rumble(Clock::time_point now) {
+    const bool on=pad&&prefs.rumble&&ravenemu_rumble_active(core.get());
+    if(on&&(!rumbling||now>=rumble_refresh)) {
+        SDL_GameControllerRumble(pad.get(),0xffff,0xffff,1000);
+        rumble_refresh=now+std::chrono::milliseconds(500);
+    }
+    if(!on)stop_rumble();
+    rumbling=on;
+}
+void GameSession::stop_rumble() {
+    if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
+    rumbling=false;
 }
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
