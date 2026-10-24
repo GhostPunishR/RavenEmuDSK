@@ -19,6 +19,7 @@ struct GamePreferences {
     // its motion sensors tilt and turn the games that have some, and Boktai's
     // solar sensor gets this share of full sunlight (0-100 %).
     bool rumble = true;
+    bool rewind = true;         // Réglages > Commandes: keep the last moments to play them backwards
     bool motion_sensors = true;
     int solar_light = 50;
     KeyboardBindings keyboard;

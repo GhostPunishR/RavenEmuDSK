@@ -60,9 +60,11 @@ std::string controller_label(KeyAction action, const char* fallback, const PadBi
     if (static_cast<int>(action) < PadBindings::count) return pad_input_name(pads.input(action), family);
     if (action == KeyAction::Menu)
         return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
-    // The right trigger, unless a console button took it.
+    // The triggers, unless a console button took them.
     if (action == KeyAction::FastForward)
         return pads.button(pad_right_trigger) < 0 ? pad_input_name(pad_right_trigger, family) : "Gâchette droite occupée";
+    if (action == KeyAction::Rewind)
+        return pads.button(pad_left_trigger) < 0 ? pad_input_name(pad_left_trigger, family) : "Gâchette gauche occupée";
     return fallback;
 }
 // A switch with its label and an explanation below, saved at once.
@@ -216,6 +218,13 @@ void settings_controls(State& s) {
         try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Commandes réinitialisées");}
         catch(const std::exception& e){notify(s,Toast::Kind::Error,"Commandes non enregistrées",e.what());}
     }
+    end_card();
+    begin_card("##rewind");
+    card_title(s, Icon::Reset, "Retour arrière");
+    setting_switch(s, "rewind", true, "Retour arrière",
+                   "Garde les derniers moments de jeu (64 Mo au plus, de trente secondes d’action à plusieurs minutes "
+                   "de jeu calme) pour revenir en arrière en maintenant la touche ou la gâchette gauche. Impossible en "
+                   "Hardcore et pendant que le câble sans fil est relié. Pris en compte au lancement du jeu.");
     end_card();
     begin_card("##sensors");
     card_title(s, Icon::Gamepad, "Vibrations et capteurs");

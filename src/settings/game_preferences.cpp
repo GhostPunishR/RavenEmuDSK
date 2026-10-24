@@ -15,6 +15,7 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.pause_unfocused = settings.flag("pause_unfocused", true);
     prefs.wireless_link = settings.flag("wireless_link", true);
     prefs.rumble = settings.flag("rumble", true);
+    prefs.rewind = settings.flag("rewind", true);
     prefs.motion_sensors = settings.flag("motion_sensors", true);
     prefs.solar_light = std::clamp(settings.number("solar_light", 50), 0, 100);
     prefs.keyboard.load(settings);
