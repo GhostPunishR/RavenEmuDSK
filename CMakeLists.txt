@@ -18,7 +18,7 @@ set(RAVENEMUDSK_LOCAL_TESTING ${BUILD_TESTING})
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(ravencore
   GIT_REPOSITORY https://github.com/GhostPunishR/RavenCore.git
-  GIT_TAG abe53ae06ccdbdba283427ac1b1e961ddd58f64d
+  GIT_TAG 15675cc3af4f9b07f2e10cc5a7ca6234ea1c77cc
   GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(ravencore)
 FetchContent_Declare(imgui
@@ -76,7 +76,7 @@ target_compile_features(ravenemudsk_ui_library PUBLIC cxx_std_20)
 target_link_libraries(ravenemudsk_ui_library PRIVATE ravenemu_common)
 
 add_library(ravenemudsk_game_input STATIC src/input/game_input.cpp src/input/keyboard_bindings.cpp src/input/pad_bindings.cpp
-  src/settings/game_preferences.cpp)
+  src/input/motion.cpp src/settings/game_preferences.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api ravenemudsk_ui_library)
 add_library(ravenemudsk_game_state STATIC src/saves/game_state.cpp)
@@ -140,8 +140,9 @@ if(WIN32)
   target_link_libraries(ravenemudsk_ui_kit PRIVATE winhttp)
 endif()
 
-# Drawn over the game: pause menu, RetroAchievements banner, sounds.
-add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/audio/game_sound.cpp)
+# Drawn over the game: pause menu, RetroAchievements banner, sounds, and the
+# sound kept in step with the picture.
+add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/audio/game_sound.cpp src/audio/av_sync.cpp)
 target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
 
 # The launcher, one file per screen (src/launcher); the program sees app_shell.hpp.
@@ -223,6 +224,10 @@ if(BUILD_TESTING)
   target_compile_definitions(ravenemudsk_game_sound_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_game_sound_test PRIVATE ravenemudsk_game_ui)
   add_test(NAME game_sound COMMAND ravenemudsk_game_sound_test)
+  add_executable(ravenemudsk_av_sync_test tests/av_sync_test.cpp)
+  target_compile_definitions(ravenemudsk_av_sync_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_av_sync_test PRIVATE ravenemudsk_game_ui)
+  add_test(NAME av_sync COMMAND ravenemudsk_av_sync_test)
   add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
   target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
   add_test(NAME retro_profile_store COMMAND ravenemudsk_profile_store_test)
@@ -242,6 +247,10 @@ if(BUILD_TESTING)
   add_executable(ravenemudsk_library_progress_test tests/library_progress_test.cpp)
   target_link_libraries(ravenemudsk_library_progress_test PRIVATE ravenemudsk_achievements)
   add_test(NAME retro_library_progress COMMAND ravenemudsk_library_progress_test)
+  add_executable(ravenemudsk_screenshot_test tests/screenshot_test.cpp)
+  target_compile_definitions(ravenemudsk_screenshot_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_screenshot_test PRIVATE ravenemudsk_ui_kit)
+  add_test(NAME screenshot COMMAND ravenemudsk_screenshot_test)
   add_executable(ravenemudsk_icons_test tests/icons_test.cpp)
   target_compile_definitions(ravenemudsk_icons_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_icons_test PRIVATE ravenemudsk_ui_kit)
@@ -256,6 +265,10 @@ if(BUILD_TESTING)
   target_compile_definitions(ravenemudsk_game_input_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_game_input_test PRIVATE ravenemudsk_game_input)
   add_test(NAME game_input COMMAND ravenemudsk_game_input_test)
+  add_executable(ravenemudsk_motion_test tests/motion_test.cpp)
+  target_compile_definitions(ravenemudsk_motion_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_motion_test PRIVATE ravenemudsk_game_input)
+  add_test(NAME motion COMMAND ravenemudsk_motion_test)
   # The launcher's screens, driven through their internal header.
   foreach(view home_grid profile_view)
     add_executable(ravenemudsk_${view}_test tests/${view}_test.cpp)

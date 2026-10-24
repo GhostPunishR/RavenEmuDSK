@@ -28,8 +28,11 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Pause rapide | P |
 | Sauvegarder un état | F5 |
 | Charger un état | F9 |
+| Emplacement d'état précédent / suivant | F6 / F7 |
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
+| Avance rapide (maintenir) | Espace |
+| Capture d'écran | F8 |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
 
@@ -40,6 +43,26 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 ## Image et son
 
 Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+
+L'image et le son restent synchronisés :
+
+- quand l'écran rafraîchit à une fréquence proche de celle de la console (60 Hz pour ses 59,73 images par seconde, à 5 % près), RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement, sans image affichée deux fois. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
+- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
+- sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+
+Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
+
+Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
+
+## Vibrations et capteurs
+
+Certaines cartouches avaient un moteur ou des capteurs. RavenEmu les fait passer par la manette, réglables dans **Réglages > Commandes**, carte **Vibrations et capteurs** :
+
+- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...).
+- **Capteurs de mouvement de la manette** : Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le gyroscope de la manette, si elle en a (DualShock 4, DualSense, Switch Pro, Joy-Con). La position de la manette au lancement du jeu, et à chaque sortie du menu ou de la pause, compte comme à plat : pour recentrer, ouvrez puis fermez le menu en tenant la manette comme vous jouez. Le stick gauche incline et tourne aussi, avec ou sans capteurs : poussé à fond, il vaut une inclinaison de 1 g, ou un demi-tour par seconde.
+- **Soleil sur le capteur solaire (Boktai)** : la part du plein soleil que reçoit la cartouche, 50 % par défaut.
+
+Ces réglages sont pris en compte au lancement du jeu suivant.
 
 ## Câble link sans fil
 
@@ -61,6 +84,16 @@ Les deux appareils doivent avoir une version récente de RavenEmu, avec le même
 Chaque échange de données attend un aller-retour réseau : pendant que le câble sert, les deux jeux ralentissent ensemble, d'autant plus que le réseau est lent. Sur un échange Pokémon Rubis ↔ Émeraude, ils passent d'environ 60 images par seconde sans latence à 16 avec 6 ms d'aller-retour, et 5 avec 20 ms ; l'échange va au bout. Pour un échange plus fluide, préférez un câble Ethernet ou le Wi-Fi 5 GHz près de la box, et coupez un éventuel VPN, qui peut ralentir ou bloquer le trafic local.
 
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
+
+## États instantanés
+
+Chaque jeu a neuf emplacements d'états. **F5** sauvegarde dans l'emplacement choisi et **F9** le recharge ; **F6** et **F7** passent à l'emplacement précédent ou suivant, et une notification indique s'il est vide ou quand il a été sauvegardé. Dans le menu de pause, les lignes **Sauvegarder l'état** et **Charger l'état** indiquent l'emplacement : les flèches gauche et droite (ou la croix de la manette, ou la molette sur la ligne) en changent. Une vignette montre alors, à côté du menu, l'image du jeu au moment de la sauvegarde et sa date.
+
+L'emplacement 1 reprend l'état unique des versions précédentes. Après un chargement, **Annuler le chargement**, dans le menu de pause, ramène la partie où elle en était juste avant ; une seule fois.
+
+## Captures d'écran
+
+**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `Captures`, à côté de `Sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
 
 ## Sauvegardes et jaquettes
 

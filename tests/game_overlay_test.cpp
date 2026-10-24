@@ -45,6 +45,47 @@ void navigation(SDL_Window* window,SDL_Renderer* renderer){
         overlay.close_menu();draw();
     }
 }
+// State slots: left and right on a state row change the slot; the undo entry
+// follows a load; the slot's panel beside the menu.
+void state_slots(SDL_Window* window,SDL_Renderer* renderer){
+    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+    GameOverlay overlay(window,renderer,&client);OverlayInfo info;
+    info.game_title="State slots";info.system="gba";info.has_state=true;
+    info.state_slot=3;info.state_saved="le 24/10 à 17:05";
+    SDL_SetWindowSize(window,1024,768);
+    const auto draw=[&]{
+        SDL_PumpEvents();SDL_SetRenderDrawColor(renderer,11,12,18,255);SDL_RenderClear(renderer);
+        const auto action=overlay.draw(info);SDL_RenderPresent(renderer);
+        require(ImGui::GetCurrentContext()->DebugDrawIdConflicts==0,"State slot rows have conflicting widget IDs");
+        return action;
+    };
+    const auto key=[&](ImGuiKey key){
+        ImGui::GetIO().AddKeyEvent(key,true);const auto action=draw();
+        ImGui::GetIO().AddKeyEvent(key,false);const auto released=draw();
+        return action==OverlayAction::None?released:action;
+    };
+    const auto focused=[&](const char* id){
+        auto* menu=ImGui::FindWindowByName("##pause");
+        require(menu!=nullptr,"Pause window missing");
+        return ImGui::GetCurrentContext()->NavId==menu->GetID(id);
+    };
+    overlay.open_menu();for(int i=0;i<4;++i)draw();
+    key(ImGuiKey_DownArrow);require(focused("Sauvegarder l'état"),"The save row keeps its identity with a slot");
+    require(key(ImGuiKey_RightArrow)==OverlayAction::NextSlot,"Right on the save row: next slot");
+    require(key(ImGuiKey_LeftArrow)==OverlayAction::PreviousSlot,"Left: previous slot");
+    require(focused("Sauvegarder l'état"),"Changing the slot keeps the row");
+    key(ImGuiKey_DownArrow);require(focused("Charger l'état"),"Then the load row");
+    require(key(ImGuiKey_RightArrow)==OverlayAction::NextSlot,"Right on the load row: next slot");
+    key(ImGuiKey_DownArrow);require(focused("Succès et classements"),"No undo before a load");
+    info.can_undo_load=true;draw();
+    key(ImGuiKey_UpArrow);require(focused("Annuler le chargement"),"After a load, its undo follows the load row");
+    require(key(ImGuiKey_Enter)==OverlayAction::UndoLoad,"Undo returns its action");
+    overlay.close_menu();draw();
+    info.hardcore_preferred=true;overlay.open_menu();for(int i=0;i<4;++i)draw();
+    key(ImGuiKey_DownArrow);key(ImGuiKey_DownArrow);
+    require(focused("Succès et classements"),"No load and no undo in Hardcore");
+    overlay.close_menu();draw();
+}
 // The wireless link cable: the partner chooser over the game, then, once
 // linked, no state loading and an entry to unplug.
 void link_cable(SDL_Window* window,SDL_Renderer* renderer){
@@ -85,7 +126,7 @@ void link_cable(SDL_Window* window,SDL_Renderer* renderer){
     };
     key(ImGuiKey_DownArrow);key(ImGuiKey_DownArrow);
     require(focused("Succès et classements"),"Linked: no state loading, it would part the two games");
-    for(int i=0;i<4;++i)key(ImGuiKey_DownArrow);
+    for(int i=0;i<5;++i)key(ImGuiKey_DownArrow);
     require(focused("Débrancher le câble"),"Unplug entry reachable by keyboard");
     require(key(ImGuiKey_Enter)==OverlayAction::UnplugLink,"Unplug returns its action");
     overlay.close_menu();draw();
@@ -265,6 +306,6 @@ int main(){
     SDL_Window* window=SDL_CreateWindow("Overlay regression",0,0,1024,768,0);
     require(window!=nullptr,"SDL window failed");SDL_Renderer* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     require(renderer!=nullptr,"SDL renderer failed");
-    navigation(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
-    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, link cable, TV cards, controller buttons, TV menu passed\n";
+    navigation(window,renderer);state_slots(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
+    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, state slots, link cable, TV cards, controller buttons, TV menu passed\n";
 }

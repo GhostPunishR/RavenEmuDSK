@@ -10,7 +10,14 @@ struct GamePreferences {
     bool unlock_sound = true;   // "Son des succès": on unless turned off
     int volume = 100;           // Réglages > Son: 0-100, 0 when the sound is cut
     bool smooth_image = false;  // Réglages > Affichage: smooth scaling instead of sharp pixels
+    bool pause_unfocused = true; // Réglages > Affichage: pause while the game's window is in the background
     bool wireless_link = true;  // Réglages > Câble link: link with the devices of the local network
+    // Réglages > Commandes: the controller rumbles with the cartridge's motor,
+    // its motion sensors tilt and turn the games that have some, and Boktai's
+    // solar sensor gets this share of full sunlight (0-100 %).
+    bool rumble = true;
+    bool motion_sensors = true;
+    int solar_light = 50;
     KeyboardBindings keyboard;
     PadBindings pads;
 };

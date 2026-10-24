@@ -8,6 +8,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <iterator>
 namespace ravenemudsk_ui {
 namespace fs = std::filesystem;
@@ -62,10 +63,40 @@ std::string lower_extension(const fs::path& file) {
 Folders prepare_folders(const std::vector<fs::path>& roots) {
     for (const auto& root : roots) {
         if (root.empty()) continue;
-        Folders folders{root / "Sauvegardes", root / "Jaquettes"};
-        if (writable(folders.saves) && writable(folders.covers)) return folders;
+        Folders folders{root / "Sauvegardes", root / "Jaquettes", root / "Captures"};
+        if (writable(folders.saves) && writable(folders.covers)) {
+            // Made now, so that Réglages can open it; a failure waits for the first screenshot.
+            std::error_code ignored;
+            fs::create_directories(folders.captures, ignored);
+            return folders;
+        }
     }
     throw std::runtime_error("Impossible de créer les dossiers Sauvegardes et Jaquettes");
+}
+
+fs::path screenshot_path(const Folders& folders, const std::string& title, std::time_t when) {
+    std::string name;
+    for (const unsigned char c : title) {
+        constexpr std::string_view reserved = "/\\:*?\"<>|";
+        const bool forbidden = c < 32 || reserved.find(static_cast<char>(c)) != std::string_view::npos;
+        const char kept = forbidden ? ' ' : static_cast<char>(c);
+        if (kept != ' ' || (!name.empty() && name.back() != ' ')) name += kept;
+    }
+    while (!name.empty() && name.back() == ' ') name.pop_back();
+    if (name.empty()) name = "Capture";
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &when);
+#else
+    localtime_r(&when, &local);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof stamp, " %Y-%m-%d %H-%M-%S", &local);
+    fs::create_directories(folders.captures);
+    const auto base = name + stamp;
+    auto path = folders.captures / from_utf8(base + ".png");
+    for (int n = 2; fs::exists(path); ++n) path = folders.captures / from_utf8(base + " (" + std::to_string(n) + ").png");
+    return path;
 }
 
 fs::path save_path(const Folders& folders, const fs::path& rom, const char* suffix) {
@@ -84,6 +115,14 @@ fs::path save_path(const Folders& folders, const fs::path& rom, const char* suff
     }
     return target;
 }
+
+fs::path state_path(const Folders& folders, const fs::path& rom, int slot) {
+    slot = std::clamp(slot, 1, state_slots);
+    const auto suffix = slot == 1 ? std::string(".rstate") : ".rstate" + std::to_string(slot);
+    return save_path(folders, rom, suffix.c_str());
+}
+
+fs::path state_picture_path(const fs::path& state) { return sidecar(state, ".png"); }
 
 fs::path preview_path(const Folders& folders, const fs::path& rom) {
     const auto target = save_path(folders, rom, ".ravenemu-preview.bmp");

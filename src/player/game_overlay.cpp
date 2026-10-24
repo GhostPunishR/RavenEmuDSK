@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/player/game_overlay.hpp>
+#include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/achievements/retro_widgets.hpp>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
@@ -29,12 +30,13 @@ MenuStyle menu_style(const Fonts& fonts, bool tv, bool compact) {
 }
 // Full-width menu row: icon, label and keyboard shortcut. In TV mode the row
 // under the controller's focus is filled, as in the launcher's TV menu.
+// `id`: the row's identity when its label changes (the state slot in it).
 bool menu_item(const Fonts& fonts, const MenuStyle& m, const char* label, Icon icon, const char* shortcut,
-               bool enabled = true, bool danger = false) {
+               bool enabled = true, bool danger = false, const char* id = nullptr) {
     const float w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
     if (!enabled) ImGui::BeginDisabled();
-    const bool pressed = ImGui::InvisibleButton(label, {w, m.row},ImGuiButtonFlags_EnableNav);
+    const bool pressed = ImGui::InvisibleButton(id ? id : label, {w, m.row},ImGuiButtonFlags_EnableNav);
     if (!enabled) ImGui::EndDisabled();
     const bool hovered = enabled && ImGui::IsItemHovered();
     const bool selected = m.tv && enabled && ImGui::IsItemFocused();
@@ -137,6 +139,7 @@ GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_
     ImGui_ImplSDLRenderer2_Init(renderer);
 }
 GameOverlay::~GameOverlay() {
+    if (slot_picture_) SDL_DestroyTexture(slot_picture_);
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();
     ImGui::DestroyContext();
@@ -530,7 +533,9 @@ void GameOverlay::draw_status(const OverlayInfo& info, ImDrawList* bg) {
         bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
         top+=size.y+8.f;
     };
-    if (info.paused) status_pill("Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre");
+    if (info.fast_forward) status_pill("Avance rapide  \xC2\xB7  \xC3\x97" + std::to_string(fast_forward_speed));
+    if (info.paused_unfocused) status_pill("Pause  \xC2\xB7  la fenêtre est en arrière-plan");
+    else if (info.paused) status_pill("Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre");
     // The other game's menu is open: this one waits for it, as two consoles do.
     if (info.link_partner_paused) status_pill("Partenaire en pause  \xC2\xB7  "+info.link_partner);
 }
@@ -569,9 +574,58 @@ void GameOverlay::draw_start_hint(const OverlayInfo& info, ImVec2 screen, ImDraw
                     with_alpha(color::text_muted, alpha), hint);
     }
 }
+// The picture of a state slot, as a texture kept until the file changes.
+SDL_Texture* GameOverlay::slot_picture(const std::filesystem::path& file) {
+    std::error_code ec;
+    const auto time = file.empty() ? std::filesystem::file_time_type{} : std::filesystem::last_write_time(file, ec);
+    if (file != slot_picture_file_ || time != slot_picture_time_) {
+        if (slot_picture_) SDL_DestroyTexture(slot_picture_);
+        slot_picture_ = file.empty() || ec ? nullptr : load_local_image(renderer_, file);
+        if (slot_picture_) SDL_SetTextureScaleMode(slot_picture_, SDL_ScaleModeNearest);
+        slot_picture_file_ = file;
+        slot_picture_time_ = time;
+    }
+    return slot_picture_;
+}
+// Beside the menu, while a state row is chosen: the slot, when its state was
+// saved, and the picture taken with it, twice the console's size when it fits.
+void GameOverlay::draw_slot_panel(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg, ImVec2 menu_min,
+                                  ImVec2 menu_max) {
+    SDL_Texture* picture = info.state_saved.empty() ? nullptr : slot_picture(info.state_picture);
+    int pw = 0, ph = 0;
+    if (picture) SDL_QueryTexture(picture, nullptr, nullptr, &pw, &ph);
+    const float pad = tv_ ? 20.f : 14.f, gap = 16.f;
+    const float room = std::max(screen.x - menu_max.x, menu_min.x) - gap - 16.f;
+    // Twice the console's size at most, by quarters, down to half of it;
+    // below that, the panel says when without the picture.
+    float scale = pw > 0 ? std::min(2.f, std::floor((room - 2.f * pad) / static_cast<float>(pw) * 4.f) / 4.f) : 0.f;
+    if (scale < .5f) picture = nullptr;
+    const float width = std::max(picture ? pw * scale : 0.f, tv_ ? 300.f : 180.f) + 2.f * pad;
+    if (width > room) return;
+    ImFont* title = tv_ ? fonts_.tv_body : fonts_.strong;
+    ImFont* detail = tv_ ? fonts_.strong : fonts_.caption;
+    const float text_h = title->FontSize + 6.f + detail->FontSize;
+    const float height = 2.f * pad + text_h + (picture ? ph * scale + pad : 0.f);
+    const bool right = screen.x - menu_max.x >= menu_min.x;
+    const ImVec2 a{right ? menu_max.x + gap : menu_min.x - gap - width,
+                   std::clamp((menu_min.y + menu_max.y - height) * .5f, 16.f, std::max(16.f, screen.y - height - 16.f))};
+    bg->AddRectFilled(a, {a.x + width, a.y + height}, color::elevated, radius::lg);
+    bg->AddRect(a, {a.x + width, a.y + height}, color::border_strong, radius::lg);
+    const std::string heading = "Emplacement " + std::to_string(info.state_slot);
+    bg->AddText(title, title->FontSize, {a.x + pad, a.y + pad}, color::text, heading.c_str());
+    const std::string when = info.state_saved.empty() ? "Vide" : "Sauvegardé " + info.state_saved;
+    bg->AddText(detail, detail->FontSize, {a.x + pad, a.y + pad + title->FontSize + 6.f}, color::text_muted,
+                ellipsize(detail, when, width - 2.f * pad).c_str());
+    if (picture) {
+        const ImVec2 at{a.x + pad, a.y + pad + text_h + pad};
+        bg->AddImageRounded(reinterpret_cast<ImTextureID>(picture), at, {at.x + pw * scale, at.y + ph * scale},
+                            {0, 0}, {1, 1}, IM_COL32_WHITE, radius::sm);
+    }
+}
 // The pause menu; returns the entry chosen this frame, or None.
 OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg) {
     OverlayAction action = OverlayAction::None;
+    bool slot_panel = false;
     const bool compact = tv_ && screen.y < 900.f;
     const MenuStyle m = menu_style(fonts_, tv_, compact);
     bg->AddRectFilled({0, 0}, screen, IM_COL32(5, 7, 14, tv_ ? 215 : 200));
@@ -617,15 +671,38 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     // Opened with the controller: the keyboard shortcuts would not apply.
     const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
     if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
-    if (menu_item(fonts_, m, "Sauvegarder l'état", Icon::Save, shortcut(KeyAction::SaveState).c_str())) action = OverlayAction::SaveState;
+    // The state rows name their slot; left and right (or the wheel) change it,
+    // and its picture shows beside the menu.
+    const std::string slot = "emplacement " + std::to_string(info.state_slot);
+    const auto slot_row = [&](const char* id, Icon icon, KeyAction key, bool enabled) {
+        const std::string label = tv_ ? std::string(id) + " \xC2\xB7 " + slot : std::string(id);
+        const std::string badge = pad_menu_ ? slot : slot + "  \xC2\xB7  " + info.keyboard.label(key);
+        const bool pressed = menu_item(fonts_, m, label.c_str(), icon, badge.c_str(), enabled, false, id);
+        if (ImGui::IsItemFocused() || ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            slot_panel = true;
+            const float wheel = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) ? ImGui::GetIO().MouseWheel : 0.f;
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft) || wheel > 0.f)
+                action = OverlayAction::PreviousSlot;
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight) || wheel < 0.f)
+                action = OverlayAction::NextSlot;
+        }
+        return pressed;
+    };
+    if (slot_row("Sauvegarder l'état", Icon::Save, KeyAction::SaveState, true)) action = OverlayAction::SaveState;
     // A state loaded on one side only would part the two linked games.
-    if (menu_item(fonts_, m, "Charger l'état", Icon::Load, shortcut(KeyAction::LoadState).c_str(),
-                  info.has_state && !info.hardcore_preferred && info.link_partner.empty()))
+    const bool loading = !info.hardcore_preferred && info.link_partner.empty();
+    if (slot_row("Charger l'état", Icon::Load, KeyAction::LoadState, info.has_state && loading))
         action = OverlayAction::LoadState;
+    // Back to the game before the last load; the TV menu keeps its 720p size.
+    if (!tv_ && info.can_undo_load && loading && menu_item(fonts_, m, "Annuler le chargement", Icon::Reset, nullptr))
+        action = OverlayAction::UndoLoad;
     focus_here(focus_retro_entry_);
     if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
     if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
         action = OverlayAction::ToggleHardcore;
+    // The TV menu must fit a 720p screen: there, the key alone takes them.
+    if (!tv_ && menu_item(fonts_, m, "Capture d'écran", Icon::Save, shortcut(KeyAction::Screenshot).c_str()))
+        action = OverlayAction::Screenshot;
     if (menu_item(fonts_, m, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
     // TV mode stays in full screen, from the launcher to the game and back.
     if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
@@ -676,7 +753,10 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
                  {{PadButton::South, "Entrée", "Choisir"}, {PadButton::East, "Échap", "Reprendre"}});
         ImGui::Dummy({inner, 34.f});
     }
+    const ImVec2 menu_min = ImGui::GetWindowPos();
+    const ImVec2 menu_max{menu_min.x + ImGui::GetWindowSize().x, menu_min.y + ImGui::GetWindowSize().y};
     ImGui::End();
+    if (slot_panel) draw_slot_panel(info, screen, bg, menu_min, menu_max);
     ImGui::PopStyleVar(4);
     ImGui::PopStyleColor(3);
     return action;

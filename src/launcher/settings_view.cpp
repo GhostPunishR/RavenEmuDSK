@@ -42,13 +42,14 @@ void settings_library(State& s, Library& lib) {
     end_card();
 
     begin_card("##folders");
-    card_title(s, Icon::Folder, "Sauvegardes et jaquettes");
-    muted("RavenEmu range automatiquement vos fichiers dans deux dossiers à côté du programme. "
+    card_title(s, Icon::Folder, "Sauvegardes, jaquettes et captures");
+    muted("RavenEmu range automatiquement vos fichiers dans trois dossiers à côté du programme. "
           "Copiez-les pour sauvegarder ou transférer votre progression.");
     ImGui::Dummy({0.f, space::xs});
     folder_row(s, "Sauvegardes", "sauvegardes de jeu, états et dernières captures",
                s.folders.saves);
     folder_row(s, "Jaquettes", "nommez l'image comme la ROM, par exemple MonJeu.png", s.folders.covers);
+    folder_row(s, "Captures", "captures d'écran prises en jeu", s.folders.captures);
     end_card();
 }
 
@@ -59,6 +60,9 @@ std::string controller_label(KeyAction action, const char* fallback, const PadBi
     if (static_cast<int>(action) < PadBindings::count) return pad_input_name(pads.input(action), family);
     if (action == KeyAction::Menu)
         return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
+    // The right trigger, unless a console button took it.
+    if (action == KeyAction::FastForward)
+        return pads.button(pad_right_trigger) < 0 ? pad_input_name(pad_right_trigger, family) : "Gâchette droite occupée";
     return fallback;
 }
 // A switch with its label and an explanation below, saved at once.
@@ -77,6 +81,23 @@ void setting_switch(State& s, const char* key, bool fallback, const char* label,
     muted(help);
     ImGui::PopFont();
 }
+// A 0-100 % slider on the card, saved once let go, not at every step.
+void percent_slider(State& s, const char* key, int fallback, bool disabled = false) {
+    int value = std::clamp(s.settings.number(key, fallback), 0, 100);
+    ImGui::PushID(key);
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (disabled) ImGui::BeginDisabled();
+    // The card is the theme's frame color: the track needs its own.
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
+    if (ImGui::SliderInt("##percent", &value, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
+        s.settings.set(key, std::to_string(value));
+    if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
+    ImGui::PopStyleColor(3);
+    if (disabled) ImGui::EndDisabled();
+    ImGui::PopID();
+}
 void settings_display(State& s) {
     begin_card("##image");
     card_title(s, Icon::Fullscreen, "Image du jeu");
@@ -84,25 +105,19 @@ void settings_display(State& s) {
                    "Adoucit les pixels quand l’image est agrandie. Désactivé, les pixels restent nets, comme sur la "
                    "console. Pris en compte au lancement du jeu.");
     end_card();
+    begin_card("##window");
+    card_title(s, Icon::Pause, "Fenêtre du jeu");
+    setting_switch(s, "pause_unfocused", true, "Pause en arrière-plan",
+                   "Met le jeu en pause quand vous passez à une autre fenêtre, et le reprend à votre retour. "
+                   "En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente. "
+                   "Pris en compte au lancement du jeu.");
+    end_card();
 }
 void settings_sound(State& s) {
     begin_card("##sound");
     card_title(s, Icon::Volume, "Son du jeu");
-    int volume = std::clamp(s.settings.number("volume", 100), 0, 100);
-    const bool muted_game = s.settings.flag("mute", false);
     ImGui::TextUnformatted("Volume");
-    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
-    if (muted_game) ImGui::BeginDisabled();
-    // The card is the theme's frame color: the track needs its own.
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    if (ImGui::SliderInt("##volume", &volume, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
-        s.settings.set("volume", std::to_string(volume));
-    // Saved once the slider is let go, not at every step of the drag.
-    if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
-    ImGui::PopStyleColor(3);
-    if (muted_game) ImGui::EndDisabled();
+    percent_slider(s, "volume", 100, s.settings.flag("mute", false));
     ImGui::Dummy({0.f, space::sm});
     setting_switch(s, "mute", false, "Couper le son",
                    "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
@@ -180,6 +195,24 @@ void settings_controls(State& s) {
         try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Commandes réinitialisées");}
         catch(const std::exception& e){notify(s,Toast::Kind::Error,"Commandes non enregistrées",e.what());}
     }
+    end_card();
+    begin_card("##sensors");
+    card_title(s, Icon::Gamepad, "Vibrations et capteurs");
+    setting_switch(s, "rumble", true, "Vibrations",
+                   "La manette vibre avec le moteur des cartouches qui en ont un : Pokémon Pinball, Drill Dozer, "
+                   "WarioWare: Twisted!... Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "motion_sensors", true, "Capteurs de mouvement de la manette",
+                   "Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le "
+                   "gyroscope de la manette, s'il en a (DualShock 4, DualSense, Switch Pro, Joy-Con). Au lancement du "
+                   "jeu et à chaque reprise, la position de la manette compte comme à plat. Le stick gauche incline "
+                   "et tourne aussi, avec ou sans capteurs. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Soleil sur le capteur solaire (Boktai)");
+    percent_slider(s, "solar_light", 50);
+    ImGui::PushFont(s.fonts.caption);
+    muted("Part du plein soleil que reçoit le capteur de la cartouche. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
     end_card();
 }
 
@@ -295,7 +328,8 @@ void settings_about(State& s) {
     ImGui::TextWrapped("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
           "succès RetroAchievements via rcheevos (MIT), interface Dear ImGui (MIT) "
-          "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
+          "et SDL2 (zlib). Les couleurs des jeux Game Boy sur GBC viennent des tables de "
+          "The Cutting Room Floor (tcrf.net, CC BY 3.0), converties au RGB555 de la console. Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
           "Les fonctions RetroAchievements transmettent au service les données du compte, du jeu et des succès. "
           "La recherche de mises à jour contacte GitHub.");
     ImGui::Dummy({0.f, space::xs});
@@ -317,11 +351,11 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie."},
+         "Choisissez comment l’image du jeu est agrandie, et sa pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
-         "Choisissez les touches du clavier et les boutons de la manette."},
+         "Choisissez les touches du clavier et les boutons de la manette, ses vibrations et ses capteurs."},
         {SettingsCategory::Link, Icon::Link, "Câble link",
          "Reliez vos jeux à ceux d’un autre appareil, sans fil."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",

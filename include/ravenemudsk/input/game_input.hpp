@@ -19,6 +19,9 @@ public:
     // Call every frame with SDL_GetTicks(): a lone Select or Start reaches the
     // game once the chord window has passed.
     void update(Uint32 now);
+    // Held: its key, or the controller's right trigger when no console button
+    // uses it. Never while a menu is open.
+    bool fast_forward() const { return !menu_open_ && (fast_key_ || fast_trigger_); }
     // How long a lone Select or Start waits for the other one.
     static constexpr Uint32 chord_window_ms = 150;
     // A quick tap of either, sent when released, stays down this long so the
@@ -34,6 +37,7 @@ private:
     KeyboardBindings keys_;
     PadBindings pads_;
     std::array<bool,2> trigger_down_{};
+    bool fast_key_ = false, fast_trigger_ = false;
     std::array<bool,10> keyboard_held_{},controller_held_{};
     bool start_down_ = false, select_down_ = false; // on the controller, since release_all
     bool chord_ = false;                            // until both are released

@@ -6,10 +6,12 @@
 #include <ravenemu/bridge.h>
 #include <ravenemudsk/player/game_overlay.hpp>
 #include <ravenemudsk/input/game_input.hpp>
+#include <ravenemudsk/input/motion.hpp>
 #include <ravenemudsk/saves/game_state.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
+#include <ravenemudsk/audio/av_sync.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/wireless/wireless_link.hpp>
 #include <algorithm>
@@ -18,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -99,6 +102,24 @@ bool load_state(ravenemu_bridge* core,const fs::path& path) {
     if(!ra.can_load_state())throw std::runtime_error("Chargement d’état interdit en Hardcore");
     return ravenemudsk_ui::restore_game_state(core,ra,read_file(path,24u<<20));
 }
+// "le 24/10 à 17:05": when a state file was written, local time.
+std::string saved_at(const fs::path& file) {
+    std::error_code ec;
+    const auto written=fs::last_write_time(file,ec);
+    if(ec)return "à une date inconnue";
+    const auto when=std::chrono::system_clock::now()+std::chrono::duration_cast<std::chrono::system_clock::duration>(
+        written-fs::file_time_type::clock::now());
+    const std::time_t t=std::chrono::system_clock::to_time_t(when);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local,&t);
+#else
+    localtime_r(&t,&local);
+#endif
+    char text[32];
+    std::strftime(text,sizeof text,"le %d/%m à %H:%M",&local);
+    return text;
+}
 int system_of(const std::string& code) {
     if(code=="gb")return RAVENEMU_GB;
     if(code=="gbc")return RAVENEMU_GBC;
@@ -145,6 +166,17 @@ private:
     void handle(const SDL_Event& e);
     void handle_key(ravenemudsk_ui::KeyAction action);
     void emulate(Clock::time_point now,bool waiting);
+    void queue_sound(std::size_t samples,double speed);
+    void start_motion();
+    void feed_motion();
+    void update_rumble(Clock::time_point now);
+    void stop_rumble();
+    void take_screenshot();
+    void save_slot();
+    void load_slot();
+    void undo_load();
+    void select_slot(int step);
+    void refresh_slot();
     void take_retro_events();
     void update_link();
     bool link_holds() const;
@@ -159,7 +191,12 @@ private:
     // Held around every RavenCore call: the wireless link cable plugs in and
     // answers the other console from its own threads, between two frames.
     std::mutex core_mutex;
+    ravenemudsk_ui::Folders folders;
     fs::path battery_path,state_path,preview_path;
+    // The state slot chosen (1-9), and the game as it was before the last
+    // load, for "Annuler le chargement".
+    int slot=1;
+    std::vector<std::uint8_t> undo_state;
     int w=0,h=0,hz=0;
     double fps=0;
     std::optional<Sdl> sdl;
@@ -177,12 +214,28 @@ private:
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
     std::vector<std::int16_t> chime;
     ravenemudsk_ui::SoundMixer effects;
+    // The screen paces the game when its refresh is close to the console's;
+    // the sound is resampled so that the device's queue stays near its target.
+    static constexpr double audio_target=.05;
+    // The queue's level over about half a second: the device takes the sound
+    // by blocks of 31 ms, which the correction must not follow.
+    double audio_level=audio_target;
+    std::optional<ravenemudsk_ui::FramePacer> pacer;
+    ravenemudsk_ui::Resampler resampler;
+    std::vector<std::int16_t> resampled;
     std::optional<ravenemudsk_ui::GameInput> input;
+    // The cartridge's sensors (RAVENEMU_SENSOR_*) and motor, on the controller.
+    int sensors=0;
+    ravenemudsk_ui::MotionInput motion;
+    bool rumbling=false;
+    Clock::time_point rumble_refresh;
     ravenemudsk_ui::OverlayInfo info{};
     // Closed before the core it plugs into.
     std::unique_ptr<ravenemudsk_link::WirelessLink> link;
     bool running=true,paused=false;
-    Clock::time_point next,last_save,next_progress;
+    // Paused because the window went to the background: it resumes with it.
+    bool paused_unfocused=false;
+    Clock::time_point next,last_save,next_progress,last_frame,last_present;
     Clock::duration duration{};
 };
 GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(request) {
@@ -191,9 +244,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
     core=Core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
-    const auto folders=ravenemudsk_ui::app_folders();
+    folders=ravenemudsk_ui::app_folders();
     battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
-    state_path=ravenemudsk_ui::save_path(folders,rom_path,".rstate");
     preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
@@ -220,6 +272,9 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
         pad.reset(SDL_GameControllerOpen(i));if(pad)break;
     }
+    sensors=ravenemu_sensors(core.get());
+    if(sensors&RAVENEMU_SENSOR_SOLAR)ravenemu_set_solar_light(core.get(),prefs.solar_light*255/100);
+    start_motion();
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
     pcm.resize(8192);
@@ -228,10 +283,12 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
     },prefs.keyboard,prefs.pads);
-    info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
+    info.game_title=title;info.system=req.system;
+    refresh_slot();
     info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
-    next=last_save=next_progress=Clock::now();
+    next=last_save=next_progress=last_frame=last_present=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
+    pacer.emplace(fps);
     // Idle until the game uses its link port: then it looks for a partner.
     if(prefs.wireless_link) {
         link=std::make_unique<ravenemudsk_link::WirelessLink>(ravenemudsk_link::WirelessLink::Game{core.get(),
@@ -240,6 +297,7 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     }
 }
 GameSession::~GameSession() {
+    stop_rumble();
     ravenemudsk_ra::client().end_game();
     if(audio_device)SDL_CloseAudioDevice(audio_device);
 }
@@ -289,11 +347,14 @@ void GameSession::run() {
     // Let go while the picture is shown and while the loop sleeps: the link
     // cable's moments.
     std::unique_lock core_lock(core_mutex);
+    bool was_still=true;
+    Clock::duration slept{};
     while(running) {
         SDL_Event e{};
         while(SDL_PollEvent(&e))handle(e);
         input->update(SDL_GetTicks());
         if(link)update_link();
+        info.fast_forward=input->fast_forward()&&info.link_partner.empty()&&!paused;
         const auto now=Clock::now();
         const bool waiting=ravenemudsk_ra::client().frames_on_hold();
         emulate(now,waiting);
@@ -309,8 +370,24 @@ void GameSession::run() {
         draw(waiting);
         core_lock.unlock();
         SDL_RenderPresent(renderer);
-        if(waiting||paused||overlay->menu_open()||link_holds())SDL_Delay(16);
-        else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // The screen's refresh, measured between two pictures of a running
+        // game at its own speed, apart from the loop's own sleep.
+        const auto shown=Clock::now();
+        const bool still=waiting||paused||overlay->menu_open()||link_holds();
+        const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
+        if(!still&&!was_still&&!info.fast_forward)
+            pacer->presented(seconds(shown-last_present),seconds(shown-last_present-slept));
+        // Back in the game, the controller's position counts as level again;
+        // stopped, its motor stops.
+        if(!still&&was_still)motion.recenter();
+        if(still&&!was_still)stop_rumble();
+        last_present=shown;was_still=still;slept={};
+        if(still)SDL_Delay(16);
+        else if(!pacer->locked()&&Clock::now()<next) {
+            const auto before=Clock::now();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            slept=Clock::now()-before;
+        }
         core_lock.lock();
     }
     finish();
@@ -318,11 +395,19 @@ void GameSession::run() {
 void GameSession::handle(const SDL_Event& e) {
     overlay->process_event(e);
     if(e.type==SDL_QUIT)running=false;
+    // In the background the game pauses (RetroArch's default too), and
+    // resumes when its window comes back, unless the player paused it.
+    if(e.type==SDL_WINDOWEVENT&&prefs.pause_unfocused) {
+        if(e.window.event==SDL_WINDOWEVENT_FOCUS_LOST&&!paused&&!overlay->menu_open()&&pause_allowed())
+            paused=paused_unfocused=true;
+        else if(e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED&&paused_unfocused)
+            paused=paused_unfocused=false;
+    }
     if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
-        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
+        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); start_motion(); }
     if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-        { input->release_all(); pad.reset(); info.pad.reset(); }
+        { input->release_all(); pad.reset(); info.pad.reset(); motion=ravenemudsk_ui::MotionInput{}; rumbling=false; }
     // "Relier le câble à…" takes the keys while it is up.
     const bool choosing=!info.link_choices.empty()&&!overlay->menu_open();
     if(e.type==SDL_KEYDOWN && !e.key.repeat) {
@@ -350,47 +435,181 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
             break;
         case Key::Pause:
             if(paused || pause_allowed()) {
-                paused=!paused;input->release_all();
+                paused=!paused;paused_unfocused=false;input->release_all();
             }
             break;
         case Key::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();break;
-        case Key::SaveState:
-            save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
-            break;
-        case Key::LoadState:
-            if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
-            else if(!info.link_partner.empty())
-                toast(ravenemudsk_ui::Toast::Kind::Info,"Câble sans fil relié","Le chargement d'une sauvegarde d'état est désactivé.");
-            else if(fs::exists(state_path)){
-                const bool restored=load_state(core.get(),state_path);input->release_all();overlay->clear_retro();
-                toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
-            break;
+        case Key::SaveState:save_slot();break;
+        case Key::LoadState:load_slot();break;
+        case Key::PreviousSlot:select_slot(-1);break;
+        case Key::NextSlot:select_slot(1);break;
+        case Key::Screenshot:take_screenshot();break;
         case Key::Fullscreen:
             SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
             break;
         default:break;
     }
 }
-// One emulated frame when it is due, its sound queued with the chime and the
-// volume; otherwise the SDK still runs between frames.
+// One emulated frame when it is due: at each refresh while the screen paces
+// the game (half a frame apart at least, should the picture stop waiting for
+// the screen), else on the game's own clock; several while fast forward is
+// held, except over the link cable. Their sound goes out with the chime and the
+// volume, as fast; between frames the SDK still runs.
 void GameSession::emulate(Clock::time_point now,bool waiting) {
-    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && now>=next) {
-        verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
-        if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
-        ravenemudsk_ra::client().pump(true);
-        const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
-        effects.mix(pcm.data(),n);
-        ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
-        if(audio_device && n) {
-            if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
-                SDL_ClearQueuedAudio(audio_device);
-            SDL_QueueAudio(audio_device,pcm.data(),static_cast<Uint32>(n*sizeof(std::int16_t)));
+    const bool due=pacer->locked()?now>=last_frame+duration/2:now>=next;
+    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
+        const int frames=info.fast_forward?ravenemudsk_ui::fast_forward_speed:1;
+        for(int frame=0;frame<frames;++frame) {
+            feed_motion();
+            verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+            update_rumble(now);
+            if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
+            ravenemudsk_ra::client().pump(true);
+            const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
+            effects.mix(pcm.data(),n);
+            ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
+            queue_sound(n,frames);
         }
         SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
-        next+=duration;
+        last_frame=now;
+        next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
     } else ravenemudsk_ra::client().pump(false);
+}
+// The frame's sound, resampled a little faster or slower so that the device's
+// queue stays near its target. A queue run dry (start, pause, slowdown) first
+// gets its target in silence; one left far over it by a stall starts afresh.
+void GameSession::queue_sound(std::size_t samples,double speed) {
+    if(!audio_device||!samples)return;
+    const double frame_bytes=2*sizeof(std::int16_t);
+    double queued=SDL_GetQueuedAudioSize(audio_device)/(frame_bytes*hz);
+    if(queued>4*audio_target) {
+        SDL_ClearQueuedAudio(audio_device);
+        queued=0;
+    }
+    if(queued==0) {
+        resampler.reset();
+        const std::vector<std::int16_t> silence(static_cast<std::size_t>(audio_target*hz)*2,0);
+        SDL_QueueAudio(audio_device,silence.data(),static_cast<Uint32>(silence.size()*sizeof(std::int16_t)));
+        queued=audio_level=audio_target;
+    }
+    audio_level+=(queued-audio_level)/32;
+    resampled.clear();
+    resampler.process(pcm.data(),samples/2,
+                      pacer->audio_ratio()*ravenemudsk_ui::rate_correction(audio_level,audio_target)/speed,resampled);
+    SDL_QueueAudio(audio_device,resampled.data(),static_cast<Uint32>(resampled.size()*sizeof(std::int16_t)));
+}
+// The controller's accelerometer and gyroscope, for a game that tilts or
+// turns: switched on (they cost battery), the controller's position as level.
+void GameSession::start_motion() {
+    motion.recenter();
+    if(!pad||!prefs.motion_sensors)return;
+    if((sensors&RAVENEMU_SENSOR_TILT)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_ACCEL))
+        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_ACCEL,SDL_TRUE);
+    if((sensors&RAVENEMU_SENSOR_ROTATION)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_GYRO))
+        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_GYRO,SDL_TRUE);
+}
+// Before each frame: the left stick and the controller's sensors tilt and
+// turn the cartridge.
+void GameSession::feed_motion() {
+    if(!(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION)))return;
+    if(pad) {
+        motion.stick(SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTX),
+                     SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTY));
+        // A sensor that is off reads level and still.
+        float acceleration[3]={0.f,SDL_STANDARD_GRAVITY,0.f},rotation[3]={0.f,0.f,0.f};
+        bool sensed=false;
+        for(const auto [type,values]:{std::pair{SDL_SENSOR_ACCEL,acceleration},std::pair{SDL_SENSOR_GYRO,rotation}})
+            if(SDL_GameControllerIsSensorEnabled(pad.get(),type)&&SDL_GameControllerGetSensorData(pad.get(),type,values,3)==0)
+                sensed=true;
+        if(sensed)motion.sense(acceleration,rotation);
+    } else motion.stick(0,0);
+    const auto reading=motion.reading();
+    if(sensors&RAVENEMU_SENSOR_TILT)ravenemu_set_tilt(core.get(),reading.tilt_x,reading.tilt_y);
+    if(sensors&RAVENEMU_SENSOR_ROTATION)ravenemu_set_rotation(core.get(),reading.rotation);
+}
+// The cartridge's motor on the controller: started when it starts, renewed
+// every half second while it runs (each order lasts one), stopped with it.
+void GameSession::update_rumble(Clock::time_point now) {
+    const bool on=pad&&prefs.rumble&&ravenemu_rumble_active(core.get());
+    if(on&&(!rumbling||now>=rumble_refresh)) {
+        SDL_GameControllerRumble(pad.get(),0xffff,0xffff,1000);
+        rumble_refresh=now+std::chrono::milliseconds(500);
+    }
+    if(!on)stop_rumble();
+    rumbling=on;
+}
+void GameSession::stop_rumble() {
+    if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
+    rumbling=false;
+}
+// The chosen slot's state, with the picture of the game at that moment.
+void GameSession::save_slot() {
+    save_state(core.get(),state_path);
+    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),pixels.data(),w,h);
+    refresh_slot();
+    toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé","Emplacement "+std::to_string(slot));
+}
+// The chosen slot's state, unless Hardcore or the link cable forbid it. The
+// game as it was stays at hand for "Annuler le chargement".
+void GameSession::load_slot() {
+    using Kind=ravenemudsk_ui::Toast::Kind;
+    if(ravenemudsk_ra::client().snapshot().hardcore_preferred) {toast(Kind::Info,"Hardcore","Chargement interdit");return;}
+    if(!info.link_partner.empty()) {
+        toast(Kind::Info,"Câble sans fil relié","Le chargement d'une sauvegarde d'état est désactivé.");
+        return;
+    }
+    if(!info.has_state) {toast(Kind::Info,"Emplacement "+std::to_string(slot)+" vide");return;}
+    try {
+        auto before=ravenemudsk_ui::encode_game_state(ravenemudsk_ui::capture_game_state(core.get(),ravenemudsk_ra::client()));
+        const bool restored=load_state(core.get(),state_path);
+        undo_state=std::move(before);info.can_undo_load=true;
+        input->release_all();overlay->clear_retro();
+        toast(Kind::Success,"État chargé  \xC2\xB7  emplacement "+std::to_string(slot),
+              restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");
+    } catch(const std::exception& e) {
+        toast(Kind::Error,"État illisible",e.what());
+    }
+}
+// Back to the game as it was before the last load, once.
+void GameSession::undo_load() {
+    if(undo_state.empty()||ravenemudsk_ra::client().snapshot().hardcore_preferred||!info.link_partner.empty())return;
+    try {
+        ravenemudsk_ui::restore_game_state(core.get(),ravenemudsk_ra::client(),undo_state);
+        input->release_all();overlay->clear_retro();
+        toast(ravenemudsk_ui::Toast::Kind::Success,"Chargement annulé","La partie reprend où elle en était.");
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Annulation impossible",e.what());
+    }
+    undo_state.clear();info.can_undo_load=false;
+}
+// The next or previous of the nine slots, said in a notification when the
+// menu is closed (open, the menu shows it).
+void GameSession::select_slot(int step) {
+    slot=(slot-1+step+ravenemudsk_ui::state_slots)%ravenemudsk_ui::state_slots+1;
+    refresh_slot();
+    if(!overlay->menu_open())
+        toast(ravenemudsk_ui::Toast::Kind::Info,"Emplacement "+std::to_string(slot),
+              info.has_state?"Sauvegardé "+info.state_saved:"Vide");
+}
+void GameSession::refresh_slot() {
+    state_path=ravenemudsk_ui::state_path(folders,rom_path,slot);
+    info.state_slot=slot;
+    info.has_state=fs::exists(state_path);
+    info.state_saved=info.has_state?saved_at(state_path):std::string();
+    info.state_picture=ravenemudsk_ui::state_picture_path(state_path);
+}
+// The last frame of the game, without the menu or notifications, at the
+// console's resolution, in Captures.
+void GameSession::take_screenshot() {
+    try {
+        const auto path=ravenemudsk_ui::screenshot_path(folders,title,std::time(nullptr));
+        if(!ravenemudsk_ui::save_png(path,pixels.data(),w,h))throw std::runtime_error("Écriture impossible");
+        toast(ravenemudsk_ui::Toast::Kind::Success,"Capture d'écran enregistrée",ravenemudsk_ui::utf8(path.filename()));
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Capture d'écran impossible",e.what());
+    }
 }
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
@@ -400,7 +619,7 @@ void GameSession::take_retro_events() {
             continue;
         }
         if(event.kind=="hardcore_reset"){
-            input->release_all();paused=false;next=Clock::now();
+            input->release_all();paused=paused_unfocused=false;next=Clock::now();
             overlay->clear_retro();overlay->close_menu();
         }
         if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
@@ -441,6 +660,7 @@ void GameSession::draw(bool waiting) {
     info.hardcore_waiting=waiting;
     info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
     info.paused=paused;
+    info.paused_unfocused=paused_unfocused;
     info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
     const auto action=overlay->draw(info);
     if(overlay->take_unlock_sound()&&!chime.empty())effects.play(chime);
@@ -451,19 +671,16 @@ void GameSession::apply(Action action) {
     switch(action) {
         case Action::None:break;
         case Action::Resume:overlay->close_menu();break;
-        case Action::SaveState:
-            save_state(core.get(),state_path);info.has_state=true;
-            overlay->close_menu();break;
-        case Action::LoadState:
-            if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && info.link_partner.empty() &&
-               fs::exists(state_path)){
-                load_state(core.get(),state_path);input->release_all();overlay->clear_retro();}
-            overlay->close_menu();break;
+        case Action::SaveState:save_slot();overlay->close_menu();break;
+        case Action::LoadState:load_slot();overlay->close_menu();break;
+        case Action::UndoLoad:undo_load();overlay->close_menu();break;
+        case Action::PreviousSlot:select_slot(-1);break;
+        case Action::NextSlot:select_slot(1);break;
         case Action::ToggleHardcore:
             input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
             if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
-            overlay->close_menu();paused=false;break;
+            overlay->close_menu();paused=paused_unfocused=false;break;
         case Action::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;
         case Action::ToggleFullscreen:
@@ -474,6 +691,7 @@ void GameSession::apply(Action action) {
             overlay->close_menu();break;
         case Action::ChooseLink:if(link)link->choose(overlay->chosen_link());break;
         case Action::ChooseLinkLater:if(link)link->choose(std::nullopt);break;
+        case Action::Screenshot:take_screenshot();break;
     }
 }
 // The battery save and the library's preview of the last frame.
