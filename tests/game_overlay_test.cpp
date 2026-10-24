@@ -85,7 +85,7 @@ void link_cable(SDL_Window* window,SDL_Renderer* renderer){
     };
     key(ImGuiKey_DownArrow);key(ImGuiKey_DownArrow);
     require(focused("Succès et classements"),"Linked: no state loading, it would part the two games");
-    for(int i=0;i<4;++i)key(ImGuiKey_DownArrow);
+    for(int i=0;i<5;++i)key(ImGuiKey_DownArrow);
     require(focused("Débrancher le câble"),"Unplug entry reachable by keyboard");
     require(key(ImGuiKey_Enter)==OverlayAction::UnplugLink,"Unplug returns its action");
     overlay.close_menu();draw();

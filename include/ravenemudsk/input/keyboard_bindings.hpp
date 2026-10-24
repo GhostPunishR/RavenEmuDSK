@@ -6,7 +6,8 @@
 namespace ravenemudsk_ui {
 class Settings;
 enum class KeyAction { Up, Down, Left, Right, A, B, Start, Select, L, R,
-                       Menu, Pause, SaveState, LoadState, Reset, Fullscreen, FastForward, Count };
+                       Menu, Pause, SaveState, LoadState, Reset, Fullscreen, FastForward, Screenshot,
+                       Count };
 struct KeyCommand {
     const char* setting;
     const char* label;

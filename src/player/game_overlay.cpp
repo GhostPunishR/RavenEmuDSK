@@ -628,6 +628,9 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
     if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
         action = OverlayAction::ToggleHardcore;
+    // The TV menu must fit a 720p screen: there, the key alone takes them.
+    if (!tv_ && menu_item(fonts_, m, "Capture d'écran", Icon::Save, shortcut(KeyAction::Screenshot).c_str()))
+        action = OverlayAction::Screenshot;
     if (menu_item(fonts_, m, "Réinitialiser la console", Icon::Reset, shortcut(KeyAction::Reset).c_str())) action = OverlayAction::Reset;
     // TV mode stays in full screen, from the launcher to the game and back.
     if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,

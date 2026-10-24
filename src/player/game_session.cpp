@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -152,6 +153,7 @@ private:
     void feed_motion();
     void update_rumble(Clock::time_point now);
     void stop_rumble();
+    void take_screenshot();
     void take_retro_events();
     void update_link();
     bool link_holds() const;
@@ -421,6 +423,7 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
                 const bool restored=load_state(core.get(),state_path);input->release_all();overlay->clear_retro();
                 toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
             break;
+        case Key::Screenshot:take_screenshot();break;
         case Key::Fullscreen:
             SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
             break;
@@ -520,6 +523,17 @@ void GameSession::stop_rumble() {
     if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
     rumbling=false;
 }
+// The last frame of the game, without the menu or notifications, at the
+// console's resolution, in Captures.
+void GameSession::take_screenshot() {
+    try {
+        const auto path=ravenemudsk_ui::screenshot_path(ravenemudsk_ui::app_folders(),title,std::time(nullptr));
+        if(!ravenemudsk_ui::save_png(path,pixels.data(),w,h))throw std::runtime_error("Écriture impossible");
+        toast(ravenemudsk_ui::Toast::Kind::Success,"Capture d'écran enregistrée",ravenemudsk_ui::utf8(path.filename()));
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Capture d'écran impossible",e.what());
+    }
+}
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
         if(event.kind=="hardcore_refused"){
@@ -603,6 +617,7 @@ void GameSession::apply(Action action) {
             overlay->close_menu();break;
         case Action::ChooseLink:if(link)link->choose(overlay->chosen_link());break;
         case Action::ChooseLinkLater:if(link)link->choose(std::nullopt);break;
+        case Action::Screenshot:take_screenshot();break;
     }
 }
 // The battery save and the library's preview of the last frame.

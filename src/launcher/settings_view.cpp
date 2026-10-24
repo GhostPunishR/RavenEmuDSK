@@ -42,13 +42,14 @@ void settings_library(State& s, Library& lib) {
     end_card();
 
     begin_card("##folders");
-    card_title(s, Icon::Folder, "Sauvegardes et jaquettes");
-    muted("RavenEmu range automatiquement vos fichiers dans deux dossiers à côté du programme. "
+    card_title(s, Icon::Folder, "Sauvegardes, jaquettes et captures");
+    muted("RavenEmu range automatiquement vos fichiers dans trois dossiers à côté du programme. "
           "Copiez-les pour sauvegarder ou transférer votre progression.");
     ImGui::Dummy({0.f, space::xs});
     folder_row(s, "Sauvegardes", "sauvegardes de jeu, états et dernières captures",
                s.folders.saves);
     folder_row(s, "Jaquettes", "nommez l'image comme la ROM, par exemple MonJeu.png", s.folders.covers);
+    folder_row(s, "Captures", "captures d'écran prises en jeu", s.folders.captures);
     end_card();
 }
 

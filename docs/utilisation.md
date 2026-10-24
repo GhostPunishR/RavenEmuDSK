@@ -31,6 +31,7 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 | Avance rapide (maintenir) | Espace |
+| Capture d'écran | F8 |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
 
@@ -82,6 +83,10 @@ Les deux appareils doivent avoir une version récente de RavenEmu, avec le même
 Chaque échange de données attend un aller-retour réseau : pendant que le câble sert, les deux jeux ralentissent ensemble, d'autant plus que le réseau est lent. Sur un échange Pokémon Rubis ↔ Émeraude, ils passent d'environ 60 images par seconde sans latence à 16 avec 6 ms d'aller-retour, et 5 avec 20 ms ; l'échange va au bout. Pour un échange plus fluide, préférez un câble Ethernet ou le Wi-Fi 5 GHz près de la box, et coupez un éventuel VPN, qui peut ralentir ou bloquer le trafic local.
 
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
+
+## Captures d'écran
+
+**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `Captures`, à côté de `Sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
 
 ## Sauvegardes et jaquettes
 

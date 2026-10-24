@@ -7,6 +7,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -53,6 +54,28 @@ int main() {
     { std::ofstream f(folder / "not-a-folder"); f << "x"; }
     const auto folders = ravenemudsk_ui::prepare_folders({folder / "not-a-folder" / "app", folder / "data"});
     assert(folders.saves == folder / "data" / "Sauvegardes" && fs::is_directory(folders.covers));
+    assert(folders.captures == folder / "data" / "Captures" && fs::is_directory(folders.captures));
+    // Screenshots: the game's title made a file name, then the local time;
+    // a second one in the same second gets " (2)".
+    {
+        const std::time_t when = 1'800'000'000;
+        std::tm local{};
+#ifdef _WIN32
+        localtime_s(&local, &when);
+#else
+        localtime_r(&when, &local);
+#endif
+        char stamp[32];
+        std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H-%M-%S", &local);
+        const auto first = ravenemudsk_ui::screenshot_path(folders, "Pok\xC3\xA9mon : Version/Rubis? ", when);
+        assert(first.parent_path() == folders.captures);
+        assert(ravenemudsk_ui::utf8(first.filename()) == std::string("Pok\xC3\xA9mon Version Rubis ") + stamp + ".png");
+        { std::ofstream f(first); f << "png"; }
+        const auto second = ravenemudsk_ui::screenshot_path(folders, "Pok\xC3\xA9mon : Version/Rubis? ", when);
+        assert(ravenemudsk_ui::utf8(second.filename()) == std::string("Pok\xC3\xA9mon Version Rubis ") + stamp + " (2).png");
+        assert(ravenemudsk_ui::utf8(ravenemudsk_ui::screenshot_path(folders, "<>|", when).filename()) ==
+               std::string("Capture ") + stamp + ".png");
+    }
     // Saves found next to the ROM are copied into Sauvegardes, never moved.
     { std::ofstream f(ravenemudsk_ui::sidecar(gb, ".sav")); f << "progress"; }
     const auto sav = ravenemudsk_ui::save_path(folders, gb, ".sav");

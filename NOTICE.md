@@ -6,5 +6,5 @@ reuse data from The Cutting Room Floor, "Notes:Game Boy Color Bootstrap ROM" (re
 https://tcrf.net/Notes:Game_Boy_Color_Bootstrap_ROM, licensed under Creative Commons
 Attribution 3.0 Unported (https://creativecommons.org/licenses/by/3.0/). Modification: colors
 converted from 24-bit RGB to the console's RGB555.
-SDL2 (zlib), Dear ImGui (MIT), stb_image (MIT or public domain), libcurl and rcheevos
+SDL2 (zlib), Dear ImGui (MIT), stb_image and stb_image_write (MIT or public domain), libcurl and rcheevos
 retain their respective upstream license notices. No commercial games are distributed.

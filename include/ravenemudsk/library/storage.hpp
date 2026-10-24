@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #pragma once
+#include <ctime>
 #include <filesystem>
+#include <string>
 #include <vector>
 namespace ravenemudsk_ui {
 // Per-game files live in two folders, created next to the program
-// (portable) or, when that folder is read-only, in the user data folder.
+// (portable) or, when that folder is read-only, in the user data folder;
+// screenshots go beside them.
 struct Folders {
-    std::filesystem::path saves;   // <root>/Sauvegardes: .sav, states, unlock journal, last capture
-    std::filesystem::path covers;  // <root>/Jaquettes: cover images named after the ROM
+    std::filesystem::path saves;    // <root>/Sauvegardes: .sav, states, unlock journal, last capture
+    std::filesystem::path covers;   // <root>/Jaquettes: cover images named after the ROM
+    std::filesystem::path captures; // <root>/Captures: screenshots taken in game
 };
 // Uses the first root where both folders can be created and written.
 // Throws std::runtime_error when no root is usable.
@@ -22,6 +26,10 @@ std::filesystem::path save_path(const Folders& folders, const std::filesystem::p
 // Shared capture location for the player and launcher, including migration
 // of captures written with the older .ravenemudsk-preview.bmp suffix.
 std::filesystem::path preview_path(const Folders& folders, const std::filesystem::path& rom);
+// A new file for a screenshot of `title` taken at `when`, local time:
+// Captures/<title> 2026-10-24 17-05-03.png, then " (2)" and so on when the
+// name is taken. Characters a file name cannot hold become spaces.
+std::filesystem::path screenshot_path(const Folders& folders, const std::string& title, std::time_t when);
 // Cover images to try, in order: Jaquettes, then next to the ROM.
 std::vector<std::filesystem::path> cover_candidates(const Folders& folders,
                                                     const std::filesystem::path& rom);

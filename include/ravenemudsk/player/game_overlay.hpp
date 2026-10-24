@@ -75,7 +75,7 @@ UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
 inline constexpr int fast_forward_speed = 4;
 // ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
-                           UnplugLink, ChooseLink, ChooseLinkLater };
+                           UnplugLink, ChooseLink, ChooseLinkLater, Screenshot };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.

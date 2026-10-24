@@ -21,7 +21,8 @@ const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
         {"key_load","Charger l’état","Menu de pause",SDLK_F9,-1},
         {"key_reset","Réinitialiser","Menu de pause",SDLK_F4,-1},
         {"key_fullscreen","Plein écran","Menu de pause",SDLK_F11,-1},
-        {"key_fast_forward","Avance rapide (maintenir)","Gâchette droite",SDLK_SPACE,-1}
+        {"key_fast_forward","Avance rapide (maintenir)","Gâchette droite",SDLK_SPACE,-1},
+        {"key_screenshot","Capture d’écran","Menu de pause",SDLK_F8,-1}
     }};
     return commands;
 }

@@ -3,6 +3,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
 #include <stb_image.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_WRITE_NO_STDIO
+#include <stb_image_write.h>
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
@@ -67,5 +70,25 @@ SDL_Surface* load_local_surface(const std::filesystem::path& path) {
     }
     stbi_image_free(rgba);
     return icon;
+}
+
+bool save_png(const std::filesystem::path& path, const std::uint32_t* argb, int width, int height) {
+    if(!argb||width<1||height<1||width>4096||height>4096)return false;
+    const auto count=static_cast<std::size_t>(width)*static_cast<std::size_t>(height);
+    std::vector<unsigned char> rgb(count*3);
+    for(std::size_t i=0;i<count;++i) {
+        rgb[i*3]=static_cast<unsigned char>(argb[i]>>16);
+        rgb[i*3+1]=static_cast<unsigned char>(argb[i]>>8);
+        rgb[i*3+2]=static_cast<unsigned char>(argb[i]);
+    }
+    std::vector<unsigned char> png;
+    const auto append=[](void* context,void* data,int size) {
+        auto* out=static_cast<std::vector<unsigned char>*>(context);
+        const auto* bytes=static_cast<const unsigned char*>(data);
+        out->insert(out->end(),bytes,bytes+size);
+    };
+    if(!stbi_write_png_to_func(append,&png,width,height,3,rgb.data(),width*3))return false;
+    std::ofstream out(path,std::ios::binary|std::ios::trunc);
+    return out.write(reinterpret_cast<const char*>(png.data()),static_cast<std::streamsize>(png.size()))&&out.flush();
 }
 } // namespace ravenemudsk_ui
