@@ -41,6 +41,12 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
 
+L'image et le son restent synchronisés :
+
+- quand l'écran rafraîchit à une fréquence proche de celle de la console (60 Hz pour ses 59,73 images par seconde, à 5 % près), RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement, sans image affichée deux fois. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
+- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
+- sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+
 ## Câble link sans fil
 
 Deux jeux se relient comme avec un câble link, sans câble : avec RavenEmu Android sur un téléphone ou avec un autre ordinateur, sur le même réseau Wi-Fi ou local.

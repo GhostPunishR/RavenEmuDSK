@@ -10,6 +10,7 @@
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
+#include <ravenemudsk/audio/av_sync.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/wireless/wireless_link.hpp>
 #include <algorithm>
@@ -145,6 +146,7 @@ private:
     void handle(const SDL_Event& e);
     void handle_key(ravenemudsk_ui::KeyAction action);
     void emulate(Clock::time_point now,bool waiting);
+    void queue_sound(std::size_t samples);
     void take_retro_events();
     void update_link();
     bool link_holds() const;
@@ -177,12 +179,21 @@ private:
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
     std::vector<std::int16_t> chime;
     ravenemudsk_ui::SoundMixer effects;
+    // The screen paces the game when its refresh is close to the console's;
+    // the sound is resampled so that the device's queue stays near its target.
+    static constexpr double audio_target=.05;
+    // The queue's level over about half a second: the device takes the sound
+    // by blocks of 31 ms, which the correction must not follow.
+    double audio_level=audio_target;
+    std::optional<ravenemudsk_ui::FramePacer> pacer;
+    ravenemudsk_ui::Resampler resampler;
+    std::vector<std::int16_t> resampled;
     std::optional<ravenemudsk_ui::GameInput> input;
     ravenemudsk_ui::OverlayInfo info{};
     // Closed before the core it plugs into.
     std::unique_ptr<ravenemudsk_link::WirelessLink> link;
     bool running=true,paused=false;
-    Clock::time_point next,last_save,next_progress;
+    Clock::time_point next,last_save,next_progress,last_frame,last_present;
     Clock::duration duration{};
 };
 GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(request) {
@@ -230,8 +241,9 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     },prefs.keyboard,prefs.pads);
     info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
     info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
-    next=last_save=next_progress=Clock::now();
+    next=last_save=next_progress=last_frame=last_present=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
+    pacer.emplace(fps);
     // Idle until the game uses its link port: then it looks for a partner.
     if(prefs.wireless_link) {
         link=std::make_unique<ravenemudsk_link::WirelessLink>(ravenemudsk_link::WirelessLink::Game{core.get(),
@@ -289,6 +301,8 @@ void GameSession::run() {
     // Let go while the picture is shown and while the loop sleeps: the link
     // cable's moments.
     std::unique_lock core_lock(core_mutex);
+    bool was_still=true;
+    Clock::duration slept{};
     while(running) {
         SDL_Event e{};
         while(SDL_PollEvent(&e))handle(e);
@@ -309,8 +323,19 @@ void GameSession::run() {
         draw(waiting);
         core_lock.unlock();
         SDL_RenderPresent(renderer);
-        if(waiting||paused||overlay->menu_open()||link_holds())SDL_Delay(16);
-        else if(Clock::now()<next)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // The screen's refresh, measured between two pictures of a running
+        // game, apart from the loop's own sleep.
+        const auto shown=Clock::now();
+        const bool still=waiting||paused||overlay->menu_open()||link_holds();
+        const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
+        if(!still&&!was_still)pacer->presented(seconds(shown-last_present),seconds(shown-last_present-slept));
+        last_present=shown;was_still=still;slept={};
+        if(still)SDL_Delay(16);
+        else if(!pacer->locked()&&Clock::now()<next) {
+            const auto before=Clock::now();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            slept=Clock::now()-before;
+        }
         core_lock.lock();
     }
     finish();
@@ -372,25 +397,48 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
         default:break;
     }
 }
-// One emulated frame when it is due, its sound queued with the chime and the
-// volume; otherwise the SDK still runs between frames.
+// One emulated frame when it is due: at each refresh while the screen paces
+// the game (half a frame apart at least, should the picture stop waiting for
+// the screen), else on the game's own clock. Its sound goes out with the chime
+// and the volume; between frames the SDK still runs.
 void GameSession::emulate(Clock::time_point now,bool waiting) {
-    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && now>=next) {
+    const bool due=pacer->locked()?now>=last_frame+duration/2:now>=next;
+    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
         verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
         if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
         ravenemudsk_ra::client().pump(true);
         const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
         effects.mix(pcm.data(),n);
         ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
-        if(audio_device && n) {
-            if(SDL_GetQueuedAudioSize(audio_device)>static_cast<Uint32>(hz*4/5))
-                SDL_ClearQueuedAudio(audio_device);
-            SDL_QueueAudio(audio_device,pcm.data(),static_cast<Uint32>(n*sizeof(std::int16_t)));
-        }
+        queue_sound(n);
         SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
-        next+=duration;
+        last_frame=now;
+        next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
     } else ravenemudsk_ra::client().pump(false);
+}
+// The frame's sound, resampled a little faster or slower so that the device's
+// queue stays near its target. A queue run dry (start, pause, slowdown) first
+// gets its target in silence; one left far over it by a stall starts afresh.
+void GameSession::queue_sound(std::size_t samples) {
+    if(!audio_device||!samples)return;
+    const double frame_bytes=2*sizeof(std::int16_t);
+    double queued=SDL_GetQueuedAudioSize(audio_device)/(frame_bytes*hz);
+    if(queued>4*audio_target) {
+        SDL_ClearQueuedAudio(audio_device);
+        queued=0;
+    }
+    if(queued==0) {
+        resampler.reset();
+        const std::vector<std::int16_t> silence(static_cast<std::size_t>(audio_target*hz)*2,0);
+        SDL_QueueAudio(audio_device,silence.data(),static_cast<Uint32>(silence.size()*sizeof(std::int16_t)));
+        queued=audio_level=audio_target;
+    }
+    audio_level+=(queued-audio_level)/32;
+    resampled.clear();
+    resampler.process(pcm.data(),samples/2,pacer->audio_ratio()*ravenemudsk_ui::rate_correction(audio_level,audio_target),
+                      resampled);
+    SDL_QueueAudio(audio_device,resampled.data(),static_cast<Uint32>(resampled.size()*sizeof(std::int16_t)));
 }
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
