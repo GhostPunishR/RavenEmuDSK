@@ -83,6 +83,14 @@ int main() {
     assert(sav.parent_path().parent_path() == folders.saves / "roms");
     assert(fs::exists(ravenemudsk_ui::sidecar(gb, ".sav")));
     assert(ravenemudsk_ui::save_path(folders, gba, ".rstate").filename() == "Game_two.gba.rstate");
+    // State slots: slot 1 keeps the single state of older versions; each has its picture.
+    assert(ravenemudsk_ui::state_path(folders, gba, 1) == ravenemudsk_ui::save_path(folders, gba, ".rstate"));
+    assert(ravenemudsk_ui::state_path(folders, gba, 2).filename() == "Game_two.gba.rstate2");
+    assert(ravenemudsk_ui::state_path(folders, gba, 9).filename() == "Game_two.gba.rstate9");
+    assert(ravenemudsk_ui::state_path(folders, gba, 12) == ravenemudsk_ui::state_path(folders, gba, 9));
+    assert(ravenemudsk_ui::state_path(folders, gba, 0) == ravenemudsk_ui::state_path(folders, gba, 1));
+    assert(ravenemudsk_ui::state_picture_path(ravenemudsk_ui::state_path(folders, gba, 2)).filename() ==
+           "Game_two.gba.rstate2.png");
     // Covers: Jaquettes first, one image per game.
     { std::ofstream f(folder / "art.png"); f << "png"; }
     { std::ofstream f(folder / "art.JPG"); f << "jpg"; }

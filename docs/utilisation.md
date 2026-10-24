@@ -28,6 +28,7 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Pause rapide | P |
 | Sauvegarder un état | F5 |
 | Charger un état | F9 |
+| Emplacement d'état précédent / suivant | F6 / F7 |
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 | Avance rapide (maintenir) | Espace |
@@ -83,6 +84,12 @@ Les deux appareils doivent avoir une version récente de RavenEmu, avec le même
 Chaque échange de données attend un aller-retour réseau : pendant que le câble sert, les deux jeux ralentissent ensemble, d'autant plus que le réseau est lent. Sur un échange Pokémon Rubis ↔ Émeraude, ils passent d'environ 60 images par seconde sans latence à 16 avec 6 ms d'aller-retour, et 5 avec 20 ms ; l'échange va au bout. Pour un échange plus fluide, préférez un câble Ethernet ou le Wi-Fi 5 GHz près de la box, et coupez un éventuel VPN, qui peut ralentir ou bloquer le trafic local.
 
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
+
+## États instantanés
+
+Chaque jeu a neuf emplacements d'états. **F5** sauvegarde dans l'emplacement choisi et **F9** le recharge ; **F6** et **F7** passent à l'emplacement précédent ou suivant, et une notification indique s'il est vide ou quand il a été sauvegardé. Dans le menu de pause, les lignes **Sauvegarder l'état** et **Charger l'état** indiquent l'emplacement : les flèches gauche et droite (ou la croix de la manette, ou la molette sur la ligne) en changent. Une vignette montre alors, à côté du menu, l'image du jeu au moment de la sauvegarde et sa date.
+
+L'emplacement 1 reprend l'état unique des versions précédentes. Après un chargement, **Annuler le chargement**, dans le menu de pause, ramène la partie où elle en était juste avant ; une seule fois.
 
 ## Captures d'écran
 

@@ -23,6 +23,12 @@ Folders prepare_folders(const std::vector<std::filesystem::path>& roots);
 // Migration errors throw instead of falling back to a shared writable file.
 std::filesystem::path save_path(const Folders& folders, const std::filesystem::path& rom,
                                 const char* suffix);
+// Save states: slots 1 to state_slots. Slot 1 is the file of the versions
+// that had a single one, <ROM>.rstate; slot n, <ROM>.rstate<n>. Each has its
+// picture, the same name with ".png" added.
+inline constexpr int state_slots = 9;
+std::filesystem::path state_path(const Folders& folders, const std::filesystem::path& rom, int slot);
+std::filesystem::path state_picture_path(const std::filesystem::path& state);
 // Shared capture location for the player and launcher, including migration
 // of captures written with the older .ravenemudsk-preview.bmp suffix.
 std::filesystem::path preview_path(const Folders& folders, const std::filesystem::path& rom);

@@ -9,6 +9,7 @@
 #include <ravenemudsk/input/pad_glyphs.hpp>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <optional>
 #include <utility>
 #include <SDL.h>
@@ -34,6 +35,12 @@ struct OverlayInfo {
     bool fast_forward = false;    // the fast-forward key or trigger is held
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
+    // The state slot chosen (1-9), when its state was saved ("le 24/10 à 17:05",
+    // empty while it is free) and the picture taken with it.
+    int state_slot = 1;
+    std::string state_saved;
+    std::filesystem::path state_picture;
+    bool can_undo_load = false;   // the game as it was before the last load is kept
     bool has_achievement = false;
     std::string achievement_title;
     int achievement_points = 0;
@@ -75,7 +82,8 @@ UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
 inline constexpr int fast_forward_speed = 4;
 // ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
-                           UnplugLink, ChooseLink, ChooseLinkLater, Screenshot };
+                           UnplugLink, ChooseLink, ChooseLinkLater, Screenshot, PreviousSlot, NextSlot,
+                           UndoLoad };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.
@@ -135,6 +143,12 @@ private:
     bool unlock_sound_ = false;
     bool chooser_shown_ = false;     // "Relier le câble à…" was up last frame
     std::uint64_t chosen_link_ = 0;
+    // The picture of the chosen state slot, loaded once per file version.
+    SDL_Texture* slot_picture_ = nullptr;
+    std::filesystem::path slot_picture_file_;
+    std::filesystem::file_time_type slot_picture_time_{};
+    SDL_Texture* slot_picture(const std::filesystem::path& file);
+    void draw_slot_panel(const OverlayInfo& info, ImVec2 screen, ImDrawList* bg, ImVec2 menu_min, ImVec2 menu_max);
     // Returns the lowest edge it drew, 0 when nothing; toasts go below it.
     float draw_retro(double now_seconds, ImVec2 screen);
     void draw_achievements_tv(const OverlayInfo& info, ImVec2 screen);

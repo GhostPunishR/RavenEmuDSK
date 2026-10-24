@@ -116,6 +116,14 @@ fs::path save_path(const Folders& folders, const fs::path& rom, const char* suff
     return target;
 }
 
+fs::path state_path(const Folders& folders, const fs::path& rom, int slot) {
+    slot = std::clamp(slot, 1, state_slots);
+    const auto suffix = slot == 1 ? std::string(".rstate") : ".rstate" + std::to_string(slot);
+    return save_path(folders, rom, suffix.c_str());
+}
+
+fs::path state_picture_path(const fs::path& state) { return sidecar(state, ".png"); }
+
 fs::path preview_path(const Folders& folders, const fs::path& rom) {
     const auto target = save_path(folders, rom, ".ravenemu-preview.bmp");
     if (!fs::exists(target)) {

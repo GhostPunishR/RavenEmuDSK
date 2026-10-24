@@ -102,6 +102,24 @@ bool load_state(ravenemu_bridge* core,const fs::path& path) {
     if(!ra.can_load_state())throw std::runtime_error("Chargement d’état interdit en Hardcore");
     return ravenemudsk_ui::restore_game_state(core,ra,read_file(path,24u<<20));
 }
+// "le 24/10 à 17:05": when a state file was written, local time.
+std::string saved_at(const fs::path& file) {
+    std::error_code ec;
+    const auto written=fs::last_write_time(file,ec);
+    if(ec)return "à une date inconnue";
+    const auto when=std::chrono::system_clock::now()+std::chrono::duration_cast<std::chrono::system_clock::duration>(
+        written-fs::file_time_type::clock::now());
+    const std::time_t t=std::chrono::system_clock::to_time_t(when);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local,&t);
+#else
+    localtime_r(&t,&local);
+#endif
+    char text[32];
+    std::strftime(text,sizeof text,"le %d/%m à %H:%M",&local);
+    return text;
+}
 int system_of(const std::string& code) {
     if(code=="gb")return RAVENEMU_GB;
     if(code=="gbc")return RAVENEMU_GBC;
@@ -154,6 +172,11 @@ private:
     void update_rumble(Clock::time_point now);
     void stop_rumble();
     void take_screenshot();
+    void save_slot();
+    void load_slot();
+    void undo_load();
+    void select_slot(int step);
+    void refresh_slot();
     void take_retro_events();
     void update_link();
     bool link_holds() const;
@@ -168,7 +191,12 @@ private:
     // Held around every RavenCore call: the wireless link cable plugs in and
     // answers the other console from its own threads, between two frames.
     std::mutex core_mutex;
+    ravenemudsk_ui::Folders folders;
     fs::path battery_path,state_path,preview_path;
+    // The state slot chosen (1-9), and the game as it was before the last
+    // load, for "Annuler le chargement".
+    int slot=1;
+    std::vector<std::uint8_t> undo_state;
     int w=0,h=0,hz=0;
     double fps=0;
     std::optional<Sdl> sdl;
@@ -216,9 +244,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
     core=Core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
-    const auto folders=ravenemudsk_ui::app_folders();
+    folders=ravenemudsk_ui::app_folders();
     battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
-    state_path=ravenemudsk_ui::save_path(folders,rom_path,".rstate");
     preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
@@ -256,7 +283,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
     },prefs.keyboard,prefs.pads);
-    info.game_title=title;info.system=req.system;info.has_state=fs::exists(state_path);
+    info.game_title=title;info.system=req.system;
+    refresh_slot();
     info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
     next=last_save=next_progress=last_frame=last_present=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
@@ -412,17 +440,10 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
             break;
         case Key::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();break;
-        case Key::SaveState:
-            save_state(core.get(),state_path);info.has_state=true;toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé");
-            break;
-        case Key::LoadState:
-            if(ravenemudsk_ra::client().snapshot().hardcore_preferred) toast(ravenemudsk_ui::Toast::Kind::Info,"Hardcore","Chargement interdit");
-            else if(!info.link_partner.empty())
-                toast(ravenemudsk_ui::Toast::Kind::Info,"Câble sans fil relié","Le chargement d'une sauvegarde d'état est désactivé.");
-            else if(fs::exists(state_path)){
-                const bool restored=load_state(core.get(),state_path);input->release_all();overlay->clear_retro();
-                toast(ravenemudsk_ui::Toast::Kind::Success,"État chargé",restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");}
-            break;
+        case Key::SaveState:save_slot();break;
+        case Key::LoadState:load_slot();break;
+        case Key::PreviousSlot:select_slot(-1);break;
+        case Key::NextSlot:select_slot(1);break;
         case Key::Screenshot:take_screenshot();break;
         case Key::Fullscreen:
             SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -523,11 +544,67 @@ void GameSession::stop_rumble() {
     if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
     rumbling=false;
 }
+// The chosen slot's state, with the picture of the game at that moment.
+void GameSession::save_slot() {
+    save_state(core.get(),state_path);
+    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),pixels.data(),w,h);
+    refresh_slot();
+    toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé","Emplacement "+std::to_string(slot));
+}
+// The chosen slot's state, unless Hardcore or the link cable forbid it. The
+// game as it was stays at hand for "Annuler le chargement".
+void GameSession::load_slot() {
+    using Kind=ravenemudsk_ui::Toast::Kind;
+    if(ravenemudsk_ra::client().snapshot().hardcore_preferred) {toast(Kind::Info,"Hardcore","Chargement interdit");return;}
+    if(!info.link_partner.empty()) {
+        toast(Kind::Info,"Câble sans fil relié","Le chargement d'une sauvegarde d'état est désactivé.");
+        return;
+    }
+    if(!info.has_state) {toast(Kind::Info,"Emplacement "+std::to_string(slot)+" vide");return;}
+    try {
+        auto before=ravenemudsk_ui::encode_game_state(ravenemudsk_ui::capture_game_state(core.get(),ravenemudsk_ra::client()));
+        const bool restored=load_state(core.get(),state_path);
+        undo_state=std::move(before);info.can_undo_load=true;
+        input->release_all();overlay->clear_retro();
+        toast(Kind::Success,"État chargé  \xC2\xB7  emplacement "+std::to_string(slot),
+              restored?"Progression RetroAchievements restaurée":"Conditions RetroAchievements réinitialisées");
+    } catch(const std::exception& e) {
+        toast(Kind::Error,"État illisible",e.what());
+    }
+}
+// Back to the game as it was before the last load, once.
+void GameSession::undo_load() {
+    if(undo_state.empty()||ravenemudsk_ra::client().snapshot().hardcore_preferred||!info.link_partner.empty())return;
+    try {
+        ravenemudsk_ui::restore_game_state(core.get(),ravenemudsk_ra::client(),undo_state);
+        input->release_all();overlay->clear_retro();
+        toast(ravenemudsk_ui::Toast::Kind::Success,"Chargement annulé","La partie reprend où elle en était.");
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Annulation impossible",e.what());
+    }
+    undo_state.clear();info.can_undo_load=false;
+}
+// The next or previous of the nine slots, said in a notification when the
+// menu is closed (open, the menu shows it).
+void GameSession::select_slot(int step) {
+    slot=(slot-1+step+ravenemudsk_ui::state_slots)%ravenemudsk_ui::state_slots+1;
+    refresh_slot();
+    if(!overlay->menu_open())
+        toast(ravenemudsk_ui::Toast::Kind::Info,"Emplacement "+std::to_string(slot),
+              info.has_state?"Sauvegardé "+info.state_saved:"Vide");
+}
+void GameSession::refresh_slot() {
+    state_path=ravenemudsk_ui::state_path(folders,rom_path,slot);
+    info.state_slot=slot;
+    info.has_state=fs::exists(state_path);
+    info.state_saved=info.has_state?saved_at(state_path):std::string();
+    info.state_picture=ravenemudsk_ui::state_picture_path(state_path);
+}
 // The last frame of the game, without the menu or notifications, at the
 // console's resolution, in Captures.
 void GameSession::take_screenshot() {
     try {
-        const auto path=ravenemudsk_ui::screenshot_path(ravenemudsk_ui::app_folders(),title,std::time(nullptr));
+        const auto path=ravenemudsk_ui::screenshot_path(folders,title,std::time(nullptr));
         if(!ravenemudsk_ui::save_png(path,pixels.data(),w,h))throw std::runtime_error("Écriture impossible");
         toast(ravenemudsk_ui::Toast::Kind::Success,"Capture d'écran enregistrée",ravenemudsk_ui::utf8(path.filename()));
     } catch(const std::exception& e) {
@@ -594,14 +671,11 @@ void GameSession::apply(Action action) {
     switch(action) {
         case Action::None:break;
         case Action::Resume:overlay->close_menu();break;
-        case Action::SaveState:
-            save_state(core.get(),state_path);info.has_state=true;
-            overlay->close_menu();break;
-        case Action::LoadState:
-            if(!ravenemudsk_ra::client().snapshot().hardcore_preferred && info.link_partner.empty() &&
-               fs::exists(state_path)){
-                load_state(core.get(),state_path);input->release_all();overlay->clear_retro();}
-            overlay->close_menu();break;
+        case Action::SaveState:save_slot();overlay->close_menu();break;
+        case Action::LoadState:load_slot();overlay->close_menu();break;
+        case Action::UndoLoad:undo_load();overlay->close_menu();break;
+        case Action::PreviousSlot:select_slot(-1);break;
+        case Action::NextSlot:select_slot(1);break;
         case Action::ToggleHardcore:
             input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
             if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
