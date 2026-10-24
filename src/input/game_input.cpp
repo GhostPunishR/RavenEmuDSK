@@ -12,6 +12,7 @@ void GameInput::release_all() {
     // Releases may never arrive (focus lost, controller gone): start afresh.
     start_down_ = select_down_ = chord_ = false;
     trigger_down_.fill(false);
+    fast_key_ = fast_trigger_ = false;
     pending_ = tap_ = -1;
     for (int button = RAVENEMU_UP; button <= RAVENEMU_R; ++button)
         set_button_(button, false);
@@ -41,6 +42,7 @@ bool GameInput::process_event(const SDL_Event& event, SDL_JoystickID controller)
         release_all();
     if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && !event.key.repeat) {
         const bool pressed = event.type == SDL_KEYDOWN;
+        if (keys_.action(event.key.keysym.sym) == KeyAction::FastForward) fast_key_ = pressed && !menu_open_;
         const int button = keys_.button(event.key.keysym.sym);
         // Releases must always reach the core, including while a menu is open.
         if (button >= 0 && (!pressed || !menu_open_)) {
@@ -60,7 +62,9 @@ bool GameInput::process_event(const SDL_Event& event, SDL_JoystickID controller)
         const bool now = down ? event.caxis.value > trigger_release : event.caxis.value >= trigger_press;
         if (now == down) return false;
         down = now;
-        return controller_input(pads_.button(left ? pad_left_trigger : pad_right_trigger), now, event.caxis.timestamp);
+        const int button = pads_.button(left ? pad_left_trigger : pad_right_trigger);
+        if (!left && button < 0) fast_trigger_ = now && !menu_open_;
+        return controller_input(button, now, event.caxis.timestamp);
     }
     return false;
 }

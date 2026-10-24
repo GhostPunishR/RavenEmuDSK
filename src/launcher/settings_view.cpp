@@ -59,6 +59,9 @@ std::string controller_label(KeyAction action, const char* fallback, const PadBi
     if (static_cast<int>(action) < PadBindings::count) return pad_input_name(pads.input(action), family);
     if (action == KeyAction::Menu)
         return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
+    // The right trigger, unless a console button took it.
+    if (action == KeyAction::FastForward)
+        return pads.button(pad_right_trigger) < 0 ? pad_input_name(pad_right_trigger, family) : "Gâchette droite occupée";
     return fallback;
 }
 // A switch with its label and an explanation below, saved at once.

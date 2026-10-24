@@ -31,6 +31,7 @@ struct OverlayInfo {
     std::string retro_status;
     bool paused = false;          // quick pause with P
     bool paused_unfocused = false; // paused while the window is in the background
+    bool fast_forward = false;    // the fast-forward key or trigger is held
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
     bool has_achievement = false;
@@ -70,6 +71,8 @@ UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv = true);
 // `drop`: 0 above the screen, 1 in place. `unfold`: 0 badge alone, 1 whole band.
 struct UnlockBannerFrame { float drop = 0.f, unfold = 0.f; };
 UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
+// Fast forward runs this many frames for each one, its sound as fast.
+inline constexpr int fast_forward_speed = 4;
 // ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
                            UnplugLink, ChooseLink, ChooseLinkLater };

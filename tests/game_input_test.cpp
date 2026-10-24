@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/input/game_input.hpp>
 #include <ravenemu/bridge.h>
+#include <algorithm>
 #include <array>
 #include <ravenemudsk/settings/settings.hpp>
 #include <ravenemudsk/settings/game_preferences.hpp>
@@ -212,6 +213,27 @@ int main() {
     require(trigger(false,32767,120),"The bound Select + Start opens the menu");
     require(!pad_game[RAVENEMU_SELECT]&&!pad_game[RAVENEMU_START],"The chord never reaches the game");
     button(SDL_CONTROLLER_BUTTON_BACK,true,130);require(!pad_game[RAVENEMU_SELECT],"The old Select no longer presses Select");
+
+    // Fast forward: held on its key (Space by default), or on the right trigger
+    // while no console button uses it; never through a menu.
+    {
+        std::array<bool, RAVENEMU_R + 1> held{};
+        GameInput fast([&](int button, bool pressed) { held.at(button) = pressed; });
+        SDL_Event key{};key.type=SDL_KEYDOWN;key.key.keysym.sym=SDLK_SPACE;
+        fast.process_event(key);require(fast.fast_forward(),"Space held: fast forward");
+        key.type=SDL_KEYUP;fast.process_event(key);require(!fast.fast_forward(),"Space released: normal speed");
+        SDL_Event axis{};axis.type=SDL_CONTROLLERAXISMOTION;axis.caxis.which=3;
+        axis.caxis.axis=SDL_CONTROLLER_AXIS_TRIGGERRIGHT;axis.caxis.value=32767;
+        fast.process_event(axis,3);require(fast.fast_forward(),"Right trigger held: fast forward");
+        require(std::none_of(held.begin(),held.end(),[](bool b){return b;}),"The free trigger presses no console button");
+        fast.set_menu_open(true);require(!fast.fast_forward(),"Never while a menu is open");
+        fast.set_menu_open(false);require(!fast.fast_forward(),"Released by the menu, until the trigger moves again");
+        fast.process_event(axis,3);require(fast.fast_forward(),"Pressed again: fast forward");
+        PadBindings taken;require(taken.assign(KeyAction::R,pad_right_trigger),"Right trigger bound to R");
+        GameInput bound([&](int button, bool pressed) { held.at(button) = pressed; },KeyboardBindings{},taken);
+        bound.process_event(axis,3);
+        require(!bound.fast_forward()&&held[RAVENEMU_R],"A trigger bound to R presses R, not fast forward");
+    }
 
     // A game's preferences, read once: defaults, then each setting.
     Settings fresh;

@@ -30,6 +30,7 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Charger un état | F9 |
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
+| Avance rapide (maintenir) | Espace |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
 
@@ -46,6 +47,8 @@ L'image et le son restent synchronisés :
 - quand l'écran rafraîchit à une fréquence proche de celle de la console (60 Hz pour ses 59,73 images par seconde, à 5 % près), RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement, sans image affichée deux fois. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
 - le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
 - sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+
+Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
 
 Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
 

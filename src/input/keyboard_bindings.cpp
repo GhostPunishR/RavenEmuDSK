@@ -4,7 +4,7 @@
 #include <ravenemu/bridge.h>
 namespace ravenemudsk_ui {
 const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
-    static const std::array<KeyCommand,16> commands{{
+    static const std::array<KeyCommand,static_cast<int>(KeyAction::Count)> commands{{
         {"key_up","Haut","Croix haut",SDLK_UP,RAVENEMU_UP},
         {"key_down","Bas","Croix bas",SDLK_DOWN,RAVENEMU_DOWN},
         {"key_left","Gauche","Croix gauche",SDLK_LEFT,RAVENEMU_LEFT},
@@ -20,7 +20,8 @@ const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
         {"key_save","Sauvegarder l’état","Menu de pause",SDLK_F5,-1},
         {"key_load","Charger l’état","Menu de pause",SDLK_F9,-1},
         {"key_reset","Réinitialiser","Menu de pause",SDLK_F4,-1},
-        {"key_fullscreen","Plein écran","Menu de pause",SDLK_F11,-1}
+        {"key_fullscreen","Plein écran","Menu de pause",SDLK_F11,-1},
+        {"key_fast_forward","Avance rapide (maintenir)","Gâchette droite",SDLK_SPACE,-1}
     }};
     return commands;
 }
