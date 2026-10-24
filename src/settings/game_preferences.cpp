@@ -14,6 +14,10 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.frame_blending = std::clamp(settings.number("frame_blending", 0), 0, 2);
     prefs.pause_unfocused = settings.flag("pause_unfocused", true);
     prefs.wireless_link = settings.flag("wireless_link", true);
+    prefs.gb_in_color = settings.flag("gb_in_color", false);
+    prefs.gb_colors = std::clamp(settings.number("gb_colors", 0), 0, 13);
+    prefs.gbc_on_gba = settings.flag("gbc_on_gba", false);
+    prefs.gba_bios = std::clamp(settings.number("gba_bios", 0), 0, 2);
     prefs.rumble = settings.flag("rumble", true);
     prefs.rewind = settings.flag("rewind", true);
     prefs.motion_sensors = settings.flag("motion_sensors", true);

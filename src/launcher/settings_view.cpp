@@ -146,6 +146,64 @@ void settings_sound(State& s) {
                    "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
     end_card();
 }
+// Réglages > Console: the hardware that runs the games, as the Libretro cores
+// offer it (RavenGBC's colors and console, RavenGBA's BIOS).
+void settings_console(State& s) {
+    begin_card("##gameboy");
+    card_title(s, Icon::Gamepad, "Game Boy et Game Boy Color");
+    setting_switch(s, "gb_in_color", false, "Jeux Game Boy en couleurs",
+                   "Les jeux Game Boy tournent sur une Game Boy Color, qui leur donne des couleurs : celles que sa "
+                   "boot ROM choisit pour chaque jeu (Pokémon Rouge en rouge, Bleu en bleu...), ou celles choisies "
+                   "ci-dessous. Un état pris dans l’autre mode ne se recharge pas. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::xs});
+    static const char* const colors[] = {
+        "Celles de la boot ROM, jeu par jeu", "Gris", "Haut : brun", "A + Haut : rouge", "B + Haut : sépia",
+        "Gauche : bleu", "A + Gauche : bleu-violet", "B + Gauche : gris", "Bas : pastel", "A + Bas : jaune et rouge",
+        "B + Bas : jaune et brun", "Droite : vert et rouge", "A + Droite : vert et bleu", "B + Droite : négatif"};
+    int choice = std::clamp(s.settings.number("gb_colors", 0), 0, 13);
+    const bool in_color = s.settings.flag("gb_in_color", false);
+    if (!in_color) ImGui::BeginDisabled();
+    ImGui::TextUnformatted("Couleurs des jeux Game Boy");
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (ImGui::BeginCombo("##gb-colors", colors[choice])) {
+        for (int i = 0; i < 14; ++i)
+            if (ImGui::Selectable(colors[i], choice == i)) {
+                s.settings.set("gb_colors", std::to_string(i));
+                save_settings(s);
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Les combinaisons sont celles que l’on tenait pendant le logo de la console. Pris en compte au lancement "
+          "du jeu.");
+    ImGui::PopFont();
+    if (!in_color) ImGui::EndDisabled();
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "gbc_on_gba", false, "Game Boy Color d’une Game Boy Advance",
+                   "La GBC intégrée à une Game Boy Advance : des jeux comme Zelda Oracle ou Shantae débloquent alors "
+                   "leurs bonus. Un état pris avec l’autre console ne se recharge pas. Pris en compte au lancement du "
+                   "jeu.");
+    end_card();
+    begin_card("##gba");
+    card_title(s, Icon::Gamepad, "Game Boy Advance");
+    ImGui::TextUnformatted("BIOS");
+    static const char* const bioses[] = {"BIOS de RavenCore", "Vrai BIOS", "Vrai BIOS, sans animation"};
+    int bios = std::clamp(s.settings.number("gba_bios", 0), 0, 2);
+    if (chips("##gba-bios", bioses, 3, &bios)) {
+        s.settings.set("gba_bios", std::to_string(bios));
+        save_settings(s);
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("RavenCore répond lui-même aux appels du BIOS. Le vrai BIOS, celui d’une console, joue son animation de "
+          "démarrage (sauf si vous la sautez) : placez gba_bios.bin (16 Kio) dans le dossier ci-dessous, aucun BIOS "
+          "n’est fourni. Un état ne se recharge qu’avec le BIOS qui l’a créé. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::xs});
+    std::error_code ec;
+    const bool present = fs::file_size(s.folders.bios / "gba_bios.bin", ec) == 16384 && !ec;
+    folder_row(s, "BIOS", present ? "gba_bios.bin trouvé" : "gba_bios.bin absent", s.folders.bios);
+    end_card();
+}
 void settings_link(State& s) {
     begin_card("##link");
     card_title(s, Icon::Link, "Câble link sans fil");
@@ -386,6 +444,8 @@ void settings_view(State& s, Library& lib) {
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
          "Choisissez les touches du clavier et les boutons de la manette, ses vibrations et ses capteurs."},
+        {SettingsCategory::Console, Icon::Settings, "Console",
+         "Choisissez la console qui fait tourner les jeux : couleurs, Game Boy Advance, BIOS."},
         {SettingsCategory::Link, Icon::Link, "Câble link",
          "Reliez vos jeux à ceux d’un autre appareil, sans fil."},
         {SettingsCategory::Updates, Icon::Reset, "Mises à jour",
@@ -423,6 +483,7 @@ void settings_view(State& s, Library& lib) {
     case SettingsCategory::Display: settings_display(s); break;
     case SettingsCategory::Sound: settings_sound(s); break;
     case SettingsCategory::Controls: settings_controls(s); break;
+    case SettingsCategory::Console: settings_console(s); break;
     case SettingsCategory::Link: settings_link(s); break;
     case SettingsCategory::Updates: updates_card(s); break;
     case SettingsCategory::About: settings_about(s); break;

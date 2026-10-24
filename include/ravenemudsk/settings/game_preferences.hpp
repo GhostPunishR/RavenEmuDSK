@@ -18,6 +18,13 @@ struct GamePreferences {
     // Réglages > Commandes: the controller rumbles with the cartridge's motor,
     // its motion sensors tilt and turn the games that have some, and Boktai's
     // solar sensor gets this share of full sunlight (0-100 %).
+    // Réglages > Console: Game Boy games on a Game Boy Color, in these colors
+    // (RAVENEMU_GBC_COLORS_*); color games on a Game Boy Advance's GBC; the
+    // GBA's BIOS: 0 RavenCore's, 1 the real one, 2 the real one without its intro.
+    bool gb_in_color = false;
+    int gb_colors = 0;
+    bool gbc_on_gba = false;
+    int gba_bios = 0;
     bool rumble = true;
     bool rewind = true;         // Réglages > Commandes: keep the last moments to play them backwards
     bool motion_sensors = true;

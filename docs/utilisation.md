@@ -64,6 +64,16 @@ Tant que vous maintenez **R**, ou la gâchette gauche (LT, L2 ou ZL) si aucun bo
 
 Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
 
+## Console émulée
+
+**Réglages > Console** choisit la console qui fait tourner les jeux, comme les cœurs Libretro de RavenCore :
+
+- **Jeux Game Boy en couleurs** : les jeux Game Boy tournent sur une Game Boy Color. Ils prennent les couleurs que sa boot ROM leur choisit (Pokémon Rouge en rouge, Bleu en bleu...), ou celles d'une combinaison de touches tenue pendant son logo : brun, rouge, sépia, bleu, gris, pastel, négatif...
+- **Game Boy Color d'une Game Boy Advance** : des jeux comme Zelda Oracle ou Shantae débloquent alors leurs bonus.
+- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `BIOS`, à côté de `Sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
+
+Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se recharge que dans le mode qui l'a créé : même console, même BIOS. Les succès RetroAchievements restent ceux du jeu, quelle que soit la console.
+
 ## Vibrations et capteurs
 
 Certaines cartouches avaient un moteur ou des capteurs. RavenEmu les fait passer par la manette, réglables dans **Réglages > Commandes**, carte **Vibrations et capteurs** :

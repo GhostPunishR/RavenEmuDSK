@@ -122,6 +122,13 @@ std::string saved_at(const fs::path& file) {
     std::strftime(text,sizeof text,"le %d/%m à %H:%M",&local);
     return text;
 }
+// The console that runs the game: Réglages > Console may put a Game Boy game
+// on a Game Boy Color, and a color game on a Game Boy Advance's GBC.
+int model_of(const std::string& system,const ravenemudsk_ui::GamePreferences& prefs) {
+    if(system=="gba")return RAVENEMU_GBA;
+    if(system=="gb"&&!prefs.gb_in_color)return RAVENEMU_GB;
+    return prefs.gbc_on_gba?RAVENEMU_GBC_ON_GBA:RAVENEMU_GBC;
+}
 int system_of(const std::string& code) {
     if(code=="gb")return RAVENEMU_GB;
     if(code=="gbc")return RAVENEMU_GBC;
@@ -174,6 +181,7 @@ private:
     void update_rumble(Clock::time_point now);
     void stop_rumble();
     void take_screenshot();
+    void use_gba_bios();
     bool rewind_allowed() const;
     void keep_for_rewind();
     bool step_back();
@@ -202,6 +210,8 @@ private:
     // load, for "Annuler le chargement".
     int slot=1;
     std::vector<std::uint8_t> undo_state;
+    // Why the real GBA BIOS chosen in Réglages > Console is not used, if so.
+    std::string bios_notice;
     // The last moments, to play backwards while the rewind key is held.
     std::optional<ravenemudsk_ui::RewindBuffer> rewind;
     std::vector<std::uint8_t> rewind_state;
@@ -253,11 +263,15 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     rom_path=ravenemudsk_ui::from_utf8(req.rom);
     rom=read_file(rom_path,64u<<20);
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
-    core=Core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
+    system_of(req.system); // an unknown console stops here, before anything opens
+    prefs=ravenemudsk_ui::game_preferences();
+    core=Core(ravenemu_create(model_of(req.system,prefs)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
     folders=ravenemudsk_ui::app_folders();
     battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
     preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
+    if(req.system=="gb"&&prefs.gb_in_color)ravenemu_set_gbc_colors(core.get(),prefs.gb_colors);
+    if(req.system=="gba"&&prefs.gba_bios>0)use_gba_bios();
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
            "Chargement ROM");
@@ -273,7 +287,6 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
     texture.reset(SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h));
     if(!texture)throw std::runtime_error(SDL_GetError());
-    prefs=ravenemudsk_ui::game_preferences();
     // Sharp pixels whatever scaling hint the launcher left behind.
     SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
@@ -289,10 +302,11 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
     shown.resize(pixels.size());
-    picture.configure(prefs.lcd_colors&&req.system!="gb",
+    picture.configure(prefs.lcd_colors&&model_of(req.system,prefs)!=RAVENEMU_GB,
                       static_cast<ravenemudsk_ui::FrameBlending>(prefs.frame_blending));
     pcm.resize(8192);
     overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
+    if(!bios_notice.empty())toast(ravenemudsk_ui::Toast::Kind::Info,"BIOS de RavenCore",bios_notice);
     chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
@@ -570,6 +584,16 @@ void GameSession::update_rumble(Clock::time_point now) {
 void GameSession::stop_rumble() {
     if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
     rumbling=false;
+}
+// The player's own GBA BIOS, BIOS/gba_bios.bin, before the game loads; RavenCore's
+// own answers the BIOS calls when it is missing or not a BIOS.
+void GameSession::use_gba_bios() {
+    const auto file=folders.bios/"gba_bios.bin";
+    std::vector<std::uint8_t> bios;
+    try { bios=read_optional(file,1u<<20); } catch(const std::exception&) { bios.clear(); }
+    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier BIOS : le jeu démarre avec le BIOS de RavenCore.";
+    else if(!ravenemu_set_gba_bios(core.get(),bios.data(),bios.size(),prefs.gba_bios==2))
+        bios_notice="gba_bios.bin ne fait pas 16 Kio : le jeu démarre avec le BIOS de RavenCore.";
 }
 // Not in Hardcore (RetroAchievements forbids it), nor over the link cable,
 // where the other game goes on.

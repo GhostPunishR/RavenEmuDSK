@@ -247,7 +247,8 @@ int main() {
     const auto defaults=game_preferences(fresh);
     require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image&&defaults.wireless_link&&
             defaults.pause_unfocused&&defaults.rumble&&defaults.motion_sensors&&defaults.solar_light==50&&
-            !defaults.integer_scale&&!defaults.lcd_colors&&defaults.frame_blending==0&&defaults.rewind,
+            !defaults.integer_scale&&!defaults.lcd_colors&&defaults.frame_blending==0&&defaults.rewind&&
+            !defaults.gb_in_color&&defaults.gb_colors==0&&!defaults.gbc_on_gba&&defaults.gba_bios==0,
             "Default game preferences");
     require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
             defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
@@ -257,11 +258,15 @@ int main() {
     chosen.set_flag("wireless_link",false);chosen.set_flag("pause_unfocused",false);
     chosen.set_flag("rumble",false);chosen.set_flag("motion_sensors",false);chosen.set("solar_light","80");
     chosen.set_flag("integer_scale",true);chosen.set_flag("lcd_colors",true);chosen.set("frame_blending","2");
-    chosen.set_flag("rewind",false);
+    chosen.set_flag("rewind",false);chosen.set_flag("gb_in_color",true);chosen.set("gb_colors","13");
+    chosen.set_flag("gbc_on_gba",true);chosen.set("gba_bios","2");
     const auto prefs=game_preferences(chosen);
     require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image&&!prefs.wireless_link&&
             !prefs.pause_unfocused&&!prefs.rumble&&!prefs.motion_sensors&&prefs.solar_light==80&&prefs.integer_scale&&
-            prefs.lcd_colors&&prefs.frame_blending==2&&!prefs.rewind,"Chosen game preferences");
+            prefs.lcd_colors&&prefs.frame_blending==2&&!prefs.rewind&&prefs.gb_in_color&&prefs.gb_colors==13&&
+            prefs.gbc_on_gba&&prefs.gba_bios==2,"Chosen game preferences");
+    chosen.set("gb_colors","40");chosen.set("gba_bios","-1");
+    require(game_preferences(chosen).gb_colors==13&&game_preferences(chosen).gba_bios==0,"Out-of-range choices are clamped");
     chosen.set("frame_blending","7");require(game_preferences(chosen).frame_blending==2,"An unknown blending is the last one");
     chosen.set("solar_light","-3");require(game_preferences(chosen).solar_light==0,"Sunlight below 0 % is darkness");
     require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
