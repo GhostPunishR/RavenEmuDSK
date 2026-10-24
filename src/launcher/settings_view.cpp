@@ -84,6 +84,13 @@ void settings_display(State& s) {
                    "Adoucit les pixels quand l’image est agrandie. Désactivé, les pixels restent nets, comme sur la "
                    "console. Pris en compte au lancement du jeu.");
     end_card();
+    begin_card("##window");
+    card_title(s, Icon::Pause, "Fenêtre du jeu");
+    setting_switch(s, "pause_unfocused", true, "Pause en arrière-plan",
+                   "Met le jeu en pause quand vous passez à une autre fenêtre, et le reprend à votre retour. "
+                   "En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente. "
+                   "Pris en compte au lancement du jeu.");
+    end_card();
 }
 void settings_sound(State& s) {
     begin_card("##sound");
@@ -318,7 +325,7 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie."},
+         "Choisissez comment l’image du jeu est agrandie, et sa pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",

@@ -9,6 +9,7 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.unlock_sound = settings.flag("ra_unlock_sound", true);
     prefs.volume = settings.flag("mute", false) ? 0 : std::clamp(settings.number("volume", 100), 0, 100);
     prefs.smooth_image = settings.flag("smooth_image", false);
+    prefs.pause_unfocused = settings.flag("pause_unfocused", true);
     prefs.wireless_link = settings.flag("wireless_link", true);
     prefs.keyboard.load(settings);
     prefs.pads.load(settings);

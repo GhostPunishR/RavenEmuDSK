@@ -47,6 +47,8 @@ L'image et le son restent synchronisés :
 - le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
 - sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
 
+Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
+
 ## Câble link sans fil
 
 Deux jeux se relient comme avec un câble link, sans câble : avec RavenEmu Android sur un téléphone ou avec un autre ordinateur, sur le même réseau Wi-Fi ou local.

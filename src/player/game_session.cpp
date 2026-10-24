@@ -193,6 +193,8 @@ private:
     // Closed before the core it plugs into.
     std::unique_ptr<ravenemudsk_link::WirelessLink> link;
     bool running=true,paused=false;
+    // Paused because the window went to the background: it resumes with it.
+    bool paused_unfocused=false;
     Clock::time_point next,last_save,next_progress,last_frame,last_present;
     Clock::duration duration{};
 };
@@ -343,6 +345,14 @@ void GameSession::run() {
 void GameSession::handle(const SDL_Event& e) {
     overlay->process_event(e);
     if(e.type==SDL_QUIT)running=false;
+    // In the background the game pauses (RetroArch's default too), and
+    // resumes when its window comes back, unless the player paused it.
+    if(e.type==SDL_WINDOWEVENT&&prefs.pause_unfocused) {
+        if(e.window.event==SDL_WINDOWEVENT_FOCUS_LOST&&!paused&&!overlay->menu_open()&&pause_allowed())
+            paused=paused_unfocused=true;
+        else if(e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED&&paused_unfocused)
+            paused=paused_unfocused=false;
+    }
     if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
         { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); }
     if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
@@ -375,7 +385,7 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
             break;
         case Key::Pause:
             if(paused || pause_allowed()) {
-                paused=!paused;input->release_all();
+                paused=!paused;paused_unfocused=false;input->release_all();
             }
             break;
         case Key::Reset:
@@ -448,7 +458,7 @@ void GameSession::take_retro_events() {
             continue;
         }
         if(event.kind=="hardcore_reset"){
-            input->release_all();paused=false;next=Clock::now();
+            input->release_all();paused=paused_unfocused=false;next=Clock::now();
             overlay->clear_retro();overlay->close_menu();
         }
         if(event.kind=="error")toast(ravenemudsk_ui::Toast::Kind::Error,event.title,event.detail);
@@ -489,6 +499,7 @@ void GameSession::draw(bool waiting) {
     info.hardcore_waiting=waiting;
     info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
     info.paused=paused;
+    info.paused_unfocused=paused_unfocused;
     info.fullscreen=(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)!=0;
     const auto action=overlay->draw(info);
     if(overlay->take_unlock_sound()&&!chime.empty())effects.play(chime);
@@ -511,7 +522,7 @@ void GameSession::apply(Action action) {
             input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
             if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
-            overlay->close_menu();paused=false;break;
+            overlay->close_menu();paused=paused_unfocused=false;break;
         case Action::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;
         case Action::ToggleFullscreen:

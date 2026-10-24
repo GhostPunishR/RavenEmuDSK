@@ -30,6 +30,7 @@ struct OverlayInfo {
     bool hardcore_waiting = false;
     std::string retro_status;
     bool paused = false;          // quick pause with P
+    bool paused_unfocused = false; // paused while the window is in the background
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
     bool has_achievement = false;
