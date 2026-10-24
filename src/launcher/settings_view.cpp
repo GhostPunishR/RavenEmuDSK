@@ -104,6 +104,27 @@ void settings_display(State& s) {
     setting_switch(s, "smooth_image", false, "Lisser l’image",
                    "Adoucit les pixels quand l’image est agrandie. Désactivé, les pixels restent nets, comme sur la "
                    "console. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "integer_scale", false, "Mise à l’échelle entière",
+                   "Agrandit l’image un nombre entier de fois : chaque pixel de la console a la même taille, au "
+                   "prix de bandes noires plus larges. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "lcd_colors", false, "Couleurs de l’écran LCD",
+                   "Game Boy Color et Game Boy Advance : des couleurs moins saturées et un peu plus sombres, comme "
+                   "sur l’écran de la console. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Mélange d’images");
+    static const char* const blendings[] = {"Désactivé", "Mélange", "Rémanence"};
+    int blending = std::clamp(s.settings.number("frame_blending", 0), 0, 2);
+    if (chips("##blending", blendings, 3, &blending)) {
+        s.settings.set("frame_blending", std::to_string(blending));
+        save_settings(s);
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Atténue le scintillement des jeux qui affichent un objet une image sur deux. Mélange : la moyenne des "
+          "deux dernières images. Rémanence : l’image précédente s’efface lentement, comme sur un écran LCD. "
+          "Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
     end_card();
     begin_card("##window");
     card_title(s, Icon::Pause, "Fenêtre du jeu");
@@ -351,7 +372,7 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie, et sa pause en arrière-plan."},
+         "Choisissez comment l’image du jeu est agrandie et rendue, et sa pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",

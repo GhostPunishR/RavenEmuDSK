@@ -142,7 +142,8 @@ endif()
 
 # Drawn over the game: pause menu, RetroAchievements banner, sounds, and the
 # sound kept in step with the picture.
-add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/audio/game_sound.cpp src/audio/av_sync.cpp)
+add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/player/picture.cpp src/audio/game_sound.cpp
+  src/audio/av_sync.cpp)
 target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
 
 # The launcher, one file per screen (src/launcher); the program sees app_shell.hpp.
@@ -228,6 +229,10 @@ if(BUILD_TESTING)
   target_compile_definitions(ravenemudsk_av_sync_test PRIVATE SDL_MAIN_HANDLED)
   target_link_libraries(ravenemudsk_av_sync_test PRIVATE ravenemudsk_game_ui)
   add_test(NAME av_sync COMMAND ravenemudsk_av_sync_test)
+  add_executable(ravenemudsk_picture_test tests/picture_test.cpp)
+  target_compile_definitions(ravenemudsk_picture_test PRIVATE SDL_MAIN_HANDLED)
+  target_link_libraries(ravenemudsk_picture_test PRIVATE ravenemudsk_game_ui)
+  add_test(NAME picture COMMAND ravenemudsk_picture_test)
   add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
   target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
   add_test(NAME retro_profile_store COMMAND ravenemudsk_profile_store_test)

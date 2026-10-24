@@ -42,7 +42,14 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 ## Image et son
 
-Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+Dans **Réglages > Affichage** :
+
+- **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console.
+- **Mise à l’échelle entière** agrandit l'image un nombre entier de fois : chaque pixel de la console a la même taille, avec des bandes noires plus larges.
+- **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
+- **Mélange d’images** atténue le scintillement des jeux qui affichent un objet une image sur deux : **Mélange** montre la moyenne des deux dernières images, **Rémanence** laisse l'image précédente s'effacer lentement, comme sur un écran LCD.
+
+Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
 
 L'image et le son restent synchronisés :
 

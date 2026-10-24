@@ -12,6 +12,7 @@
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
 #include <ravenemudsk/audio/av_sync.hpp>
+#include <ravenemudsk/player/picture.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/wireless/wireless_link.hpp>
 #include <algorithm>
@@ -208,7 +209,10 @@ private:
     ravenemudsk_ui::GamePreferences prefs;
     SDL_AudioDeviceID audio_device=0;
     Ptr<SDL_GameController,SDL_GameControllerClose> pad{nullptr,SDL_GameControllerClose};
-    std::vector<std::uint32_t> pixels;
+    // The core's frame, and the one shown (LCD colors, blending), which the
+    // screenshots and the state pictures keep too.
+    std::vector<std::uint32_t> pixels,shown;
+    ravenemudsk_ui::PictureFilter picture;
     std::vector<std::int16_t> pcm;
     std::optional<ravenemudsk_ui::GameOverlay> overlay;
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
@@ -277,6 +281,9 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     start_motion();
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
+    shown.resize(pixels.size());
+    picture.configure(prefs.lcd_colors&&req.system!="gb",
+                      static_cast<ravenemudsk_ui::FrameBlending>(prefs.frame_blending));
     pcm.resize(8192);
     overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
     chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
@@ -471,7 +478,8 @@ void GameSession::emulate(Clock::time_point now,bool waiting) {
             ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
             queue_sound(n,frames);
         }
-        SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+        picture.apply(pixels.data(),shown.data(),pixels.size());
+        SDL_UpdateTexture(texture.get(),nullptr,shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
         last_frame=now;
         next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
@@ -547,7 +555,7 @@ void GameSession::stop_rumble() {
 // The chosen slot's state, with the picture of the game at that moment.
 void GameSession::save_slot() {
     save_state(core.get(),state_path);
-    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),pixels.data(),w,h);
+    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),shown.data(),w,h);
     refresh_slot();
     toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé","Emplacement "+std::to_string(slot));
 }
@@ -605,7 +613,7 @@ void GameSession::refresh_slot() {
 void GameSession::take_screenshot() {
     try {
         const auto path=ravenemudsk_ui::screenshot_path(folders,title,std::time(nullptr));
-        if(!ravenemudsk_ui::save_png(path,pixels.data(),w,h))throw std::runtime_error("Écriture impossible");
+        if(!ravenemudsk_ui::save_png(path,shown.data(),w,h))throw std::runtime_error("Écriture impossible");
         toast(ravenemudsk_ui::Toast::Kind::Success,"Capture d'écran enregistrée",ravenemudsk_ui::utf8(path.filename()));
     } catch(const std::exception& e) {
         toast(ravenemudsk_ui::Toast::Kind::Error,"Capture d'écran impossible",e.what());
@@ -652,8 +660,7 @@ void GameSession::draw(bool waiting) {
     SDL_RenderClear(renderer);
     int out_w=0,out_h=0;
     SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
-    const auto factor=std::min(double(out_w)/w,double(out_h)/h);
-    const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
+    const SDL_Rect rect=ravenemudsk_ui::picture_rect(out_w,out_h,w,h,prefs.integer_scale);
     SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
     info.hardcore=retro.hardcore();
     info.hardcore_preferred=retro.snapshot().hardcore_preferred;
@@ -702,7 +709,7 @@ void GameSession::finish() {
     }
     save_battery(core.get(),battery_path);
     if(!pixels.empty()) {
-        SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(),w,h,32,
+        SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(shown.data(),w,h,32,
             w*static_cast<int>(sizeof(std::uint32_t)),SDL_PIXELFORMAT_ARGB8888);
         if(bitmap){SDL_SaveBMP(bitmap,ravenemudsk_ui::utf8(preview_path).c_str());SDL_FreeSurface(bitmap);}
     }
