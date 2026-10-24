@@ -32,6 +32,7 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 | Avance rapide (maintenir) | Espace |
+| Retour arrière (maintenir) | R |
 | Capture d'écran | F8 |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
@@ -42,7 +43,14 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 ## Image et son
 
-Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+Dans **Réglages > Affichage** :
+
+- **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console.
+- **Mise à l’échelle entière** agrandit l'image un nombre entier de fois : chaque pixel de la console a la même taille, avec des bandes noires plus larges.
+- **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
+- **Mélange d’images** atténue le scintillement des jeux qui affichent un objet une image sur deux : **Mélange** montre la moyenne des deux dernières images, **Rémanence** laisse l'image précédente s'effacer lentement, comme sur un écran LCD.
+
+Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
 
 L'image et le son restent synchronisés :
 
@@ -52,7 +60,19 @@ L'image et le son restent synchronisés :
 
 Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
 
+Tant que vous maintenez **R**, ou la gâchette gauche (LT, L2 ou ZL) si aucun bouton de la console ne l'utilise, le jeu revient en arrière, image par image, sans le son. RavenEmu garde pour cela les derniers moments de jeu, 64 Mo au plus : de trente secondes d'action à plusieurs minutes de jeu calme. Le retour arrière est impossible en Hardcore et pendant que le câble sans fil est relié ; **Retour arrière**, dans **Réglages > Commandes**, le désactive.
+
 Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
+
+## Console émulée
+
+**Réglages > Console** choisit la console qui fait tourner les jeux, comme les cœurs Libretro de RavenCore :
+
+- **Jeux Game Boy en couleurs** : les jeux Game Boy tournent sur une Game Boy Color. Ils prennent les couleurs que sa boot ROM leur choisit (Pokémon Rouge en rouge, Bleu en bleu...), ou celles d'une combinaison de touches tenue pendant son logo : brun, rouge, sépia, bleu, gris, pastel, négatif...
+- **Game Boy Color d'une Game Boy Advance** : des jeux comme Zelda Oracle ou Shantae débloquent alors leurs bonus.
+- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `BIOS`, à côté de `Sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
+
+Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se recharge que dans le mode qui l'a créé : même console, même BIOS. Les succès RetroAchievements restent ceux du jeu, quelle que soit la console.
 
 ## Vibrations et capteurs
 
@@ -90,6 +110,17 @@ Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est acti
 Chaque jeu a neuf emplacements d'états. **F5** sauvegarde dans l'emplacement choisi et **F9** le recharge ; **F6** et **F7** passent à l'emplacement précédent ou suivant, et une notification indique s'il est vide ou quand il a été sauvegardé. Dans le menu de pause, les lignes **Sauvegarder l'état** et **Charger l'état** indiquent l'emplacement : les flèches gauche et droite (ou la croix de la manette, ou la molette sur la ligne) en changent. Une vignette montre alors, à côté du menu, l'image du jeu au moment de la sauvegarde et sa date.
 
 L'emplacement 1 reprend l'état unique des versions précédentes. Après un chargement, **Annuler le chargement**, dans le menu de pause, ramène la partie où elle en était juste avant ; une seule fois.
+
+## Codes de triche
+
+**Codes de triche**, dans le menu de pause, liste les codes du jeu. Chacun s'active, se désactive ou se supprime ; tout changement s'applique dès l'image suivante et reste mémorisé pour la prochaine partie, dans un fichier `.cheats` à côté des sauvegardes du jeu.
+
+Pour ajouter un code, donnez-lui un nom (facultatif), collez ou tapez le code sur une ou plusieurs lignes, puis **Ajouter** :
+
+- Game Boy et Game Boy Color : Game Genie (`ABC-DEF-GHI`) ou GameShark (`01xxxxxx`).
+- Game Boy Advance : Codebreaker non chiffré, GameShark ou Action Replay chiffrés, tels que l'appareil les affiche.
+
+RavenCore vérifie le code avant de l'accepter ; un code refusé affiche la raison, par exemple un patch de ROM, non pris en charge. Les codes sont désactivés en Hardcore et reprennent en Softcore. En mode TV, faute de clavier, le menu n'a pas cette entrée.
 
 ## Captures d'écran
 

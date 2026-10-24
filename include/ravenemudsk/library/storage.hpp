@@ -12,6 +12,7 @@ struct Folders {
     std::filesystem::path saves;    // <root>/Sauvegardes: .sav, states, unlock journal, last capture
     std::filesystem::path covers;   // <root>/Jaquettes: cover images named after the ROM
     std::filesystem::path captures; // <root>/Captures: screenshots taken in game
+    std::filesystem::path bios;     // <root>/BIOS: gba_bios.bin, the player's own
 };
 // Uses the first root where both folders can be created and written.
 // Throws std::runtime_error when no root is usable.

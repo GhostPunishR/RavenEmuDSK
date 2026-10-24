@@ -24,7 +24,8 @@ const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
         {"key_fast_forward","Avance rapide (maintenir)","Gâchette droite",SDLK_SPACE,-1},
         {"key_screenshot","Capture d’écran","Menu de pause",SDLK_F8,-1},
         {"key_slot_previous","Emplacement d’état précédent","Menu de pause",SDLK_F6,-1},
-        {"key_slot_next","Emplacement d’état suivant","Menu de pause",SDLK_F7,-1}
+        {"key_slot_next","Emplacement d’état suivant","Menu de pause",SDLK_F7,-1},
+        {"key_rewind","Retour arrière (maintenir)","Gâchette gauche",SDLK_r,-1}
     }};
     return commands;
 }

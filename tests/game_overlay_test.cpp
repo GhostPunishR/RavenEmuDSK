@@ -86,6 +86,50 @@ void state_slots(SDL_Window* window,SDL_Renderer* renderer){
     require(focused("Succès et classements"),"No load and no undo in Hardcore");
     overlay.close_menu();draw();
 }
+// "Codes de triche": an entry of the desktop menu when the game has a list,
+// its window over the menu, and back.
+void cheats_window(SDL_Window* window,SDL_Renderer* renderer){
+    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+    GameOverlay overlay(window,renderer,&client);OverlayInfo info;
+    std::vector<Cheat> cheats{{"Argent infini","82002A4C 0063",true},{"Rencontres","010238CD",false}};
+    info.game_title="Cheats";info.system="gba";info.cheats=&cheats;info.cheat_system=2;
+    SDL_SetWindowSize(window,1024,768);
+    const auto draw=[&]{
+        SDL_PumpEvents();SDL_SetRenderDrawColor(renderer,11,12,18,255);SDL_RenderClear(renderer);
+        const auto action=overlay.draw(info);SDL_RenderPresent(renderer);
+        require(ImGui::GetCurrentContext()->DebugDrawIdConflicts==0,"Cheat window has conflicting widget IDs");
+        return action;
+    };
+    const auto key=[&](ImGuiKey key){
+        ImGui::GetIO().AddKeyEvent(key,true);const auto action=draw();
+        ImGui::GetIO().AddKeyEvent(key,false);const auto released=draw();
+        return action==OverlayAction::None?released:action;
+    };
+    const auto focused=[&](const char* id){
+        auto* menu=ImGui::FindWindowByName("##pause");
+        require(menu!=nullptr,"Pause window missing");
+        return ImGui::GetCurrentContext()->NavId==menu->GetID(id);
+    };
+    overlay.open_menu();for(int i=0;i<4;++i)draw();
+    // No state yet: the load row is skipped.
+    for(int i=0;i<2;++i)key(ImGuiKey_DownArrow);
+    require(focused("Succès et classements"),"Achievements before the cheats");
+    key(ImGuiKey_DownArrow);require(focused("Codes de triche"),"The cheats entry follows");
+    key(ImGuiKey_Enter);draw();draw();
+    const auto* list=ImGui::FindWindowByName("Codes de triche");
+    require(list&&list->Active&&list->Size.y<=768.f,"The cheat window opens and fits");
+    const auto* menu=ImGui::FindWindowByName("##pause");
+    require(!menu||!menu->Active,"Over the menu, which waits");
+    // Leaving the menu closes the cheat window with it.
+    overlay.close_menu();draw();overlay.open_menu();for(int i=0;i<3;++i)draw();
+    menu=ImGui::FindWindowByName("##pause");list=ImGui::FindWindowByName("Codes de triche");
+    require(menu&&menu->Active&&(!list||!list->Active),"The menu reopens on itself");
+    overlay.close_menu();draw();
+    info.cheats=nullptr;overlay.open_menu();for(int i=0;i<4;++i)draw();
+    for(int i=0;i<3;++i)key(ImGuiKey_DownArrow);
+    require(!focused("Codes de triche"),"No list, no entry");
+    overlay.close_menu();draw();
+}
 // The wireless link cable: the partner chooser over the game, then, once
 // linked, no state loading and an entry to unplug.
 void link_cable(SDL_Window* window,SDL_Renderer* renderer){
@@ -134,21 +178,29 @@ void link_cable(SDL_Window* window,SDL_Renderer* renderer){
 // Bounds of what is drawn on top of the game, from the foreground vertices,
 // `seconds` after an unlock (or only a toast) was raised: {left, top, right, bottom}.
 ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seconds,bool toast_only=false){
-    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
-    GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
-    if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
-    else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
-    int sounds=0;
-    const auto start=SDL_GetTicks64();
-    do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
-       sounds+=overlay.take_unlock_sound();}
-    while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
-    require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
-    ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
-    for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
-        box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
+    for(int attempt=1;;++attempt){
+        ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+        GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
+        if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
+        else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
+        int sounds=0;
+        const auto start=SDL_GetTicks64();
+        do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
+           sounds+=overlay.take_unlock_sound();}
+        while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
+        require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
+        // The badge drops alone for its first 0.30 s. When a stalled runner
+        // made the frames outlast that, they caught the band unfolding: the
+        // drop was not measured, so it is drawn again.
+        const bool missed_drop=seconds<.25&&SDL_GetTicks64()-start>=250;
+        require(!missed_drop||attempt<5,"Frames too slow to see the badge drop");
+        if(missed_drop)continue;
+        ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
+        for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
+            box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
+        }
+        return box;
     }
-    return box;
 }
 void tv_cards(SDL_Window* window,SDL_Renderer* renderer){
     const auto desk=retro_card_style({1920.f,1080.f},false),tv=retro_card_style({1920.f,1080.f},true);
@@ -306,6 +358,6 @@ int main(){
     SDL_Window* window=SDL_CreateWindow("Overlay regression",0,0,1024,768,0);
     require(window!=nullptr,"SDL window failed");SDL_Renderer* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     require(renderer!=nullptr,"SDL renderer failed");
-    navigation(window,renderer);state_slots(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
-    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, state slots, link cable, TV cards, controller buttons, TV menu passed\n";
+    navigation(window,renderer);state_slots(window,renderer);cheats_window(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
+    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, state slots, cheats, link cable, TV cards, controller buttons, TV menu passed\n";
 }

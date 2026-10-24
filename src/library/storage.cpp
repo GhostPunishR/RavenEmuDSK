@@ -63,11 +63,12 @@ std::string lower_extension(const fs::path& file) {
 Folders prepare_folders(const std::vector<fs::path>& roots) {
     for (const auto& root : roots) {
         if (root.empty()) continue;
-        Folders folders{root / "Sauvegardes", root / "Jaquettes", root / "Captures"};
+        Folders folders{root / "Sauvegardes", root / "Jaquettes", root / "Captures", root / "BIOS"};
         if (writable(folders.saves) && writable(folders.covers)) {
-            // Made now, so that Réglages can open it; a failure waits for the first screenshot.
+            // Made now, so that Réglages can open them; a failure waits for their first use.
             std::error_code ignored;
             fs::create_directories(folders.captures, ignored);
+            fs::create_directories(folders.bios, ignored);
             return folders;
         }
     }

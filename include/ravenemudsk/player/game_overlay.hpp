@@ -7,6 +7,7 @@
 #include <ravenemudsk/input/keyboard_bindings.hpp>
 #include <ravenemudsk/input/pad_bindings.hpp>
 #include <ravenemudsk/input/pad_glyphs.hpp>
+#include <ravenemudsk/saves/cheats.hpp>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -33,6 +34,8 @@ struct OverlayInfo {
     bool paused = false;          // quick pause with P
     bool paused_unfocused = false; // paused while the window is in the background
     bool fast_forward = false;    // the fast-forward key or trigger is held
+    bool rewinding = false;       // the rewind key or trigger is held
+    bool rewind_end = false;      // and no older moment is kept
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
     // The state slot chosen (1-9), when its state was saved ("le 24/10 à 17:05",
@@ -41,6 +44,10 @@ struct OverlayInfo {
     std::string state_saved;
     std::filesystem::path state_picture;
     bool can_undo_load = false;   // the game as it was before the last load is kept
+    // The game's cheats, owned by the game, edited in "Codes de triche", and
+    // its console (enum ravenemu_system) to check a new code.
+    std::vector<Cheat>* cheats = nullptr;
+    int cheat_system = 0;
     bool has_achievement = false;
     std::string achievement_title;
     int achievement_points = 0;
@@ -83,7 +90,7 @@ inline constexpr int fast_forward_speed = 4;
 // ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
                            UnplugLink, ChooseLink, ChooseLinkLater, Screenshot, PreviousSlot, NextSlot,
-                           UndoLoad };
+                           UndoLoad, CheatsChanged };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.
@@ -143,6 +150,12 @@ private:
     bool unlock_sound_ = false;
     bool chooser_shown_ = false;     // "Relier le câble à…" was up last frame
     std::uint64_t chosen_link_ = 0;
+    // "Codes de triche": the code being typed, and why the last one was refused.
+    bool cheats_open_ = false;
+    char cheat_name_[64] = {};
+    char cheat_code_[512] = {};
+    std::string cheat_error_;
+    OverlayAction draw_cheats_window(const OverlayInfo& info, ImVec2 screen);
     // The picture of the chosen state slot, loaded once per file version.
     SDL_Texture* slot_picture_ = nullptr;
     std::filesystem::path slot_picture_file_;

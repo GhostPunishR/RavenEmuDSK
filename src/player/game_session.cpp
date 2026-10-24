@@ -8,10 +8,13 @@
 #include <ravenemudsk/input/game_input.hpp>
 #include <ravenemudsk/input/motion.hpp>
 #include <ravenemudsk/saves/game_state.hpp>
+#include <ravenemudsk/saves/rewind.hpp>
+#include <ravenemudsk/saves/cheats.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
 #include <ravenemudsk/audio/av_sync.hpp>
+#include <ravenemudsk/player/picture.hpp>
 #include <ravenemudsk/achievements/client.hpp>
 #include <ravenemudsk/wireless/wireless_link.hpp>
 #include <algorithm>
@@ -120,6 +123,13 @@ std::string saved_at(const fs::path& file) {
     std::strftime(text,sizeof text,"le %d/%m à %H:%M",&local);
     return text;
 }
+// The console that runs the game: Réglages > Console may put a Game Boy game
+// on a Game Boy Color, and a color game on a Game Boy Advance's GBC.
+int model_of(const std::string& system,const ravenemudsk_ui::GamePreferences& prefs) {
+    if(system=="gba")return RAVENEMU_GBA;
+    if(system=="gb"&&!prefs.gb_in_color)return RAVENEMU_GB;
+    return prefs.gbc_on_gba?RAVENEMU_GBC_ON_GBA:RAVENEMU_GBC;
+}
 int system_of(const std::string& code) {
     if(code=="gb")return RAVENEMU_GB;
     if(code=="gbc")return RAVENEMU_GBC;
@@ -172,6 +182,12 @@ private:
     void update_rumble(Clock::time_point now);
     void stop_rumble();
     void take_screenshot();
+    void use_gba_bios();
+    void apply_cheats();
+    void cheats_changed();
+    bool rewind_allowed() const;
+    void keep_for_rewind();
+    bool step_back();
     void save_slot();
     void load_slot();
     void undo_load();
@@ -197,6 +213,14 @@ private:
     // load, for "Annuler le chargement".
     int slot=1;
     std::vector<std::uint8_t> undo_state;
+    // The game's cheats, in <ROM>.cheats beside its saves.
+    fs::path cheats_path;
+    std::vector<ravenemudsk_ui::Cheat> cheats;
+    // Why the real GBA BIOS chosen in Réglages > Console is not used, if so.
+    std::string bios_notice;
+    // The last moments, to play backwards while the rewind key is held.
+    std::optional<ravenemudsk_ui::RewindBuffer> rewind;
+    std::vector<std::uint8_t> rewind_state;
     int w=0,h=0,hz=0;
     double fps=0;
     std::optional<Sdl> sdl;
@@ -208,7 +232,10 @@ private:
     ravenemudsk_ui::GamePreferences prefs;
     SDL_AudioDeviceID audio_device=0;
     Ptr<SDL_GameController,SDL_GameControllerClose> pad{nullptr,SDL_GameControllerClose};
-    std::vector<std::uint32_t> pixels;
+    // The core's frame, and the one shown (LCD colors, blending), which the
+    // screenshots and the state pictures keep too.
+    std::vector<std::uint32_t> pixels,shown;
+    ravenemudsk_ui::PictureFilter picture;
     std::vector<std::int16_t> pcm;
     std::optional<ravenemudsk_ui::GameOverlay> overlay;
     // An unlock's chime is mixed into the game's sound, when the settings allow it.
@@ -242,11 +269,15 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     rom_path=ravenemudsk_ui::from_utf8(req.rom);
     rom=read_file(rom_path,64u<<20);
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
-    core=Core(ravenemu_create(system_of(req.system)),&ravenemu_destroy);
+    system_of(req.system); // an unknown console stops here, before anything opens
+    prefs=ravenemudsk_ui::game_preferences();
+    core=Core(ravenemu_create(model_of(req.system,prefs)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
     folders=ravenemudsk_ui::app_folders();
     battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
     preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
+    if(req.system=="gb"&&prefs.gb_in_color)ravenemu_set_gbc_colors(core.get(),prefs.gb_colors);
+    if(req.system=="gba"&&prefs.gba_bios>0)use_gba_bios();
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
            "Chargement ROM");
@@ -262,7 +293,6 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
     texture.reset(SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h));
     if(!texture)throw std::runtime_error(SDL_GetError());
-    prefs=ravenemudsk_ui::game_preferences();
     // Sharp pixels whatever scaling hint the launcher left behind.
     SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
@@ -277,8 +307,16 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     start_motion();
     ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
+    shown.resize(pixels.size());
+    picture.configure(prefs.lcd_colors&&model_of(req.system,prefs)!=RAVENEMU_GB,
+                      static_cast<ravenemudsk_ui::FrameBlending>(prefs.frame_blending));
     pcm.resize(8192);
     overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
+    if(!bios_notice.empty())toast(ravenemudsk_ui::Toast::Kind::Info,"BIOS de RavenCore",bios_notice);
+    cheats_path=ravenemudsk_ui::save_path(folders,rom_path,".cheats");
+    cheats=ravenemudsk_ui::load_cheats(cheats_path);
+    info.cheats=&cheats;info.cheat_system=system_of(req.system);
+    apply_cheats();
     chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
@@ -289,6 +327,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     next=last_save=next_progress=last_frame=last_present=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
     pacer.emplace(fps);
+    // 64 MB: from half a minute of action to several minutes of quieter play.
+    if(prefs.rewind)rewind.emplace(64u<<20);
     // Idle until the game uses its link port: then it looks for a partner.
     if(prefs.wireless_link) {
         link=std::make_unique<ravenemudsk_link::WirelessLink>(ravenemudsk_link::WirelessLink::Game{core.get(),
@@ -355,6 +395,8 @@ void GameSession::run() {
         input->update(SDL_GetTicks());
         if(link)update_link();
         info.fast_forward=input->fast_forward()&&info.link_partner.empty()&&!paused;
+        info.rewinding=input->rewind()&&rewind_allowed()&&!paused;
+        if(!info.rewinding)info.rewind_end=false;
         const auto now=Clock::now();
         const bool waiting=ravenemudsk_ra::client().frames_on_hold();
         emulate(now,waiting);
@@ -375,7 +417,7 @@ void GameSession::run() {
         const auto shown=Clock::now();
         const bool still=waiting||paused||overlay->menu_open()||link_holds();
         const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
-        if(!still&&!was_still&&!info.fast_forward)
+        if(!still&&!was_still&&!info.fast_forward&&!info.rewinding)
             pacer->presented(seconds(shown-last_present),seconds(shown-last_present-slept));
         // Back in the game, the controller's position counts as level again;
         // stopped, its motor stops.
@@ -458,7 +500,14 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
 // volume, as fast; between frames the SDK still runs.
 void GameSession::emulate(Clock::time_point now,bool waiting) {
     const bool due=pacer->locked()?now>=last_frame+duration/2:now>=next;
-    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
+    if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due && info.rewinding) {
+        // Backwards, without sound; the SDK waits meanwhile.
+        info.rewind_end=!step_back();
+        ravenemudsk_ra::client().pump(false);
+        last_frame=now;
+        next=pacer->locked()?now+duration:next+duration;
+        if(now>next+std::chrono::milliseconds(150))next=now+duration;
+    } else if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
         const int frames=info.fast_forward?ravenemudsk_ui::fast_forward_speed:1;
         for(int frame=0;frame<frames;++frame) {
             feed_motion();
@@ -470,8 +519,10 @@ void GameSession::emulate(Clock::time_point now,bool waiting) {
             effects.mix(pcm.data(),n);
             ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
             queue_sound(n,frames);
+            keep_for_rewind();
         }
-        SDL_UpdateTexture(texture.get(),nullptr,pixels.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+        picture.apply(pixels.data(),shown.data(),pixels.size());
+        SDL_UpdateTexture(texture.get(),nullptr,shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
         last_frame=now;
         next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
@@ -544,10 +595,61 @@ void GameSession::stop_rumble() {
     if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
     rumbling=false;
 }
+// The cheats that are on, from the next frame; none in Hardcore, where
+// RetroAchievements forbids them.
+void GameSession::apply_cheats() {
+    std::vector<const char*> codes;
+    if(!ravenemudsk_ra::client().snapshot().hardcore_preferred)
+        for(const auto& cheat:cheats)if(cheat.enabled)codes.push_back(cheat.code.c_str());
+    if(!ravenemu_set_cheats(core.get(),codes.data(),codes.size()))
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Code de triche refusé",ravenemu_last_error());
+}
+// Added, switched or deleted in "Codes de triche": kept for the next time,
+// and in play at once.
+void GameSession::cheats_changed() {
+    try {
+        ravenemudsk_ui::save_cheats(cheats_path,cheats);
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Codes de triche non enregistrés",e.what());
+    }
+    apply_cheats();
+}
+// The player's own GBA BIOS, BIOS/gba_bios.bin, before the game loads; RavenCore's
+// own answers the BIOS calls when it is missing or not a BIOS.
+void GameSession::use_gba_bios() {
+    const auto file=folders.bios/"gba_bios.bin";
+    std::vector<std::uint8_t> bios;
+    try { bios=read_optional(file,1u<<20); } catch(const std::exception&) { bios.clear(); }
+    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier BIOS : le jeu démarre avec le BIOS de RavenCore.";
+    else if(!ravenemu_set_gba_bios(core.get(),bios.data(),bios.size(),prefs.gba_bios==2))
+        bios_notice="gba_bios.bin ne fait pas 16 Kio : le jeu démarre avec le BIOS de RavenCore.";
+}
+// Not in Hardcore (RetroAchievements forbids it), nor over the link cable,
+// where the other game goes on.
+bool GameSession::rewind_allowed() const {
+    return rewind&&!ravenemudsk_ra::client().snapshot().hardcore_preferred&&info.link_partner.empty();
+}
+void GameSession::keep_for_rewind() {
+    if(!rewind_allowed())return;
+    rewind_state.resize(ravenemu_state_size(core.get()));
+    if(!rewind_state.empty()&&ravenemu_save_state(core.get(),rewind_state.data(),rewind_state.size()))
+        rewind->push(rewind_state);
+}
+// One frame back: the state before, then that frame run again for its
+// picture, its sound dropped. False once no older moment is kept.
+bool GameSession::step_back() {
+    if(!rewind||!rewind->pop(rewind_state))return false;
+    verify(ravenemu_load_state(core.get(),rewind_state.data(),rewind_state.size())!=0,"Retour arrière");
+    verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+    ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
+    picture.apply(pixels.data(),shown.data(),pixels.size());
+    SDL_UpdateTexture(texture.get(),nullptr,shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+    return true;
+}
 // The chosen slot's state, with the picture of the game at that moment.
 void GameSession::save_slot() {
     save_state(core.get(),state_path);
-    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),pixels.data(),w,h);
+    ravenemudsk_ui::save_png(ravenemudsk_ui::state_picture_path(state_path),shown.data(),w,h);
     refresh_slot();
     toast(ravenemudsk_ui::Toast::Kind::Success,"État sauvegardé","Emplacement "+std::to_string(slot));
 }
@@ -605,7 +707,7 @@ void GameSession::refresh_slot() {
 void GameSession::take_screenshot() {
     try {
         const auto path=ravenemudsk_ui::screenshot_path(folders,title,std::time(nullptr));
-        if(!ravenemudsk_ui::save_png(path,pixels.data(),w,h))throw std::runtime_error("Écriture impossible");
+        if(!ravenemudsk_ui::save_png(path,shown.data(),w,h))throw std::runtime_error("Écriture impossible");
         toast(ravenemudsk_ui::Toast::Kind::Success,"Capture d'écran enregistrée",ravenemudsk_ui::utf8(path.filename()));
     } catch(const std::exception& e) {
         toast(ravenemudsk_ui::Toast::Kind::Error,"Capture d'écran impossible",e.what());
@@ -614,11 +716,13 @@ void GameSession::take_screenshot() {
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
         if(event.kind=="hardcore_refused"){
+            apply_cheats();
             if(!ravenemudsk_ui::remember_hardcore(false))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le Hardcore reste sélectionné dans les réglages.");
             continue;
         }
         if(event.kind=="hardcore_reset"){
+            apply_cheats();
             input->release_all();paused=paused_unfocused=false;next=Clock::now();
             overlay->clear_retro();overlay->close_menu();
         }
@@ -652,8 +756,7 @@ void GameSession::draw(bool waiting) {
     SDL_RenderClear(renderer);
     int out_w=0,out_h=0;
     SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
-    const auto factor=std::min(double(out_w)/w,double(out_h)/h);
-    const SDL_Rect rect{(out_w-int(w*factor))/2,(out_h-int(h*factor))/2,int(w*factor),int(h*factor)};
+    const SDL_Rect rect=ravenemudsk_ui::picture_rect(out_w,out_h,w,h,prefs.integer_scale);
     SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
     info.hardcore=retro.hardcore();
     info.hardcore_preferred=retro.snapshot().hardcore_preferred;
@@ -674,12 +777,14 @@ void GameSession::apply(Action action) {
         case Action::SaveState:save_slot();overlay->close_menu();break;
         case Action::LoadState:load_slot();overlay->close_menu();break;
         case Action::UndoLoad:undo_load();overlay->close_menu();break;
+        case Action::CheatsChanged:cheats_changed();break;
         case Action::PreviousSlot:select_slot(-1);break;
         case Action::NextSlot:select_slot(1);break;
         case Action::ToggleHardcore:
             input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
             if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
+            apply_cheats();
             overlay->close_menu();paused=paused_unfocused=false;break;
         case Action::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;
@@ -702,7 +807,7 @@ void GameSession::finish() {
     }
     save_battery(core.get(),battery_path);
     if(!pixels.empty()) {
-        SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(pixels.data(),w,h,32,
+        SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(shown.data(),w,h,32,
             w*static_cast<int>(sizeof(std::uint32_t)),SDL_PIXELFORMAT_ARGB8888);
         if(bitmap){SDL_SaveBMP(bitmap,ravenemudsk_ui::utf8(preview_path).c_str());SDL_FreeSurface(bitmap);}
     }

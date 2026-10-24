@@ -55,6 +55,7 @@ int main() {
     const auto folders = ravenemudsk_ui::prepare_folders({folder / "not-a-folder" / "app", folder / "data"});
     assert(folders.saves == folder / "data" / "Sauvegardes" && fs::is_directory(folders.covers));
     assert(folders.captures == folder / "data" / "Captures" && fs::is_directory(folders.captures));
+    assert(folders.bios == folder / "data" / "BIOS" && fs::is_directory(folders.bios));
     // Screenshots: the game's title made a file name, then the local time;
     // a second one in the same second gets " (2)".
     {
