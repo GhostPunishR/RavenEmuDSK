@@ -178,21 +178,29 @@ void link_cable(SDL_Window* window,SDL_Renderer* renderer){
 // Bounds of what is drawn on top of the game, from the foreground vertices,
 // `seconds` after an unlock (or only a toast) was raised: {left, top, right, bottom}.
 ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seconds,bool toast_only=false){
-    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
-    GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
-    if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
-    else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
-    int sounds=0;
-    const auto start=SDL_GetTicks64();
-    do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
-       sounds+=overlay.take_unlock_sound();}
-    while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
-    require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
-    ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
-    for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
-        box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
+    for(int attempt=1;;++attempt){
+        ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+        GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
+        if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
+        else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
+        int sounds=0;
+        const auto start=SDL_GetTicks64();
+        do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
+           sounds+=overlay.take_unlock_sound();}
+        while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
+        require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
+        // The badge drops alone for its first 0.30 s. When a stalled runner
+        // made the frames outlast that, they caught the band unfolding: the
+        // drop was not measured, so it is drawn again.
+        const bool missed_drop=seconds<.25&&SDL_GetTicks64()-start>=250;
+        require(!missed_drop||attempt<5,"Frames too slow to see the badge drop");
+        if(missed_drop)continue;
+        ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
+        for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
+            box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
+        }
+        return box;
     }
-    return box;
 }
 void tv_cards(SDL_Window* window,SDL_Renderer* renderer){
     const auto desk=retro_card_style({1920.f,1080.f},false),tv=retro_card_style({1920.f,1080.f},true);
