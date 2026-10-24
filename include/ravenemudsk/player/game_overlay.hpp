@@ -33,6 +33,8 @@ struct OverlayInfo {
     bool paused = false;          // quick pause with P
     bool paused_unfocused = false; // paused while the window is in the background
     bool fast_forward = false;    // the fast-forward key or trigger is held
+    bool rewinding = false;       // the rewind key or trigger is held
+    bool rewind_end = false;      // and no older moment is kept
     bool fullscreen = false;
     bool has_state = false;       // a save state exists for "Charger l'état"
     // The state slot chosen (1-9), when its state was saved ("le 24/10 à 17:05",

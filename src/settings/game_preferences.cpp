@@ -9,9 +9,13 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.unlock_sound = settings.flag("ra_unlock_sound", true);
     prefs.volume = settings.flag("mute", false) ? 0 : std::clamp(settings.number("volume", 100), 0, 100);
     prefs.smooth_image = settings.flag("smooth_image", false);
+    prefs.integer_scale = settings.flag("integer_scale", false);
+    prefs.lcd_colors = settings.flag("lcd_colors", false);
+    prefs.frame_blending = std::clamp(settings.number("frame_blending", 0), 0, 2);
     prefs.pause_unfocused = settings.flag("pause_unfocused", true);
     prefs.wireless_link = settings.flag("wireless_link", true);
     prefs.rumble = settings.flag("rumble", true);
+    prefs.rewind = settings.flag("rewind", true);
     prefs.motion_sensors = settings.flag("motion_sensors", true);
     prefs.solar_light = std::clamp(settings.number("solar_light", 50), 0, 100);
     prefs.keyboard.load(settings);

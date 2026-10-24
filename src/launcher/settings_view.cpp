@@ -60,9 +60,11 @@ std::string controller_label(KeyAction action, const char* fallback, const PadBi
     if (static_cast<int>(action) < PadBindings::count) return pad_input_name(pads.input(action), family);
     if (action == KeyAction::Menu)
         return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
-    // The right trigger, unless a console button took it.
+    // The triggers, unless a console button took them.
     if (action == KeyAction::FastForward)
         return pads.button(pad_right_trigger) < 0 ? pad_input_name(pad_right_trigger, family) : "Gâchette droite occupée";
+    if (action == KeyAction::Rewind)
+        return pads.button(pad_left_trigger) < 0 ? pad_input_name(pad_left_trigger, family) : "Gâchette gauche occupée";
     return fallback;
 }
 // A switch with its label and an explanation below, saved at once.
@@ -104,6 +106,27 @@ void settings_display(State& s) {
     setting_switch(s, "smooth_image", false, "Lisser l’image",
                    "Adoucit les pixels quand l’image est agrandie. Désactivé, les pixels restent nets, comme sur la "
                    "console. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "integer_scale", false, "Mise à l’échelle entière",
+                   "Agrandit l’image un nombre entier de fois : chaque pixel de la console a la même taille, au "
+                   "prix de bandes noires plus larges. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "lcd_colors", false, "Couleurs de l’écran LCD",
+                   "Game Boy Color et Game Boy Advance : des couleurs moins saturées et un peu plus sombres, comme "
+                   "sur l’écran de la console. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Mélange d’images");
+    static const char* const blendings[] = {"Désactivé", "Mélange", "Rémanence"};
+    int blending = std::clamp(s.settings.number("frame_blending", 0), 0, 2);
+    if (chips("##blending", blendings, 3, &blending)) {
+        s.settings.set("frame_blending", std::to_string(blending));
+        save_settings(s);
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Atténue le scintillement des jeux qui affichent un objet une image sur deux. Mélange : la moyenne des "
+          "deux dernières images. Rémanence : l’image précédente s’efface lentement, comme sur un écran LCD. "
+          "Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
     end_card();
     begin_card("##window");
     card_title(s, Icon::Pause, "Fenêtre du jeu");
@@ -195,6 +218,13 @@ void settings_controls(State& s) {
         try{settings.save();s.settings=std::move(settings);notify(s,Toast::Kind::Success,"Commandes réinitialisées");}
         catch(const std::exception& e){notify(s,Toast::Kind::Error,"Commandes non enregistrées",e.what());}
     }
+    end_card();
+    begin_card("##rewind");
+    card_title(s, Icon::Reset, "Retour arrière");
+    setting_switch(s, "rewind", true, "Retour arrière",
+                   "Garde les derniers moments de jeu (64 Mo au plus, de trente secondes d’action à plusieurs minutes "
+                   "de jeu calme) pour revenir en arrière en maintenant la touche ou la gâchette gauche. Impossible en "
+                   "Hardcore et pendant que le câble sans fil est relié. Pris en compte au lancement du jeu.");
     end_card();
     begin_card("##sensors");
     card_title(s, Icon::Gamepad, "Vibrations et capteurs");
@@ -351,7 +381,7 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie, et sa pause en arrière-plan."},
+         "Choisissez comment l’image du jeu est agrandie et rendue, et sa pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",

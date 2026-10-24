@@ -533,7 +533,8 @@ void GameOverlay::draw_status(const OverlayInfo& info, ImDrawList* bg) {
         bg->AddText(fonts_.body,fonts_.body->FontSize,{54,top+11.f},color::text,label);
         top+=size.y+8.f;
     };
-    if (info.fast_forward) status_pill("Avance rapide  \xC2\xB7  \xC3\x97" + std::to_string(fast_forward_speed));
+    if (info.rewinding) status_pill(info.rewind_end ? "Retour arrière  \xC2\xB7  plus loin impossible" : "Retour arrière");
+    if (info.fast_forward && !info.rewinding) status_pill("Avance rapide  \xC2\xB7  \xC3\x97" + std::to_string(fast_forward_speed));
     if (info.paused_unfocused) status_pill("Pause  \xC2\xB7  la fenêtre est en arrière-plan");
     else if (info.paused) status_pill("Pause  \xC2\xB7  "+info.keyboard.label(KeyAction::Pause)+" pour reprendre");
     // The other game's menu is open: this one waits for it, as two consoles do.

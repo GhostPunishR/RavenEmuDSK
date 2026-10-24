@@ -32,6 +32,7 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Réinitialiser le jeu | F4 |
 | Plein écran | F11 |
 | Avance rapide (maintenir) | Espace |
+| Retour arrière (maintenir) | R |
 | Capture d'écran | F8 |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
@@ -42,7 +43,14 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 ## Image et son
 
-Dans **Réglages > Affichage**, **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+Dans **Réglages > Affichage** :
+
+- **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console.
+- **Mise à l’échelle entière** agrandit l'image un nombre entier de fois : chaque pixel de la console a la même taille, avec des bandes noires plus larges.
+- **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
+- **Mélange d’images** atténue le scintillement des jeux qui affichent un objet une image sur deux : **Mélange** montre la moyenne des deux dernières images, **Rémanence** laisse l'image précédente s'effacer lentement, comme sur un écran LCD.
+
+Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
 
 L'image et le son restent synchronisés :
 
@@ -51,6 +59,8 @@ L'image et le son restent synchronisés :
 - sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
 
 Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
+
+Tant que vous maintenez **R**, ou la gâchette gauche (LT, L2 ou ZL) si aucun bouton de la console ne l'utilise, le jeu revient en arrière, image par image, sans le son. RavenEmu garde pour cela les derniers moments de jeu, 64 Mo au plus : de trente secondes d'action à plusieurs minutes de jeu calme. Le retour arrière est impossible en Hardcore et pendant que le câble sans fil est relié ; **Retour arrière**, dans **Réglages > Commandes**, le désactive.
 
 Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la fenêtre est en arrière-plan ») et reprend à votre retour. Une pause faite avec P, elle, attend P. **Pause en arrière-plan**, dans **Réglages > Affichage**, désactive ce comportement. En Hardcore, RetroAchievements peut refuser une pause trop proche de la précédente : le jeu continue alors en arrière-plan.
 
