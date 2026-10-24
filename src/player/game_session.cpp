@@ -9,6 +9,7 @@
 #include <ravenemudsk/input/motion.hpp>
 #include <ravenemudsk/saves/game_state.hpp>
 #include <ravenemudsk/saves/rewind.hpp>
+#include <ravenemudsk/saves/cheats.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
@@ -182,6 +183,8 @@ private:
     void stop_rumble();
     void take_screenshot();
     void use_gba_bios();
+    void apply_cheats();
+    void cheats_changed();
     bool rewind_allowed() const;
     void keep_for_rewind();
     bool step_back();
@@ -210,6 +213,9 @@ private:
     // load, for "Annuler le chargement".
     int slot=1;
     std::vector<std::uint8_t> undo_state;
+    // The game's cheats, in <ROM>.cheats beside its saves.
+    fs::path cheats_path;
+    std::vector<ravenemudsk_ui::Cheat> cheats;
     // Why the real GBA BIOS chosen in Réglages > Console is not used, if so.
     std::string bios_notice;
     // The last moments, to play backwards while the rewind key is held.
@@ -307,6 +313,10 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     pcm.resize(8192);
     overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
     if(!bios_notice.empty())toast(ravenemudsk_ui::Toast::Kind::Info,"BIOS de RavenCore",bios_notice);
+    cheats_path=ravenemudsk_ui::save_path(folders,rom_path,".cheats");
+    cheats=ravenemudsk_ui::load_cheats(cheats_path);
+    info.cheats=&cheats;info.cheat_system=system_of(req.system);
+    apply_cheats();
     chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
@@ -585,6 +595,25 @@ void GameSession::stop_rumble() {
     if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
     rumbling=false;
 }
+// The cheats that are on, from the next frame; none in Hardcore, where
+// RetroAchievements forbids them.
+void GameSession::apply_cheats() {
+    std::vector<const char*> codes;
+    if(!ravenemudsk_ra::client().snapshot().hardcore_preferred)
+        for(const auto& cheat:cheats)if(cheat.enabled)codes.push_back(cheat.code.c_str());
+    if(!ravenemu_set_cheats(core.get(),codes.data(),codes.size()))
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Code de triche refusé",ravenemu_last_error());
+}
+// Added, switched or deleted in "Codes de triche": kept for the next time,
+// and in play at once.
+void GameSession::cheats_changed() {
+    try {
+        ravenemudsk_ui::save_cheats(cheats_path,cheats);
+    } catch(const std::exception& e) {
+        toast(ravenemudsk_ui::Toast::Kind::Error,"Codes de triche non enregistrés",e.what());
+    }
+    apply_cheats();
+}
 // The player's own GBA BIOS, BIOS/gba_bios.bin, before the game loads; RavenCore's
 // own answers the BIOS calls when it is missing or not a BIOS.
 void GameSession::use_gba_bios() {
@@ -687,11 +716,13 @@ void GameSession::take_screenshot() {
 void GameSession::take_retro_events() {
     for(const auto& event:ravenemudsk_ra::client().drain_events()) {
         if(event.kind=="hardcore_refused"){
+            apply_cheats();
             if(!ravenemudsk_ui::remember_hardcore(false))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le Hardcore reste sélectionné dans les réglages.");
             continue;
         }
         if(event.kind=="hardcore_reset"){
+            apply_cheats();
             input->release_all();paused=paused_unfocused=false;next=Clock::now();
             overlay->clear_retro();overlay->close_menu();
         }
@@ -746,12 +777,14 @@ void GameSession::apply(Action action) {
         case Action::SaveState:save_slot();overlay->close_menu();break;
         case Action::LoadState:load_slot();overlay->close_menu();break;
         case Action::UndoLoad:undo_load();overlay->close_menu();break;
+        case Action::CheatsChanged:cheats_changed();break;
         case Action::PreviousSlot:select_slot(-1);break;
         case Action::NextSlot:select_slot(1);break;
         case Action::ToggleHardcore:
             input->release_all();retro.set_hardcore(!retro.snapshot().hardcore_preferred);
             if(!ravenemudsk_ui::remember_hardcore(retro.snapshot().hardcore_preferred))
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
+            apply_cheats();
             overlay->close_menu();paused=paused_unfocused=false;break;
         case Action::Reset:
             input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;

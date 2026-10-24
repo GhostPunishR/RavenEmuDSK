@@ -79,7 +79,7 @@ add_library(ravenemudsk_game_input STATIC src/input/game_input.cpp src/input/key
   src/input/motion.cpp src/settings/game_preferences.cpp)
 target_include_directories(ravenemudsk_game_input PUBLIC include)
 target_link_libraries(ravenemudsk_game_input PUBLIC ${RAVENEMUDSK_SDL} ravenemu_c_api ravenemudsk_ui_library)
-add_library(ravenemudsk_game_state STATIC src/saves/game_state.cpp src/saves/rewind.cpp)
+add_library(ravenemudsk_game_state STATIC src/saves/game_state.cpp src/saves/rewind.cpp src/saves/cheats.cpp)
 target_include_directories(ravenemudsk_game_state PUBLIC include)
 target_link_libraries(ravenemudsk_game_state PRIVATE ravenemu_common ravenemu_c_api)
 # The wireless link cable: the game's link port over the local network, with
@@ -144,7 +144,7 @@ endif()
 # sound kept in step with the picture.
 add_library(ravenemudsk_game_ui STATIC src/player/game_overlay.cpp src/player/picture.cpp src/audio/game_sound.cpp
   src/audio/av_sync.cpp)
-target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit)
+target_link_libraries(ravenemudsk_game_ui PUBLIC ravenemudsk_ui_kit ravenemudsk_game_state)
 
 # The launcher, one file per screen (src/launcher); the program sees app_shell.hpp.
 add_library(ravenemudsk_launcher STATIC
@@ -236,6 +236,9 @@ if(BUILD_TESTING)
   add_executable(ravenemudsk_rewind_test tests/rewind_test.cpp)
   target_link_libraries(ravenemudsk_rewind_test PRIVATE ravenemudsk_game_state)
   add_test(NAME rewind COMMAND ravenemudsk_rewind_test)
+  add_executable(ravenemudsk_cheats_test tests/cheats_test.cpp)
+  target_link_libraries(ravenemudsk_cheats_test PRIVATE ravenemudsk_game_state)
+  add_test(NAME cheats COMMAND ravenemudsk_cheats_test)
   add_executable(ravenemudsk_profile_store_test tests/profile_store_test.cpp)
   target_link_libraries(ravenemudsk_profile_store_test PRIVATE ravenemudsk_session_store)
   add_test(NAME retro_profile_store COMMAND ravenemudsk_profile_store_test)

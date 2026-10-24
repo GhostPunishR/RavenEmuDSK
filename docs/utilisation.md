@@ -111,6 +111,17 @@ Chaque jeu a neuf emplacements d'états. **F5** sauvegarde dans l'emplacement ch
 
 L'emplacement 1 reprend l'état unique des versions précédentes. Après un chargement, **Annuler le chargement**, dans le menu de pause, ramène la partie où elle en était juste avant ; une seule fois.
 
+## Codes de triche
+
+**Codes de triche**, dans le menu de pause, liste les codes du jeu. Chacun s'active, se désactive ou se supprime ; tout changement s'applique dès l'image suivante et reste mémorisé pour la prochaine partie, dans un fichier `.cheats` à côté des sauvegardes du jeu.
+
+Pour ajouter un code, donnez-lui un nom (facultatif), collez ou tapez le code sur une ou plusieurs lignes, puis **Ajouter** :
+
+- Game Boy et Game Boy Color : Game Genie (`ABC-DEF-GHI`) ou GameShark (`01xxxxxx`).
+- Game Boy Advance : Codebreaker non chiffré, GameShark ou Action Replay chiffrés, tels que l'appareil les affiche.
+
+RavenCore vérifie le code avant de l'accepter ; un code refusé affiche la raison, par exemple un patch de ROM, non pris en charge. Les codes sont désactivés en Hardcore et reprennent en Softcore. En mode TV, faute de clavier, le menu n'a pas cette entrée.
+
 ## Captures d'écran
 
 **F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `Captures`, à côté de `Sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.

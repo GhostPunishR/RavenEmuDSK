@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/player/game_overlay.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
+#include <ravenemu/bridge.h>
 #include <ravenemudsk/achievements/retro_widgets.hpp>
 #include <imgui.h>
 #include <backends/imgui_impl_sdl2.h>
@@ -317,6 +318,7 @@ void GameOverlay::close_menu() {
     notifications_.set_paused(static_cast<std::int64_t>(SDL_GetTicks64()), false);
     menu_open_ = false;
     retro_open_=false;
+    cheats_open_=false;
 }
 void GameOverlay::retro_event(const ravenemudsk_ra::Event& event) { notifications_.event(event); }
 void GameOverlay::update_retro_progress(const std::vector<ravenemudsk_ra::Achievement>& entries) {
@@ -699,6 +701,11 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
         action = OverlayAction::UndoLoad;
     focus_here(focus_retro_entry_);
     if (menu_item(fonts_, m, "Succès et classements", Icon::Trophy, nullptr)) open_achievements();
+    // Typed on the keyboard: the desktop menu only, as the TV one keeps its 720p size.
+    if (!tv_ && info.cheats && menu_item(fonts_, m, "Codes de triche", Icon::Keyboard, nullptr)) {
+        cheats_open_ = true;
+        cheat_error_.clear();
+    }
     if (menu_item(fonts_, m, info.hardcore_preferred ? "Passer en Softcore" : "Activer Hardcore (réinitialise)", Icon::Lock, nullptr))
         action = OverlayAction::ToggleHardcore;
     // The TV menu must fit a 720p screen: there, the key alone takes them.
@@ -865,6 +872,77 @@ void GameOverlay::draw_achievements_window(const OverlayInfo& info, ImVec2 scree
     }
     ImGui::End();
 }
+// "Codes de triche": the game's list, each code on or off or deleted, and a
+// new one checked by RavenCore before it joins the list. Off in Hardcore.
+OverlayAction GameOverlay::draw_cheats_window(const OverlayInfo& info, ImVec2 screen) {
+    OverlayAction action = OverlayAction::None;
+    auto& cheats = *info.cheats;
+    ImGui::SetNextWindowPos({screen.x * .5f, screen.y * .5f}, ImGuiCond_Always, {.5f, .5f});
+    ImGui::SetNextWindowSize({std::min(640.f, screen.x - 32.f), std::min(560.f, screen.y - 48.f)});
+    ImGui::Begin("Codes de triche", &cheats_open_, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoMove);
+    if (button("Retour au menu", Icon::Close, ButtonStyle::Ghost)) cheats_open_ = false;
+    if (info.hardcore_preferred)
+        ImGui::TextWrapped("Les codes de triche sont désactivés en Hardcore. Ils reprendront en Softcore.");
+    ImGui::Dummy({0.f, space::xs});
+    if (cheats.empty()) ImGui::TextDisabled("Aucun code pour ce jeu.");
+    const float width = ImGui::GetContentRegionAvail().x;
+    for (std::size_t i = 0; i < cheats.size(); ++i) {
+        ImGui::PushID(static_cast<int>(i));
+        bool on = cheats[i].enabled;
+        if (toggle("##on", &on)) {
+            cheats[i].enabled = on;
+            action = OverlayAction::CheatsChanged;
+        }
+        ImGui::SameLine(0.f, space::md);
+        ImGui::BeginGroup();
+        ImGui::TextUnformatted(ellipsize(fonts_.body, cheats[i].name, width - 140.f).c_str());
+        ImGui::PushFont(fonts_.caption);
+        ImGui::TextDisabled("%s", ellipsize(fonts_.caption, cheats[i].code, width - 140.f).c_str());
+        ImGui::PopFont();
+        ImGui::EndGroup();
+        ImGui::SameLine(width - 36.f);
+        const bool erase = icon_button("##delete", Icon::Trash, "Supprimer ce code");
+        ImGui::PopID();
+        if (erase) {
+            cheats.erase(cheats.begin() + static_cast<std::ptrdiff_t>(i));
+            action = OverlayAction::CheatsChanged;
+            break;
+        }
+    }
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::Separator();
+    ImGui::TextUnformatted("Ajouter un code");
+    ImGui::SetNextItemWidth(width);
+    ImGui::InputTextWithHint("##name", "Nom (facultatif)", cheat_name_, sizeof cheat_name_);
+    ImGui::InputTextMultiline("##code", cheat_code_, sizeof cheat_code_, {width, 76.f});
+    ImGui::PushFont(fonts_.caption);
+    ImGui::TextDisabled("%s", info.cheat_system == RAVENEMU_GBA ?
+        "Codebreaker, GameShark ou Action Replay, tel que l'appareil l'affiche : une ou plusieurs lignes." :
+        "Game Genie (ABC-DEF-GHI) ou GameShark (01xxxxxx) : un ou plusieurs codes.");
+    ImGui::PopFont();
+    if (button("Ajouter", Icon::Plus, ButtonStyle::Primary)) {
+        const auto code = one_line(cheat_code_);
+        if (code.empty()) {
+            cheat_error_ = "Saisissez un code.";
+        } else if (!ravenemu_check_cheat(info.cheat_system, code.c_str())) {
+            cheat_error_ = ravenemu_last_error();
+        } else {
+            const auto name = one_line(cheat_name_);
+            cheats.push_back({name.empty() ? "Code " + std::to_string(cheats.size() + 1) : name, code, true});
+            cheat_name_[0] = cheat_code_[0] = '\0';
+            cheat_error_.clear();
+            action = OverlayAction::CheatsChanged;
+        }
+    }
+    if (!cheat_error_.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(color::danger));
+        ImGui::TextWrapped("%s", cheat_error_.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::End();
+    return action;
+}
 OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     badges_.begin_frame();
     ImGui_ImplSDLRenderer2_NewFrame();
@@ -885,8 +963,12 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
         focus_retro_entry_ = true;
         back = false;
     }
+    if (back && cheats_open_) {
+        cheats_open_ = false;
+        back = false;
+    }
     if (back) action = OverlayAction::Resume;
-    if (menu_open_ && !retro_open_) {
+    if (menu_open_ && !retro_open_ && !cheats_open_) {
         // An entry chosen this frame wins over B going back.
         const OverlayAction chosen = draw_pause_menu(info, screen, bg);
         if (chosen != OverlayAction::None) action = chosen;
@@ -902,6 +984,10 @@ OverlayAction GameOverlay::draw(const OverlayInfo& info) {
     chooser_shown_ = choosing;
     if (retro_open_ && menu_open_ && tv_) draw_achievements_tv(info, screen);
     if (retro_open_ && menu_open_ && !tv_) draw_achievements_window(info, screen);
+    if (cheats_open_ && menu_open_ && !tv_ && info.cheats) {
+        const OverlayAction changed = draw_cheats_window(info, screen);
+        if (changed != OverlayAction::None) action = changed;
+    }
     if(!info.retro_status.empty() && info.hardcore_preferred && info.hardcore_waiting){
         bg->AddText(fonts_.caption,fonts_.caption->FontSize,{16.f,48.f},color::text_muted,
             ellipsize(fonts_.caption,info.retro_status,screen.x-32.f).c_str());
