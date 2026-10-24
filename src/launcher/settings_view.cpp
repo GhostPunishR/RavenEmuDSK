@@ -295,7 +295,8 @@ void settings_about(State& s) {
     ImGui::TextWrapped("RavenEmu - émulateur Game Boy, Game Boy Color et Game Boy Advance");
     muted("Préversion " RAVENEMUDSK_VERSION ". Licence AGPL-3.0-only. Cœurs d'émulation RavenCore (AGPL-3.0-only), "
           "succès RetroAchievements via rcheevos (MIT), interface Dear ImGui (MIT) "
-          "et SDL2 (zlib). Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
+          "et SDL2 (zlib). Les couleurs des jeux Game Boy sur GBC viennent des tables de "
+          "The Cutting Room Floor (tcrf.net, CC BY 3.0), converties au RGB555 de la console. Aucun compte en ligne n'est nécessaire pour l'émulation. Pas de télémétrie. "
           "Les fonctions RetroAchievements transmettent au service les données du compte, du jeu et des succès. "
           "La recherche de mises à jour contacte GitHub.");
     ImGui::Dummy({0.f, space::xs});
