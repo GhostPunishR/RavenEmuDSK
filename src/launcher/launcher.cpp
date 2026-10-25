@@ -45,6 +45,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     const auto recent = recent_order(lib);
     state.chosen = !recent.empty() ? recent.front() : lib.games().empty() ? -1 : 0;
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+    choose_render_driver(state.settings);
+    const int display = chosen_display(state.settings);
     // Back from a game played in TV mode, TV mode reopens at once, and the
     // game's full-screen window and renderer carry on here.
     const bool tv_start = tv_this_run();
@@ -52,15 +54,19 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     SDL_Window* window = shared.window;
     if (window) {
         SDL_SetWindowTitle(window, "RavenEmu");
-        if (tv_start && !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN))
+        if (tv_start && !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)) {
+            move_to_display(window, display);
             SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+        }
         if (!tv_start) {
             SDL_SetWindowFullscreen(window, 0);
             SDL_SetWindowSize(window, 1480, 900);
             SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
         }
     } else {
-        window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        // TV mode opens on the screen chosen for it; the desktop launcher on the main one.
+        const int at = tv_start ? display : 0;
+        window = SDL_CreateWindow("RavenEmu", SDL_WINDOWPOS_CENTERED_DISPLAY(at), SDL_WINDOWPOS_CENTERED_DISPLAY(at),
             1480, 900, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_SHOWN |
             (tv_start ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
     }
@@ -80,7 +86,10 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     SDL_SetWindowMinimumSize(window, 1024, 680);
     (void)SDL_SetWindowHitTest(window, &hit_test, &state);
     SDL_Renderer* renderer = shared.renderer;
-    if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) {
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        limit_frame_queue(renderer);
+    }
     if (!renderer) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer) {
         const std::string reason = SDL_GetError();

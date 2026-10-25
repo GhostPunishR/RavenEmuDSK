@@ -12,6 +12,7 @@
 #include <ravenemudsk/saves/cheats.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
+#include <ravenemudsk/ui/screen.hpp>
 #include <ravenemudsk/audio/game_sound.hpp>
 #include <ravenemudsk/audio/av_sync.hpp>
 #include <ravenemudsk/player/picture.hpp>
@@ -144,10 +145,16 @@ struct GameScreen {
     bool shared = false;
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
+    // The game changed the screen's mode, or turned vsync off: undone when it
+    // ends, also on an error, before the launcher gets them back.
+    bool mode_switched = false;
+    bool vsync_off = false;
     GameScreen() = default;
     GameScreen(const GameScreen&) = delete;
     GameScreen& operator=(const GameScreen&) = delete;
     ~GameScreen() {
+        if (mode_switched && window) SDL_SetWindowFullscreen(window, shared ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+        if (vsync_off && renderer) SDL_RenderSetVSync(renderer, 1);
         if (shared) {
             ravenemudsk_ui::keep_screen({window, renderer});
             return;
@@ -171,11 +178,13 @@ public:
 private:
     using Action=ravenemudsk_ui::OverlayAction;
     void open_screen();
+    void fit_refresh();
+    void toggle_fullscreen();
     void toast(ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message="");
     bool pause_allowed();
     void handle(const SDL_Event& e);
     void handle_key(ravenemudsk_ui::KeyAction action);
-    void emulate(Clock::time_point now,bool waiting);
+    bool emulate(Clock::time_point now,bool waiting);
     void queue_sound(std::size_t samples,double speed);
     void start_motion();
     void feed_motion();
@@ -264,6 +273,13 @@ private:
     bool paused_unfocused=false;
     Clock::time_point next,last_save,next_progress,last_frame,last_present;
     Clock::duration duration{};
+    // Refreshes shown since the last emulated frame, while the screen paces
+    // the game: one frame every pacer->vsyncs() of them.
+    int refreshes=0;
+    // Réglages > Affichage, "Réduire la latence": the wait after a refresh
+    // before the next frame reads the controls, from what a frame takes
+    // (smoothed) and a margin that grows when a picture misses its refresh.
+    double frame_work=0,delay_margin=.002;
 };
 GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(request) {
     rom_path=ravenemudsk_ui::from_utf8(req.rom);
@@ -351,9 +367,13 @@ void GameSession::open_screen() {
         screen.shared = true;
     }
     if (screen.window) SDL_SetWindowTitle(screen.window,("RavenEmu - "+title).c_str());
-    else screen.window=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
-        SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,std::max(640,w*4),std::max(520,h*4),
+    else {
+        // The screen chosen in Réglages > Affichage, while it is connected.
+        const int display=prefs.display>=0&&prefs.display<SDL_GetNumVideoDisplays()?prefs.display:0;
+        screen.window=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
+        SDL_WINDOWPOS_CENTERED_DISPLAY(display),SDL_WINDOWPOS_CENTERED_DISPLAY(display),std::max(640,w*4),std::max(520,h*4),
         SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
+    }
     if(!screen.window)throw std::runtime_error(SDL_GetError());
     window=screen.window;
     // Played from the couch: no mouse cursor over the game.
@@ -366,10 +386,51 @@ void GameSession::open_screen() {
             SDL_FreeSurface(icon);
         }
     }
-    if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+    if(!screen.renderer) {
+        screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
+        ravenemudsk_ui::limit_frame_queue(screen.renderer);
+    }
     if(!screen.renderer)screen.renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     if(!screen.renderer)throw std::runtime_error(SDL_GetError());
     renderer=screen.renderer;
+    // A G-Sync or FreeSync screen follows the pictures: each one is shown
+    // when the game has it, without waiting for a fixed refresh.
+    if(prefs.variable_refresh&&SDL_RenderSetVSync(renderer,0)==0)screen.vsync_off=true;
+    else if(req.fullscreen&&prefs.refresh_switch)fit_refresh();
+}
+// Full screen on a screen whose refresh the game's frames do not fall on
+// (144 or 165 Hz): the same size at a rate they do, 120 Hz or else 60 Hz, in
+// exclusive full screen. Left as it is when none fits or the switch fails.
+void GameSession::fit_refresh() {
+    const int display=SDL_GetWindowDisplayIndex(window);
+    SDL_DisplayMode desktop{};
+    if(display<0||SDL_GetDesktopDisplayMode(display,&desktop)!=0)return;
+    if(ravenemudsk_ui::vsyncs_per_frame(desktop.refresh_rate,fps)>0)return;
+    std::vector<SDL_DisplayMode> modes;
+    std::vector<int> rates;
+    for(int i=0;i<SDL_GetNumDisplayModes(display);++i) {
+        SDL_DisplayMode mode{};
+        if(SDL_GetDisplayMode(display,i,&mode)==0&&mode.w==desktop.w&&mode.h==desktop.h) {
+            modes.push_back(mode);rates.push_back(mode.refresh_rate);
+        }
+    }
+    const int rate=ravenemudsk_ui::fitting_refresh(rates,desktop.refresh_rate,fps);
+    const auto mode=std::find_if(modes.begin(),modes.end(),[rate](const SDL_DisplayMode& m){return m.refresh_rate==rate;});
+    if(rate<=0||mode==modes.end())return;
+    if(SDL_SetWindowDisplayMode(window,&*mode)==0&&SDL_SetWindowFullscreen(window,SDL_WINDOW_FULLSCREEN)==0)
+        screen.mode_switched=true;
+    else SDL_SetWindowFullscreen(window,SDL_WINDOW_FULLSCREEN_DESKTOP);
+}
+// F11: full screen on the chosen screen, at a refresh the game falls on, or
+// back to a window (and the screen's own mode).
+void GameSession::toggle_fullscreen() {
+    if(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN) {
+        SDL_SetWindowFullscreen(window,0);
+        screen.mode_switched=false;
+        return;
+    }
+    SDL_SetWindowFullscreen(window,SDL_WINDOW_FULLSCREEN_DESKTOP);
+    if(prefs.refresh_switch&&!screen.vsync_off)fit_refresh();
 }
 void GameSession::toast(ravenemudsk_ui::Toast::Kind kind,std::string heading,std::string message) {
     overlay->notify({kind,std::move(heading),std::move(message),-1.0,5.0});
@@ -389,7 +450,9 @@ void GameSession::run() {
     std::unique_lock core_lock(core_mutex);
     bool was_still=true;
     Clock::duration slept{};
+    const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
     while(running) {
+        const auto started=Clock::now();
         SDL_Event e{};
         while(SDL_PollEvent(&e))handle(e);
         input->update(SDL_GetTicks());
@@ -399,7 +462,18 @@ void GameSession::run() {
         if(!info.rewinding)info.rewind_end=false;
         const auto now=Clock::now();
         const bool waiting=ravenemudsk_ra::client().frames_on_hold();
-        emulate(now,waiting);
+        const bool produced=emulate(now,waiting);
+        const bool idle=waiting||paused||overlay->menu_open()||link_holds();
+        if(screen.vsync_off&&!produced&&!idle) {
+            // Variable refresh: a picture only with a new frame, shown the
+            // moment it is due, so that the screen refreshes on the game's beat.
+            core_lock.unlock();
+            const auto due=next;
+            while(Clock::now()+std::chrono::milliseconds(2)<due)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            while(Clock::now()<due)std::this_thread::yield();
+            core_lock.lock();
+            continue;
+        }
         take_retro_events();
         auto& retro=ravenemudsk_ra::client();
         if(now>=next_progress) {
@@ -411,24 +485,39 @@ void GameSession::run() {
         }
         draw(waiting);
         core_lock.unlock();
+        if(produced)frame_work+=(seconds(Clock::now()-started)-frame_work)/16;
         SDL_RenderPresent(renderer);
         // The screen's refresh, measured between two pictures of a running
         // game at its own speed, apart from the loop's own sleep.
         const auto shown=Clock::now();
         const bool still=waiting||paused||overlay->menu_open()||link_holds();
-        const auto seconds=[](Clock::duration d){return std::chrono::duration<double>(d).count();};
-        if(!still&&!was_still&&!info.fast_forward&&!info.rewinding)
+        // Without vsync (variable refresh), the game keeps its own clock.
+        if(!still&&!was_still&&!info.fast_forward&&!info.rewinding&&!screen.vsync_off)
             pacer->presented(seconds(shown-last_present),seconds(shown-last_present-slept));
+        if(!still)++refreshes;
         // Back in the game, the controller's position counts as level again;
         // stopped, its motor stops.
         if(!still&&was_still)motion.recenter();
         if(still&&!was_still)stop_rumble();
+        const double interval=pacer->locked()?1./pacer->refresh():0.;
+        // A frame that came a refresh late: wait less before the next ones.
+        if(produced&&interval>0&&seconds(shown-last_present)>1.5*interval)
+            delay_margin=std::min(delay_margin+.001,.008);
+        else if(produced)delay_margin=std::max(.002,delay_margin-.0001);
         last_present=shown;was_still=still;slept={};
         if(still)SDL_Delay(16);
         else if(!pacer->locked()&&Clock::now()<next) {
             const auto before=Clock::now();
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             slept=Clock::now()-before;
+        } else if(prefs.frame_delay&&interval>0&&refreshes>=pacer->vsyncs()) {
+            // "Réduire la latence": the next frame reads the controls as late
+            // as the refresh allows, its work and a margin before the next one.
+            const double wait=std::clamp(interval-1.25*frame_work-delay_margin,0.,.75*interval);
+            const auto until=shown+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(wait));
+            while(Clock::now()+std::chrono::milliseconds(2)<until)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // Not counted as sleep: the next picture still waits for its refresh.
+            while(Clock::now()<until)std::this_thread::yield();
         }
         core_lock.lock();
     }
@@ -487,26 +576,25 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
         case Key::PreviousSlot:select_slot(-1);break;
         case Key::NextSlot:select_slot(1);break;
         case Key::Screenshot:take_screenshot();break;
-        case Key::Fullscreen:
-            SDL_SetWindowFullscreen(window,(SDL_GetWindowFlags(window)&SDL_WINDOW_FULLSCREEN_DESKTOP)?0:SDL_WINDOW_FULLSCREEN_DESKTOP);
-            break;
+        case Key::Fullscreen:toggle_fullscreen();break;
         default:break;
     }
 }
-// One emulated frame when it is due: at each refresh while the screen paces
-// the game (half a frame apart at least, should the picture stop waiting for
-// the screen), else on the game's own clock; several while fast forward is
-// held, except over the link cable. Their sound goes out with the chime and the
-// volume, as fast; between frames the SDK still runs.
-void GameSession::emulate(Clock::time_point now,bool waiting) {
-    const bool due=pacer->locked()?now>=last_frame+duration/2:now>=next;
+// One emulated frame when it is due: every pacer->vsyncs() refreshes while the
+// screen paces the game (each one at 60 Hz, every other one at 120 Hz), else on
+// the game's own clock; several while fast forward is held, except over the
+// link cable. Their sound goes out with the chime and the volume, as fast;
+// between frames the SDK still runs. True when a new picture is ready.
+bool GameSession::emulate(Clock::time_point now,bool waiting) {
+    const bool due=pacer->locked()?refreshes>=pacer->vsyncs():now>=next;
     if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due && info.rewinding) {
         // Backwards, without sound; the SDK waits meanwhile.
         info.rewind_end=!step_back();
         ravenemudsk_ra::client().pump(false);
-        last_frame=now;
+        last_frame=now;refreshes=0;
         next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
+        return true;
     } else if(!waiting&&!paused&&!overlay->menu_open()&&!link_holds() && due) {
         const int frames=info.fast_forward?ravenemudsk_ui::fast_forward_speed:1;
         for(int frame=0;frame<frames;++frame) {
@@ -523,10 +611,13 @@ void GameSession::emulate(Clock::time_point now,bool waiting) {
         }
         picture.apply(pixels.data(),shown.data(),pixels.size());
         SDL_UpdateTexture(texture.get(),nullptr,shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
-        last_frame=now;
+        last_frame=now;refreshes=0;
         next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
-    } else ravenemudsk_ra::client().pump(false);
+        return true;
+    }
+    ravenemudsk_ra::client().pump(false);
+    return false;
 }
 // The frame's sound, resampled a little faster or slower so that the device's
 // queue stays near its target. A queue run dry (start, pause, slowdown) first

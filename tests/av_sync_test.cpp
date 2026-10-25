@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 using namespace ravenemudsk_ui;
 static void require(bool ok, const char* what) { if (!ok) throw std::runtime_error(what); }
@@ -135,11 +136,30 @@ static void pacer_locks_on_a_close_screen() {
     require(!pacer.locked() && pacer.audio_ratio() == 1., "55 Hz: the game keeps its own clock");
 }
 
-static void pacer_leaves_far_screens_alone() {
-    for (const double hz : {144., 120., 75., 50.}) {
+static void pacer_locks_on_multiples() {
+    for (const auto [hz, count] : {std::pair{120., 2}, std::pair{240., 4}, std::pair{119.88, 2}}) {
         FramePacer pacer(game_fps);
         for (int i = 0; i < 300; ++i) pacer.presented(1. / hz, 1. / hz);
-        require(!pacer.locked(), "Far refresh rates keep the game's clock");
+        require(pacer.locked() && pacer.vsyncs() == count, "A multiple of the game's rate paces it");
+        require(std::abs(pacer.audio_ratio() - game_fps * count / hz) < 1e-9, "Sound at the screen's pace");
+    }
+    require(vsyncs_per_frame(60., game_fps) == 1 && vsyncs_per_frame(120., game_fps) == 2 &&
+            vsyncs_per_frame(240., game_fps) == 4 && vsyncs_per_frame(59., game_fps) == 1, "Whole refreshes per frame");
+    for (const double hz : {144., 165., 90., 75., 50., 0.})
+        require(vsyncs_per_frame(hz, game_fps) == 0, "No whole number within 5 %");
+    // Full screen: the screen's rate if it fits, else the highest that does.
+    require(fitting_refresh({60, 144}, 60, game_fps) == 60, "60 Hz kept");
+    require(fitting_refresh({60, 100, 120, 144, 165}, 144, game_fps) == 120, "144 Hz screen: 120 Hz");
+    require(fitting_refresh({60, 165}, 165, game_fps) == 60, "165 Hz screen without 120: 60 Hz");
+    require(fitting_refresh({75, 144}, 144, game_fps) == 0, "Nothing fits: left alone");
+    require(fitting_refresh({}, 240, game_fps) == 240, "240 Hz kept");
+}
+
+static void pacer_leaves_far_screens_alone() {
+    for (const double hz : {144., 165., 90., 75., 50.}) {
+        FramePacer pacer(game_fps);
+        for (int i = 0; i < 300; ++i) pacer.presented(1. / hz, 1. / hz);
+        require(!pacer.locked() && pacer.vsyncs() == 1, "Far refresh rates keep the game's clock");
     }
     // Pictures that do not wait for the screen (vsync off, window hidden): the
     // loop's own sleeps or the emulation fill the interval, whatever its length.
@@ -204,6 +224,7 @@ int main() {
     resampler_starts_again_after_reset();
     correction_follows_the_queue();
     pacer_locks_on_a_close_screen();
+    pacer_locks_on_multiples();
     pacer_leaves_far_screens_alone();
     queue_settles(60., 60., .98, 1.02);
     // A screen at 59.94 Hz measured as 60, or at 60.2: the correction absorbs it.

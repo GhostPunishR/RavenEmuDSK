@@ -4,6 +4,7 @@
 #pragma once
 #include <ravenemudsk/launcher/app_shell.hpp>
 #include <ravenemudsk/ui/image_loader.hpp>
+#include <ravenemudsk/ui/screen.hpp>
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/settings/settings.hpp>
 #include <ravenemudsk/library/storage.hpp>

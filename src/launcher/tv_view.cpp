@@ -36,7 +36,11 @@ bool& tv_this_run() { static bool on = false; return on; }
 void set_tv(State& s, bool on, bool remember) {
     s.tv = on;
     s.tv_menu = -1;
-    if (s.window) SDL_SetWindowFullscreen(s.window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    if (s.window) {
+        // On the screen chosen in Réglages > Affichage (a TV plugged in as a second screen).
+        if (on) move_to_display(s.window, chosen_display(s.settings));
+        SDL_SetWindowFullscreen(s.window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+    }
     // TV mode is driven by the controller or the keyboard: no mouse, no cursor.
     if (ImGui::GetCurrentContext()) {
         auto& io = ImGui::GetIO();

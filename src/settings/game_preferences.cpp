@@ -13,6 +13,10 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.lcd_colors = settings.flag("lcd_colors", false);
     prefs.frame_blending = std::clamp(settings.number("frame_blending", 0), 0, 2);
     prefs.pause_unfocused = settings.flag("pause_unfocused", true);
+    prefs.display = settings.number("display", 0);
+    prefs.refresh_switch = settings.flag("refresh_switch", true);
+    prefs.variable_refresh = settings.flag("variable_refresh", false);
+    prefs.frame_delay = settings.flag("frame_delay", false);
     prefs.wireless_link = settings.flag("wireless_link", true);
     prefs.gb_in_color = settings.flag("gb_in_color", false);
     prefs.gb_colors = std::clamp(settings.number("gb_colors", 0), 0, 13);

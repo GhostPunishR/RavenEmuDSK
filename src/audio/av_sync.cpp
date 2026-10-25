@@ -48,9 +48,25 @@ double rate_correction(double queued, double target, double max_delta) {
     return 1. + max_delta * direction;
 }
 
+int vsyncs_per_frame(double refresh_hz, double game_fps) {
+    if (!(refresh_hz > 0.) || !(game_fps > 0.)) return 0;
+    const double count = std::max(1., std::round(refresh_hz / game_fps));
+    return std::abs(game_fps * count / refresh_hz - 1.) <= .05 ? static_cast<int>(count) : 0;
+}
+
+int fitting_refresh(const std::vector<int>& rates, int current, double game_fps) {
+    if (vsyncs_per_frame(current, game_fps) > 0) return current;
+    int best = 0;
+    for (const int rate : rates)
+        if (rate > best && vsyncs_per_frame(rate, game_fps) > 0) best = rate;
+    return best;
+}
+
 void FramePacer::presented(double seconds, double busy) {
     if (!(game_fps_ > 0.) || !(seconds > 0.) || seconds > 1.5 / game_fps_) return;
-    if (!(busy >= .5 / game_fps_)) {
+    // Waiting for the screen fills at least half the interval, and 2.5 ms: a
+    // 360 Hz screen refreshes every 2.8 ms.
+    if (!(busy >= std::max(.0025, .5 * seconds))) {
         if (++unpaced_ >= 3) {
             locked_ = false;
             samples_ = 0;
@@ -62,9 +78,12 @@ void FramePacer::presented(double seconds, double busy) {
     // A running mean over about half a second.
     interval_ = interval_ > 0 ? interval_ + (seconds - interval_) / 32. : seconds;
     if (samples_ < 60) ++samples_;
-    const double skew = std::abs(game_fps_ * interval_ - 1.);
+    // The nearest whole number of refreshes per frame, then how far it is.
+    const int count = static_cast<int>(std::max(1., std::round(1. / (game_fps_ * interval_))));
+    const double skew = std::abs(game_fps_ * interval_ * count - 1.);
     if (samples_ < 60) locked_ = false;
     else if (skew <= .05) locked_ = true;
     else if (skew > .06) locked_ = false;
+    if (locked_) vsyncs_ = count;
 }
 } // namespace ravenemudsk_ui

@@ -54,9 +54,21 @@ Les captures d'écran et les vignettes des états montrent l'image avec ces rég
 
 L'image et le son restent synchronisés :
 
-- quand l'écran rafraîchit à une fréquence proche de celle de la console (60 Hz pour ses 59,73 images par seconde, à 5 % près), RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement, sans image affichée deux fois. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
+- quand l'écran rafraîchit à un multiple de la fréquence de la console (59,73 images par seconde), à 5 % près, RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement à 60 Hz, une tous les deux à 120 Hz, une tous les quatre à 240 Hz, sans image affichée plus longtemps qu'une autre. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
 - le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
-- sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+- sur un écran qui ne s'y prête pas (75, 90, 144 ou 165 Hz) en fenêtre, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+
+### Écran et latence
+
+Dans **Réglages > Affichage**, la carte **Écran et latence** règle le matériel :
+
+- **Écran du jeu et du mode TV** : l'écran où s'ouvrent les jeux et le mode TV, par exemple une télévision branchée en second écran. Le bureau de RavenEmu reste sur l'écran principal.
+- **Fréquence adaptée en plein écran**, activée par défaut : sur un écran à 144 ou 165 Hz, le plein écran passe à 120 Hz, ou à défaut 60 Hz, en plein écran exclusif, pour que le jeu s'y cale. L'écran revient à sa fréquence en quittant le jeu ou le plein écran (F11). À 60, 120 ou 240 Hz, rien ne change.
+- **Écran à fréquence variable (G-Sync, FreeSync)**, désactivé par défaut : sans synchronisation verticale, chaque image est montrée dès qu'elle est prête, à la cadence exacte de la console, et l'écran la suit. N'activez ce réglage qu'avec un écran G-Sync ou FreeSync et la fréquence variable activée dans le pilote de la carte graphique (sous Windows 11, aussi pour les jeux en fenêtre) : sans elle, l'image se déchire.
+- **Réduire la latence**, désactivé par défaut : quand le jeu suit l'écran, il attend après chaque rafraîchissement le plus tard possible pour lire la manette et calculer son image, et un appui se voit plus tôt, de plusieurs millisecondes. Le délai dépend du temps que prend une image sur l'ordinateur ; il diminue de lui-même si une image manque son rafraîchissement. Sans effet en fréquence variable.
+- **Moteur graphique** : **Automatique** prend Direct3D 11 sous Windows, où SDL 2 prendrait sinon Direct3D 9, dont l'image passe par une copie du bureau. Avec Direct3D 11, RavenEmu ne garde qu'une image d'avance dans le pilote au lieu de trois, soit jusqu'à deux rafraîchissements de moins entre un appui et l'image. Les autres choix (Direct3D 9, Direct3D 12, OpenGL, Metal, Logiciel) dépendent du système. Si l'image ne s'affiche plus, revenez à **Automatique** ; un moteur qui échoue est de toute façon remplacé par un autre. Pris en compte au prochain démarrage de RavenEmu.
+
+Les autres réglages de cette carte sont pris en compte au lancement du jeu.
 
 Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
 

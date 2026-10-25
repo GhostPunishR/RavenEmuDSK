@@ -14,6 +14,14 @@ struct GamePreferences {
     bool lcd_colors = false;    // Réglages > Affichage: the GBC and GBA LCD's colors
     int frame_blending = 0;     // Réglages > Affichage: 0 off, 1 mix, 2 ghosting
     bool pause_unfocused = true; // Réglages > Affichage: pause while the game's window is in the background
+    // Réglages > Affichage, the screen: in full screen, the refresh rate that
+    // the game's frames fall on (120 or 60 Hz on a 144 Hz screen); a screen
+    // with a variable refresh (G-Sync, FreeSync) shows each frame when it is
+    // ready, without vsync; the input read later in each refresh.
+    int display = 0;            // the screen of the game and of TV mode
+    bool refresh_switch = true;
+    bool variable_refresh = false;
+    bool frame_delay = false;
     bool wireless_link = true;  // Réglages > Câble link: link with the devices of the local network
     // Réglages > Commandes: the controller rumbles with the cartridge's motor,
     // its motion sensors tilt and turn the games that have some, and Boktai's

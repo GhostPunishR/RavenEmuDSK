@@ -128,6 +128,66 @@ void settings_display(State& s) {
           "Pris en compte au lancement du jeu.");
     ImGui::PopFont();
     end_card();
+    begin_card("##screen");
+    card_title(s, Icon::Fullscreen, "Écran et latence");
+    // A combo of the screens, then of the engines: what the setting holds, saved at once.
+    const auto names = display_names();
+    const int display = chosen_display(s.settings);
+    ImGui::TextUnformatted("Écran du jeu et du mode TV");
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    const std::string current_display = display < static_cast<int>(names.size()) ? names[display] : "Écran principal";
+    if (ImGui::BeginCombo("##display", current_display.c_str())) {
+        for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+            const std::string label = names[i] + (i == 0 ? " (principal)" : "");
+            if (ImGui::Selectable(label.c_str(), display == i)) {
+                s.settings.set("display", std::to_string(i));
+                save_settings(s);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Le mode TV et les jeux s’ouvrent sur cet écran : une télévision branchée en second écran, par exemple.");
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "refresh_switch", true, "Fréquence adaptée en plein écran",
+                   "Sur un écran à 144 ou 165 Hz, où les images du jeu (59,73 par seconde) ne tombent pas juste, "
+                   "le plein écran passe à 120 ou 60 Hz pour que chaque image reste affichée le même temps. À 60, 120 "
+                   "ou 240 Hz, rien ne change : le jeu suit déjà l’écran. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "variable_refresh", false, "Écran à fréquence variable (G-Sync, FreeSync)",
+                   "L’écran suit le jeu : chaque image est montrée dès qu’elle est prête, à la cadence exacte de la "
+                   "console, sans synchronisation verticale. À n’activer qu’avec un écran G-Sync ou FreeSync, la "
+                   "fréquence variable activée dans le pilote : sinon l’image se déchire. Pris en compte au lancement "
+                   "du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    setting_switch(s, "frame_delay", false, "Réduire la latence",
+                   "Après chaque rafraîchissement, le jeu attend le plus tard possible pour lire la manette et "
+                   "calculer son image : l’appui se voit plus tôt, de plusieurs millisecondes. Le délai s’ajuste "
+                   "seul à la puissance de l’ordinateur. Sans effet en fréquence variable. Pris en compte au "
+                   "lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Moteur graphique");
+    const auto drivers = render_drivers();
+    const auto chosen = s.settings.get("render_driver", "auto");
+    const auto picked = std::find_if(drivers.begin(), drivers.end(), [&](const RenderDriver& d) { return d.name == chosen; });
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (ImGui::BeginCombo("##driver", (picked != drivers.end() ? picked : drivers.begin())->label.c_str())) {
+        for (const auto& driver : drivers) {
+            if (ImGui::Selectable(driver.label.c_str(), driver.name == chosen)) {
+                s.settings.set("render_driver", driver.name);
+                save_settings(s);
+                notify(s, Toast::Kind::Info, "Moteur graphique", "Pris en compte au prochain démarrage de RavenEmu.");
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Automatique prend Direct3D 11 sous Windows : il montre l’image plus tôt que Direct3D 9, et RavenEmu n’y "
+          "garde qu’une image d’avance. Si l’image ne s’affiche pas, revenez à Automatique. Pris en compte au "
+          "prochain démarrage de RavenEmu.");
+    ImGui::PopFont();
+    end_card();
     begin_card("##window");
     card_title(s, Icon::Pause, "Fenêtre du jeu");
     setting_switch(s, "pause_unfocused", true, "Pause en arrière-plan",
