@@ -32,7 +32,7 @@ void game_card(State& s, const Game& game, int index, float w) {
         on_play = (mouse.x - c.x) * (mouse.x - c.x) + (mouse.y - c.y) * (mouse.y - c.y) < 22.f * 22.f;
         d->AddCircleFilled({c.x, c.y + 3}, 22.f, color::shadow, 32);
         d->AddCircleFilled(c, 22.f, on_play ? color::accent_hover : color::accent, 32);
-        draw_icon(d, Icon::Play, {c.x + 2.f, c.y}, 16.f, IM_COL32_WHITE);
+        draw_icon(d, Icon::Play, {c.x + 2.f, c.y}, 16.f, color::on_accent);
         if (on_play && ImGui::IsItemClicked()) play = true;
     }
     const auto title = display_title(game);

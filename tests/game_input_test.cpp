@@ -327,7 +327,7 @@ int main() {
             !defaults.integer_scale&&!defaults.lcd_colors&&defaults.frame_blending==0&&defaults.rewind&&
             !defaults.gb_in_color&&defaults.gb_colors==0&&!defaults.gbc_on_gba&&defaults.gba_bios==0&&
             defaults.audio_output.empty()&&defaults.audio_latency==50&&defaults.rumble_strength==100&&
-            defaults.stick_dpad&&defaults.stick_dead_zone==30,
+            defaults.stick_dpad&&defaults.stick_dead_zone==30&&defaults.theme==0,
             "Default game preferences");
     require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
             defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
@@ -352,6 +352,9 @@ int main() {
     require(game_preferences(chosen).gb_colors==13&&game_preferences(chosen).gba_bios==0,"Out-of-range choices are clamped");
     chosen.set("frame_blending","7");require(game_preferences(chosen).frame_blending==2,"An unknown blending is the last one");
     chosen.set("solar_light","-3");require(game_preferences(chosen).solar_light==0,"Sunlight below 0 % is darkness");
+    chosen.set("theme","1");require(game_preferences(chosen).theme==1,"NVIDIA theme");
+    chosen.set("theme","5");require(game_preferences(chosen).theme==1,"An unknown theme is the last one");
+    chosen.set("theme","-2");require(game_preferences(chosen).theme==0,"Below the first theme: RavenEmu's");
     require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
     chosen.set("volume","250");require(game_preferences(chosen).volume==100,"Volume above 100 % is full volume");
     chosen.set("audio_latency","30");require(game_preferences(chosen).audio_latency==25,"A latency by hand: the nearest choice");

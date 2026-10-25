@@ -58,7 +58,7 @@ bool button(const char* label, Icon icon, ButtonStyle style, ImVec2 size, bool w
     switch (style) {
     case ButtonStyle::Primary:
         bg = held ? color::accent : hovered ? color::accent_hover : color::accent;
-        fg = IM_COL32_WHITE;
+        fg = color::on_accent;
         break;
     case ButtonStyle::Secondary:
         bg = hovered ? color::surface_hover : color::surface;

@@ -118,9 +118,9 @@ void tv_menu_panel(State& s, ImDrawList* d, ImVec2 screen, bool input) {
         const bool on = i == s.tv_menu;
         if (on) d->AddRectFilled(ra, rb, color::accent, radius::md);
         const float mid = (ra.y + rb.y) * .5f;
-        draw_icon(d, entries[i].icon, {ra.x + 36.f, mid}, 24.f, on ? IM_COL32_WHITE : color::accent_hover);
+        draw_icon(d, entries[i].icon, {ra.x + 36.f, mid}, 24.f, on ? color::on_accent : color::accent_hover);
         text_at(d, s.fonts.tv_body, {ra.x + 68.f, mid - s.fonts.tv_body->FontSize * .5f - 2.f},
-                on ? IM_COL32_WHITE : color::text, entries[i].label);
+                on ? color::on_accent : color::text, entries[i].label);
     }
     const auto controller = connected_pad();
     float hx = a.x + 36.f;
@@ -208,7 +208,7 @@ void tv_view(State& s, Library& lib) {
         const float w = text_width(s.fonts.tv_body, tv_categories[i]) + tab_pad * 2.f;
         const bool on = i == s.tv_category;
         if (on) d->AddRectFilled({tx, ty}, {tx + w, ty + 44.f}, color::accent, 22.f);
-        text_at(d, s.fonts.tv_body, {tx + tab_pad, ty + 9.f}, on ? IM_COL32_WHITE : color::text_muted,
+        text_at(d, s.fonts.tv_body, {tx + tab_pad, ty + 9.f}, on ? color::on_accent : color::text_muted,
                 tv_categories[i]);
         if (browsing && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
             ImGui::IsMouseHoveringRect({tx, ty}, {tx + w, ty + 44.f})) {

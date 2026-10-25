@@ -48,6 +48,7 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 Dans **Réglages > Affichage** :
 
+- **Thème** choisit les couleurs de l'interface et du menu en jeu : **RavenEmu**, le violet de l'application Android, ou **NVIDIA**, le vert NVIDIA sur fond noir et gris. Le changement s'applique tout de suite.
 - **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console.
 - **Mise à l’échelle entière** agrandit l'image un nombre entier de fois : chaque pixel de la console a la même taille, avec des bandes noires plus larges.
 - **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).

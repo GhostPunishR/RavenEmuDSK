@@ -108,7 +108,7 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     state.fonts = load_fonts(true);
-    apply_theme();
+    set_theme(static_cast<Theme>(game_preferences(state.settings).theme));
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
     if (!error.empty()) state.toasts.push_back({Toast::Kind::Error, "Impossible de lancer le jeu", error, -1.0, 8.0});
@@ -166,6 +166,10 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
             ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
         else
             ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+        if (state.theme_change) {
+            set_theme(*state.theme_change);
+            state.theme_change.reset();
+        }
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
@@ -175,7 +179,8 @@ std::optional<LaunchRequest> run_launcher(const std::string& error) {
         key_capture_dialog(state);
         pad_capture_dialog(state);
         ImGui::Render();
-        SDL_SetRenderDrawColor(renderer, 11, 12, 18, 255);
+        const auto background = rgb(color::background);
+        SDL_SetRenderDrawColor(renderer, background.r, background.g, background.b, 255);
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer);
         const char* screenshot = SDL_getenv("RAVENEMUDSK_UI_SCREENSHOT");

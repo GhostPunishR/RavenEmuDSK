@@ -3,27 +3,42 @@
 #include <imgui.h>
 #include <string>
 namespace ravenemudsk_ui {
-// Design tokens shared by the launcher and the in-game overlay.
+// Design tokens shared by the launcher and the in-game overlay: the colors
+// of the theme set_theme() chose, RavenEmu's until then.
 namespace color {
-inline constexpr ImU32 background = IM_COL32(11, 12, 18, 255);
-inline constexpr ImU32 sidebar = IM_COL32(15, 16, 25, 255);
-inline constexpr ImU32 surface = IM_COL32(25, 27, 40, 255);
-inline constexpr ImU32 surface_hover = IM_COL32(37, 39, 57, 255);
-inline constexpr ImU32 elevated = IM_COL32(44, 45, 65, 255);
-inline constexpr ImU32 border = IM_COL32(255, 255, 255, 20);
-inline constexpr ImU32 border_strong = IM_COL32(255, 255, 255, 40);
-inline constexpr ImU32 text = IM_COL32(245, 242, 255, 255);
-inline constexpr ImU32 text_muted = IM_COL32(203, 196, 220, 255);
-inline constexpr ImU32 text_faint = IM_COL32(104, 114, 140, 255);
-inline constexpr ImU32 accent = IM_COL32(167, 139, 250, 255);
-inline constexpr ImU32 accent_hover = IM_COL32(187, 164, 255, 255);
-inline constexpr ImU32 accent_soft = IM_COL32(167, 139, 250, 46);
-inline constexpr ImU32 gold = IM_COL32(244, 193, 82, 255);
-inline constexpr ImU32 gold_soft = IM_COL32(244, 193, 82, 40);
-inline constexpr ImU32 success = IM_COL32(74, 214, 140, 255);
-inline constexpr ImU32 danger = IM_COL32(232, 72, 85, 255);
-inline constexpr ImU32 shadow = IM_COL32(0, 0, 0, 90);
+inline ImU32 background = IM_COL32(11, 12, 18, 255);
+inline ImU32 sidebar = IM_COL32(15, 16, 25, 255);
+inline ImU32 surface = IM_COL32(25, 27, 40, 255);
+inline ImU32 surface_hover = IM_COL32(37, 39, 57, 255);
+inline ImU32 elevated = IM_COL32(44, 45, 65, 255);
+inline ImU32 border = IM_COL32(255, 255, 255, 20);
+inline ImU32 border_strong = IM_COL32(255, 255, 255, 40);
+inline ImU32 text = IM_COL32(245, 242, 255, 255);
+inline ImU32 text_muted = IM_COL32(203, 196, 220, 255);
+inline ImU32 text_faint = IM_COL32(104, 114, 140, 255);
+inline ImU32 accent = IM_COL32(167, 139, 250, 255);
+inline ImU32 accent_hover = IM_COL32(187, 164, 255, 255);
+inline ImU32 accent_soft = IM_COL32(167, 139, 250, 46);
+inline ImU32 on_accent = IM_COL32(255, 255, 255, 255); // Text and icons over the accent
+inline ImU32 gold = IM_COL32(244, 193, 82, 255);
+inline ImU32 gold_soft = IM_COL32(244, 193, 82, 40);
+inline ImU32 success = IM_COL32(74, 214, 140, 255);
+inline ImU32 danger = IM_COL32(232, 72, 85, 255);
+inline ImU32 shadow = IM_COL32(0, 0, 0, 90);
 } // namespace color
+// Réglages > Affichage > Thème, saved as its number: RavenEmu's violet, as
+// in the Android app, or NVIDIA's green on black.
+enum class Theme { Raven, Nvidia };
+inline constexpr int theme_count = 2;
+const char* theme_name(Theme theme);
+// Sets the color tokens, then ImGui's style when a context exists.
+void set_theme(Theme theme);
+// A color's red, green and blue (0-255), for SDL's clear color.
+struct Rgb { unsigned char r, g, b; };
+inline Rgb rgb(ImU32 c) {
+    return {static_cast<unsigned char>(c >> IM_COL32_R_SHIFT), static_cast<unsigned char>(c >> IM_COL32_G_SHIFT),
+            static_cast<unsigned char>(c >> IM_COL32_B_SHIFT)};
+}
 
 // Spacing follows a 4 px grid.
 namespace space {
@@ -50,6 +65,7 @@ ImU32 system_color(const std::string& system);
 const char* system_short(const std::string& system);
 const char* system_name(const std::string& system);
 
+// ImGui's style from the color tokens.
 void apply_theme();
 // Loads system UI fonts (Segoe UI on Windows, DejaVu/Noto elsewhere) with
 // French glyphs; falls back to the ImGui default font if none is found.

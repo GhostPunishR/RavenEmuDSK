@@ -19,6 +19,7 @@ struct GamePreferences {
     bool lcd_colors = false;    // Réglages > Affichage: the GBC and GBA LCD's colors
     int frame_blending = 0;     // Réglages > Affichage: 0 off, 1 mix, 2 ghosting
     bool pause_unfocused = true; // Réglages > Affichage: pause while the game's window is in the background
+    int theme = 0;              // Réglages > Affichage: the interface's colors, a ui::Theme (0 RavenEmu, 1 NVIDIA)
     // Réglages > Affichage, the screen: in full screen, the refresh rate that
     // the game's frames fall on (120 or 60 Hz on a 144 Hz screen); a screen
     // with a variable refresh (G-Sync, FreeSync) shows each frame when it is

@@ -30,7 +30,7 @@ void update_banner(State& s) {
     d->AddRectFilled(p, {p.x + w, p.y + h}, color::accent_soft, radius::lg);
     d->AddRect(p, {p.x + w, p.y + h}, with_alpha(color::accent, .7f), radius::lg);
     d->AddCircleFilled({p.x + 36.f, p.y + h * .5f}, 18.f, color::accent, 32);
-    draw_icon(d, Icon::Save, {p.x + 36.f, p.y + h * .5f}, 16.f, IM_COL32_WHITE);
+    draw_icon(d, Icon::Save, {p.x + 36.f, p.y + h * .5f}, 16.f, color::on_accent);
     text_at(d, s.fonts.strong, {p.x + 68.f, p.y + 16.f}, color::text,
             "RavenEmu " + to_string(*latest) + " est disponible");
     text_at(d, s.fonts.caption, {p.x + 68.f, p.y + 40.f}, color::text_muted,

@@ -323,6 +323,7 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
     system_of(req.system); // an unknown console stops here, before anything opens
     prefs=ravenemudsk_ui::game_preferences();
+    ravenemudsk_ui::set_theme(static_cast<ravenemudsk_ui::Theme>(prefs.theme));
     core=Core(ravenemu_create(model_of(req.system,prefs)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
     folders=ravenemudsk_ui::app_folders();
@@ -1094,7 +1095,8 @@ bool GameSession::link_holds() const {
 // The picture scaled into the window, the overlay over it, then its action.
 void GameSession::draw(bool waiting) {
     auto& retro=ravenemudsk_ra::client();
-    SDL_SetRenderDrawColor(renderer,11,12,18,255);
+    const auto background=ravenemudsk_ui::rgb(ravenemudsk_ui::color::background);
+    SDL_SetRenderDrawColor(renderer,background.r,background.g,background.b,255);
     SDL_RenderClear(renderer);
     int out_w=0,out_h=0;
     SDL_GetRendererOutputSize(renderer,&out_w,&out_h);

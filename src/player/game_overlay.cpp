@@ -46,8 +46,9 @@ bool menu_item(const Fonts& fonts, const MenuStyle& m, const char* label, Icon i
     if (selected) d->AddRectFilled(p, max, danger ? color::danger : color::accent, radius::md);
     else if (hovered) d->AddRectFilled(p, max, danger ? with_alpha(color::danger, .16f) : color::surface_hover,
                                        radius::md);
-    const ImU32 fg = selected ? IM_COL32_WHITE : !enabled ? color::text_faint : danger ? color::danger : color::text;
-    draw_icon(d, icon, {p.x + m.icon_x, p.y + m.row * .5f}, m.icon, selected ? IM_COL32_WHITE : danger ? color::danger :
+    const ImU32 on_fill = danger ? IM_COL32_WHITE : color::on_accent;
+    const ImU32 fg = selected ? on_fill : !enabled ? color::text_faint : danger ? color::danger : color::text;
+    draw_icon(d, icon, {p.x + m.icon_x, p.y + m.row * .5f}, m.icon, selected ? on_fill : danger ? color::danger :
               enabled ? color::accent_hover : color::text_faint);
     d->AddText(m.font, m.font->FontSize, {p.x + m.text_x, p.y + (m.row - m.font->FontSize) * .5f - 1.f}, fg, label);
     if (!m.tv && shortcut && *shortcut) {
@@ -240,8 +241,8 @@ void retro_card(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, const Retr
     const float height=style.height;
     const float x=(screen.x-width)*.5f;
     const ImVec2 from{x,top},to{x+width,top+height};
-    d->AddRectFilled(from,to,with_alpha(IM_COL32(25,27,40,255),alpha),style.radius);
-    d->AddRect(from,to,with_alpha(IM_COL32(167,139,250,255),alpha),style.radius,0,style.tv?2.f:1.f);
+    d->AddRectFilled(from,to,with_alpha(color::surface,alpha),style.radius);
+    d->AddRect(from,to,with_alpha(color::accent,alpha),style.radius,0,style.tv?2.f:1.f);
     const ImVec2 badge_min{x+style.pad,top+(height-style.badge)*.5f},badge_max{badge_min.x+style.badge,badge_min.y+style.badge};
     SDL_Texture* image=cache.image(badge_url);
     if(image) {

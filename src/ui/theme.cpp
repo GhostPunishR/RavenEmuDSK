@@ -31,9 +31,46 @@ const char* system_name(const std::string& system) {
            system == "gbc" ? "Game Boy Color" : "Game Boy";
 }
 
+const char* theme_name(Theme theme) {
+    return theme == Theme::Nvidia ? "NVIDIA" : "RavenEmu";
+}
+void set_theme(Theme theme) {
+    using namespace color;
+    if (theme == Theme::Nvidia) {
+        // NVIDIA's green (#76B900) on black and neutral grays; dark text on
+        // the green, which white text would not stand out from.
+        background = IM_COL32(12, 12, 12, 255);
+        sidebar = IM_COL32(18, 18, 18, 255);
+        surface = IM_COL32(30, 30, 30, 255);
+        surface_hover = IM_COL32(42, 42, 42, 255);
+        elevated = IM_COL32(52, 52, 52, 255);
+        text = IM_COL32(245, 245, 245, 255);
+        text_muted = IM_COL32(204, 204, 204, 255);
+        text_faint = IM_COL32(128, 128, 128, 255);
+        accent = IM_COL32(118, 185, 0, 255);
+        accent_hover = IM_COL32(141, 207, 34, 255);
+        accent_soft = IM_COL32(118, 185, 0, 46);
+        on_accent = IM_COL32(0, 0, 0, 255);
+    } else {
+        // Exact palette from RavenEmu RavenColors.kt.
+        background = IM_COL32(11, 12, 18, 255);
+        sidebar = IM_COL32(15, 16, 25, 255);
+        surface = IM_COL32(25, 27, 40, 255);
+        surface_hover = IM_COL32(37, 39, 57, 255);
+        elevated = IM_COL32(44, 45, 65, 255);
+        text = IM_COL32(245, 242, 255, 255);
+        text_muted = IM_COL32(203, 196, 220, 255);
+        text_faint = IM_COL32(104, 114, 140, 255);
+        accent = IM_COL32(167, 139, 250, 255);
+        accent_hover = IM_COL32(187, 164, 255, 255);
+        accent_soft = IM_COL32(167, 139, 250, 46);
+        on_accent = IM_COL32(255, 255, 255, 255);
+    }
+    if (ImGui::GetCurrentContext()) apply_theme();
+}
+
 void apply_theme() {
     ImGui::StyleColorsDark();
-    // Exact palette from RavenEmu RavenColors.kt.
     ImGuiStyle& s = ImGui::GetStyle();
     s.WindowRounding = 0.f;
     s.ChildRounding = radius::lg;
