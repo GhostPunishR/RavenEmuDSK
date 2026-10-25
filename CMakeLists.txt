@@ -131,7 +131,7 @@ target_link_libraries(ravenemudsk_achievements PUBLIC ravenemudsk_rcheevos raven
 # Interface pieces shared by the launcher and the game: theme, widgets, icons, images.
 add_library(ravenemudsk_ui_kit STATIC
   src/ui/theme.cpp src/ui/widgets.cpp src/ui/icons.cpp src/input/pad_glyphs.cpp src/achievements/retro_widgets.cpp
-  src/achievements/badge_cache.cpp src/ui/image_loader.cpp src/updates/update_check.cpp)
+  src/achievements/badge_cache.cpp src/ui/image_loader.cpp src/ui/screen.cpp src/updates/update_check.cpp)
 target_include_directories(ravenemudsk_ui_kit PUBLIC include PRIVATE "${stb_SOURCE_DIR}")
 target_compile_definitions(ravenemudsk_ui_kit PRIVATE RAVENEMUDSK_HAVE_CURL)
 target_link_libraries(ravenemudsk_ui_kit PUBLIC ravenemudsk_imgui ravenemudsk_achievements ravenemudsk_game_input

@@ -181,18 +181,27 @@ ImVec4 unlock_card(SDL_Window* window,SDL_Renderer* renderer,bool tv,double seco
     for(int attempt=1;;++attempt){
         ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
         GameOverlay overlay(window,renderer,&client,tv);OverlayInfo info;info.game_title="TV cards";info.system="gba";
+        // The first frame uploads the fonts, which a busy runner can make
+        // outlast the whole measure: it is drawn before the clock starts.
+        SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);
         if(toast_only)overlay.notify({Toast::Kind::Success,"État sauvegardé","",-1.0,5.0});
         else overlay.retro_event({"achievement","Maître de la Ligue","","4242","",25});
         int sounds=0;
-        const auto start=SDL_GetTicks64();
-        do{SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);
-           sounds+=overlay.take_unlock_sound();}
-        while(SDL_GetTicks64()-start<static_cast<Uint64>(seconds*1000.));
+        // The notice's clock starts with its first frame; the last frame is
+        // drawn once `seconds` have passed since.
+        Uint64 first=0,drawn=0;
+        for(;;){
+            drawn=SDL_GetTicks64();if(!first)first=drawn;
+            SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);
+            sounds+=overlay.take_unlock_sound();
+            if(drawn-first>=static_cast<Uint64>(seconds*1000.))break;
+            SDL_Delay(10);
+        }
         require(sounds==(toast_only?0:1),"The unlock chime must start once, when its popup appears, and only for an unlock");
         // The badge drops alone for its first 0.30 s. When a stalled runner
         // made the frames outlast that, they caught the band unfolding: the
         // drop was not measured, so it is drawn again.
-        const bool missed_drop=seconds<.25&&SDL_GetTicks64()-start>=250;
+        const bool missed_drop=seconds<.25&&drawn-first>=250;
         require(!missed_drop||attempt<5,"Frames too slow to see the badge drop");
         if(missed_drop)continue;
         ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};

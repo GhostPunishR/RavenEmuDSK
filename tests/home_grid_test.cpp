@@ -159,6 +159,21 @@ int main() {
         require(library.add(rom), "Could not add the game fixture");
         library.mark_played(rom, 60);
     }
+    // "Jouer à deux": the games the cable joins, and the request it makes.
+    require(linkable("gb", "gbc") && linkable("gbc", "gb") && linkable("gb", "gb") && linkable("gba", "gba") &&
+                !linkable("gb", "gba") && !linkable("gba", "gbc") && !linkable("gba", "nes"),
+            "Game Boy and Game Boy Color link together, the Game Boy Advance with itself");
+    {
+        State pairing;
+        launch_pair(pairing, library.games()[0], library.games()[1]);
+        require(pairing.done && pairing.launch && pairing.launch->rom == utf8(library.games()[0].path) &&
+                    pairing.launch->partner_rom == utf8(library.games()[1].path) &&
+                    pairing.launch->partner_system == "gba",
+                "Jouer à deux launches both games");
+        State single;
+        launch(single, library.games()[0]);
+        require(single.launch && single.launch->partner_rom.empty(), "A single game has no partner");
+    }
     ImGui::CreateContext();
     auto& io = ImGui::GetIO();
     io.IniFilename = nullptr;

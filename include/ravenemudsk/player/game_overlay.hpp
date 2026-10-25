@@ -59,6 +59,11 @@ struct OverlayInfo {
     bool link_partner_paused = false;  // the other game's menu is open: this one waits
     std::vector<LinkChoiceItem> link_choices; // several devices wait: the player picks one
     std::string link_own_label;        // this computer, as the others list it
+    // "Jouer à deux": two games linked on this computer. The menu keeps what
+    // both share, and says who plays what ("Joueur 1 : clavier · ...").
+    bool two_players = false;
+    int heard_player = 0;              // 0 or 1: the game heard
+    std::string players_note;
 };
 // Top-center RetroAchievements cards (unlocks, progress) and the challenge
 // list: desktop sizes, or larger ones read from a couch in TV mode, inside a
@@ -90,7 +95,7 @@ inline constexpr int fast_forward_speed = 4;
 // ChooseLink: the device is chosen_link(); ChooseLinkLater: none of them.
 enum class OverlayAction { None, Resume, SaveState, LoadState, Reset, ToggleFullscreen, ToggleHardcore, Quit,
                            UnplugLink, ChooseLink, ChooseLinkLater, Screenshot, PreviousSlot, NextSlot,
-                           UndoLoad, CheatsChanged };
+                           UndoLoad, CheatsChanged, SwapPlayers, SwitchSound };
 
 // Dear ImGui layer drawn over the game: pause menu, toasts and hints.
 // Owns the ImGui context for the lifetime of a game session.

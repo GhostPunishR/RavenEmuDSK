@@ -11,7 +11,14 @@ struct LaunchRequest {
     std::string system;
     std::string rom;  // UTF-8 path; native path conversion in the player.
     bool fullscreen = false;  // chosen from TV mode: play in full screen
+    // "Jouer à deux": a second game beside the first, joined by the link
+    // cable on this computer; empty for a single game.
+    std::string partner_system;
+    std::string partner_rom;
 };
+// Two games that the link cable joins: Game Boy or Game Boy Color together,
+// or two Game Boy Advance.
+bool linkable(const std::string& system, const std::string& other);
 // TV mode: the launcher and the game draw in one full-screen window with one
 // renderer. The side that leaves clears it to black and keeps it; the next
 // side takes it over. No window opens or closes in between, so the desktop

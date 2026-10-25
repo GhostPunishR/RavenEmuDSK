@@ -15,6 +15,9 @@ const std::array<KeyCommand,static_cast<int>(KeyAction::Count)>& key_commands(){
         {"key_select","Select","Back",SDLK_BACKSPACE,RAVENEMU_SELECT},
         {"key_l","Gâchette L (GBA)","LB",SDLK_a,RAVENEMU_L},
         {"key_r","Gâchette R (GBA)","RB",SDLK_s,RAVENEMU_R},
+        // Unbound at first: a default key could take one the player chose.
+        {"key_turbo_a","Turbo A (appuis répétés)","Non attribué",SDLK_UNKNOWN,-1},
+        {"key_turbo_b","Turbo B (appuis répétés)","Non attribué",SDLK_UNKNOWN,-1},
         {"key_menu","Menu de pause","Select + Start",SDLK_ESCAPE,-1},
         {"key_pause","Pause rapide","Menu de pause",SDLK_p,-1},
         {"key_save","Sauvegarder l’état","Menu de pause",SDLK_F5,-1},

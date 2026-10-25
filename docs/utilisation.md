@@ -34,8 +34,11 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Avance rapide (maintenir) | Espace |
 | Retour arrière (maintenir) | R |
 | Capture d'écran | F8 |
+| Turbo A / Turbo B (maintenir) | Non attribuées |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
+
+**Turbo A** et **Turbo B**, maintenus, appuient sur A ou B dix fois par seconde : trois images appuyé, trois relâché. Ils ne sont attribués ni au clavier ni à la manette au départ, pour ne prendre aucune touche déjà choisie : attribuez-les dans **Réglages > Commandes**, par exemple aux boutons X et Y de la manette, qui ne servent pas. Une gâchette attribuée au turbo ne fait plus l'avance rapide ni le retour arrière.
 
 Les boutons de la manette se configurent de la même façon, dans la colonne **Manette** : cliquez sur un bouton, puis appuyez sur celui souhaité, gâchettes LT / RT (L2 / R2, ZL / ZR) comprises. Les noms suivent la manette branchée. Un bouton déjà utilisé est échangé et **Non attribué** libère un bouton de la console. Select et Start restent toujours attribués, puisqu'ils ouvrent le menu ensemble. Le bouton Xbox, PS ou Home reste au système et ne peut pas être choisi. Échap annule. **Rétablir les commandes par défaut** restaure le clavier et la manette.
 
@@ -50,13 +53,30 @@ Dans **Réglages > Affichage** :
 - **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
 - **Mélange d’images** atténue le scintillement des jeux qui affichent un objet une image sur deux : **Mélange** montre la moyenne des deux dernières images, **Rémanence** laisse l'image précédente s'effacer lentement, comme sur un écran LCD.
 
-Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris, et :
+
+- **Sortie audio** : le casque, les haut-parleurs ou la télévision. Par défaut, le son suit la sortie choisie dans le système. Si la sortie choisie est débranchée au lancement du jeu, un message le dit et le son passe par celle du système.
+- **Latence du son** : le son que RavenEmu prépare d'avance, 25, 50 (par défaut) ou 100 ms. 25 ms rapproche le son de l'image ; si le son grésille sur un ordinateur occupé, revenez à 50 ms. 100 ms convient à un son qui craque ou à un casque Bluetooth.
+
+Ces réglages sont pris en compte au lancement du jeu suivant.
 
 L'image et le son restent synchronisés :
 
-- quand l'écran rafraîchit à une fréquence proche de celle de la console (60 Hz pour ses 59,73 images par seconde, à 5 % près), RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement, sans image affichée deux fois. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
-- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
-- sur un écran à 120 ou 144 Hz, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+- quand l'écran rafraîchit à un multiple de la fréquence de la console (59,73 images par seconde), à 5 % près, RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement à 60 Hz, une tous les deux à 120 Hz, une tous les quatre à 240 Hz, sans image affichée plus longtemps qu'une autre. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
+- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder son avance (50 ms par défaut, **Latence du son**) : ni craquements ni décalage qui grandit ;
+- sur un écran qui ne s'y prête pas (75, 90, 144 ou 165 Hz) en fenêtre, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
+
+### Écran et latence
+
+Dans **Réglages > Affichage**, la carte **Écran et latence** règle le matériel :
+
+- **Écran du jeu et du mode TV** : l'écran où s'ouvrent les jeux et le mode TV, par exemple une télévision branchée en second écran. Le bureau de RavenEmu reste sur l'écran principal.
+- **Fréquence adaptée en plein écran**, activée par défaut : sur un écran à 144 ou 165 Hz, le plein écran passe à 120 Hz, ou à défaut 60 Hz, en plein écran exclusif, pour que le jeu s'y cale. L'écran revient à sa fréquence en quittant le jeu ou le plein écran (F11). À 60, 120 ou 240 Hz, rien ne change.
+- **Écran à fréquence variable (G-Sync, FreeSync)**, désactivé par défaut : sans synchronisation verticale, chaque image est montrée dès qu'elle est prête, à la cadence exacte de la console, et l'écran la suit. N'activez ce réglage qu'avec un écran G-Sync ou FreeSync et la fréquence variable activée dans le pilote de la carte graphique (sous Windows 11, aussi pour les jeux en fenêtre) : sans elle, l'image se déchire.
+- **Réduire la latence**, désactivé par défaut : quand le jeu suit l'écran, il attend après chaque rafraîchissement le plus tard possible pour lire la manette et calculer son image, et un appui se voit plus tôt, de plusieurs millisecondes. Le délai dépend du temps que prend une image sur l'ordinateur ; il diminue de lui-même si une image manque son rafraîchissement. Sans effet en fréquence variable.
+- **Moteur graphique** : **Automatique** prend Direct3D 11 sous Windows, où SDL 2 prendrait sinon Direct3D 9, dont l'image passe par une copie du bureau. Avec Direct3D 11, RavenEmu ne garde qu'une image d'avance dans le pilote au lieu de trois, soit jusqu'à deux rafraîchissements de moins entre un appui et l'image. Les autres choix (Direct3D 9, Direct3D 12, OpenGL, Metal, Logiciel) dépendent du système. Si l'image ne s'affiche plus, revenez à **Automatique** ; un moteur qui échoue est de toute façon remplacé par un autre. Pris en compte au prochain démarrage de RavenEmu.
+
+Les autres réglages de cette carte sont pris en compte au lancement du jeu.
 
 Tant que vous maintenez **Espace**, ou la gâchette droite de la manette (RT, R2 ou ZR) si aucun bouton de la console ne l'utilise, le jeu avance quatre fois plus vite, son compris. L'avance rapide est désactivée pendant que le câble sans fil est relié.
 
@@ -78,9 +98,16 @@ Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se re
 
 Certaines cartouches avaient un moteur ou des capteurs. RavenEmu les fait passer par la manette, réglables dans **Réglages > Commandes**, carte **Vibrations et capteurs** :
 
-- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...).
+- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...). **Force des vibrations** la règle de 10 à 100 %.
 - **Capteurs de mouvement de la manette** : Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le gyroscope de la manette, si elle en a (DualShock 4, DualSense, Switch Pro, Joy-Con). La position de la manette au lancement du jeu, et à chaque sortie du menu ou de la pause, compte comme à plat : pour recentrer, ouvrez puis fermez le menu en tenant la manette comme vous jouez. Le stick gauche incline et tourne aussi, avec ou sans capteurs : poussé à fond, il vaut une inclinaison de 1 g, ou un demi-tour par seconde.
 - **Soleil sur le capteur solaire (Boktai)** : la part du plein soleil que reçoit la cartouche, 50 % par défaut.
+
+La carte **Stick et turbo** règle le stick gauche :
+
+- **Stick gauche comme croix directionnelle**, activé par défaut : le stick dirige aussi, dans les huit directions, chacune sur un huitième de tour (les diagonales appuient sur deux directions). Dans les jeux à capteurs de mouvement, il garde son rôle : il incline et tourne la cartouche.
+- **Zone morte du stick** : la part de sa course qui ne compte pas, 30 % par défaut. Plus elle est grande, plus il faut pousser le stick ; augmentez-la si le personnage bouge tout seul. Le stick relâche sa direction un peu en deçà, pour ne pas hésiter sur la limite.
+
+Toutes les manettes branchées jouent, même ajoutées en cours de partie. Celle dont un bouton a servi en dernier vibre, sert aux capteurs de mouvement, au stick et aux gâchettes, et nomme les boutons à l'écran ; ce que tenait la précédente est relâché.
 
 Ces réglages sont pris en compte au lancement du jeu suivant.
 
@@ -104,6 +131,18 @@ Les deux appareils doivent avoir une version récente de RavenEmu, avec le même
 Chaque échange de données attend un aller-retour réseau : pendant que le câble sert, les deux jeux ralentissent ensemble, d'autant plus que le réseau est lent. Sur un échange Pokémon Rubis ↔ Émeraude, ils passent d'environ 60 images par seconde sans latence à 16 avec 6 ms d'aller-retour, et 5 avec 20 ms ; l'échange va au bout. Pour un échange plus fluide, préférez un câble Ethernet ou le Wi-Fi 5 GHz près de la box, et coupez un éventuel VPN, qui peut ralentir ou bloquer le trafic local.
 
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
+
+## Jouer à deux sur un même PC
+
+**Jouer à deux**, sous **Jouer** dans le panneau d'un jeu de la bibliothèque, relie ce jeu à un second par un câble link virtuel, côte à côte dans une même fenêtre : un échange ou un combat Pokémon, un duel de Tetris... Choisissez le jeu du joueur 2 parmi ceux qui se relient au premier : Game Boy et Game Boy Color entre eux, ou deux Game Boy Advance. Les deux jeux doivent être deux fichiers différents, puisque chacun garde sa propre sauvegarde, la même que lorsqu'il est joué seul.
+
+- Le joueur 1 joue à gauche, le joueur 2 à droite.
+- Le clavier joue le joueur 1. Avec une seule manette, elle joue le joueur 2 ; avec deux, la première branchée joue le joueur 1 et la seconde le joueur 2.
+- **Échanger les joueurs**, dans le menu de pause, inverse tout : pratique pour jouer seul aux deux jeux, par exemple pour s'échanger des Pokémon entre deux versions. Le menu rappelle qui joue quoi.
+- Un seul jeu s'entend, celui du joueur 1 au départ ; **Entendre le jeu du joueur 2** passe à l'autre.
+- Échap, ou Select + Start à l'une des manettes, ouvre le menu de pause, qui arrête les deux jeux. **Réinitialiser les deux consoles** les redémarre ensemble.
+
+Les états instantanés, le retour arrière, l'avance rapide, les codes de triche, les captures d'écran et RetroAchievements restent réservés aux jeux joués seuls. Au Game Boy Advance, le joueur 1 tient le rôle du parent.
 
 ## États instantanés
 

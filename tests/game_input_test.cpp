@@ -3,6 +3,7 @@
 #include <ravenemu/bridge.h>
 #include <algorithm>
 #include <array>
+#include <vector>
 #include <ravenemudsk/settings/settings.hpp>
 #include <ravenemudsk/settings/game_preferences.hpp>
 #include <chrono>
@@ -242,13 +243,91 @@ int main() {
         require(!bound.fast_forward()&&held[RAVENEMU_R],"A trigger bound to R presses R, not fast forward");
     }
 
+    // Turbo: held, it presses A (or B) three frames, releases it three, and
+    // so on; unbound at first, on the keyboard and on the controller.
+    {
+        require(KeyboardBindings{}.key(KeyAction::TurboA)==SDLK_UNKNOWN&&PadBindings{}.input(KeyAction::TurboB)==pad_unbound&&
+                PadBindings{}.action(SDL_CONTROLLER_BUTTON_X)==KeyAction::Count,"Turbo buttons start unbound");
+        KeyboardBindings keys;require(keys.assign(KeyAction::TurboA,SDLK_c),"Turbo A on a key");
+        PadBindings turbo_pads;require(turbo_pads.assign(KeyAction::TurboB,SDL_CONTROLLER_BUTTON_X)&&
+                                       turbo_pads.assign(KeyAction::TurboA,pad_right_trigger),"Turbo on the controller");
+        require(turbo_pads.action(SDL_CONTROLLER_BUTTON_X)==KeyAction::TurboB&&turbo_pads.button(SDL_CONTROLLER_BUTTON_X)==-1,
+                "A turbo input presses no console button by itself");
+        std::array<bool, RAVENEMU_R + 1> game{};
+        GameInput turbo([&](int button, bool pressed) { game.at(button) = pressed; },keys,turbo_pads);
+        SDL_Event key{};key.type=SDL_KEYDOWN;key.key.keysym.sym=SDLK_c;
+        turbo.process_event(key);
+        std::vector<bool> seen;
+        for(int frame=0;frame<12;++frame){seen.push_back(game[RAVENEMU_A]);turbo.next_frame();}
+        require(seen==std::vector<bool>{true,true,true,false,false,false,true,true,true,false,false,false},
+                "Turbo A pulses three frames on, three off, from its press");
+        SDL_Event a{};a.type=SDL_KEYDOWN;a.key.keysym.sym=SDLK_z;turbo.process_event(a);
+        turbo.next_frame();turbo.next_frame();turbo.next_frame();
+        require(game[RAVENEMU_A],"A held stays pressed through the turbo's pauses");
+        a.type=SDL_KEYUP;turbo.process_event(a);key.type=SDL_KEYUP;turbo.process_event(key);
+        require(!game[RAVENEMU_A],"Released with its turbo");
+        SDL_Event x{};x.type=SDL_CONTROLLERBUTTONDOWN;x.cbutton.which=3;x.cbutton.button=SDL_CONTROLLER_BUTTON_X;
+        turbo.process_event(x,3);require(game[RAVENEMU_B]&&!game[RAVENEMU_A],"Turbo B on the controller");
+        turbo.set_menu_open(true);require(!game[RAVENEMU_B],"A menu stops the turbo");
+        turbo.process_event(x,3);require(!game[RAVENEMU_B],"No turbo through a menu");
+        turbo.set_menu_open(false);
+        SDL_Event axis{};axis.type=SDL_CONTROLLERAXISMOTION;axis.caxis.which=3;
+        axis.caxis.axis=SDL_CONTROLLER_AXIS_TRIGGERRIGHT;axis.caxis.value=32767;
+        turbo.process_event(axis,3);
+        require(game[RAVENEMU_A]&&!turbo.fast_forward(),"A trigger bound to turbo is no longer fast forward");
+        axis.caxis.value=0;turbo.process_event(axis,3);require(!game[RAVENEMU_A],"The turbo trigger let go");
+        turbo_pads.store(settings);KeyboardBindings{}.store(settings);
+        PadBindings reloaded;reloaded.load(settings);
+        require(reloaded.input(KeyAction::TurboB)==SDL_CONTROLLER_BUTTON_X&&reloaded.input(KeyAction::TurboA)==pad_right_trigger,
+                "Turbo controller bindings are kept");
+    }
+
+    // The left stick as the D-pad: eight directions past the dead zone, a
+    // little hysteresis, nothing through a menu, off for the tilting games.
+    {
+        std::array<bool, RAVENEMU_R + 1> game{};
+        GameInput stick([&](int button, bool pressed) { game.at(button) = pressed; });
+        auto move=[&](Sint16 x,Sint16 y){
+            SDL_Event e{};e.type=SDL_CONTROLLERAXISMOTION;e.caxis.which=3;
+            e.caxis.axis=SDL_CONTROLLER_AXIS_LEFTX;e.caxis.value=x;stick.process_event(e,3);
+            e.caxis.axis=SDL_CONTROLLER_AXIS_LEFTY;e.caxis.value=y;stick.process_event(e,3);
+        };
+        auto pressed=[&](bool up,bool down,bool left,bool right){
+            return game[RAVENEMU_UP]==up&&game[RAVENEMU_DOWN]==down&&game[RAVENEMU_LEFT]==left&&game[RAVENEMU_RIGHT]==right;
+        };
+        move(32767,0);require(pressed(false,false,false,false),"The stick is not the D-pad until asked");
+        stick.set_stick_dpad(30);
+        move(32767,0);require(pressed(false,false,false,true),"Right");
+        move(-23000,-23000);require(pressed(true,false,true,false),"Up and left: a diagonal");
+        move(-30000,-8000);require(pressed(false,false,true,false),"Mostly left: left alone");
+        move(0,30000);require(pressed(false,true,false,false),"Down (SDL's y goes down)");
+        move(0,9000);require(pressed(false,true,false,false),"Just inside the dead zone, still held");
+        move(0,8000);require(pressed(false,false,false,false),"Below nine tenths of it, let go");
+        move(0,9000);require(pressed(false,false,false,false),"Inside the dead zone, nothing");
+        move(0,-12000);require(pressed(true,false,false,false),"Past the dead zone again");
+        SDL_Event other{};other.type=SDL_CONTROLLERAXISMOTION;other.caxis.which=4;
+        other.caxis.axis=SDL_CONTROLLER_AXIS_LEFTY;other.caxis.value=0;stick.process_event(other,3);
+        require(pressed(true,false,false,false),"Another controller's stick is not this one's");
+        SDL_Event key{};key.type=SDL_KEYDOWN;key.key.keysym.sym=SDLK_UP;stick.process_event(key);
+        key.type=SDL_KEYUP;stick.process_event(key);
+        require(game[RAVENEMU_UP],"Letting go of the Up key leaves the stick's Up held");
+        stick.set_menu_open(true);require(pressed(false,false,false,false),"A menu lets go of the stick");
+        move(32767,0);require(pressed(false,false,false,false),"No stick through a menu");
+        stick.set_menu_open(false);
+        move(32767,0);require(pressed(false,false,false,true),"Back in the game");
+        stick.set_stick_dpad(0);require(pressed(false,false,false,false),"Turned off, the stick lets go");
+        move(-32767,0);require(pressed(false,false,false,false),"And presses nothing more");
+    }
+
     // A game's preferences, read once: defaults, then each setting.
     Settings fresh;
     const auto defaults=game_preferences(fresh);
     require(!defaults.hardcore&&defaults.unlock_sound&&defaults.volume==100&&!defaults.smooth_image&&defaults.wireless_link&&
             defaults.pause_unfocused&&defaults.rumble&&defaults.motion_sensors&&defaults.solar_light==50&&
             !defaults.integer_scale&&!defaults.lcd_colors&&defaults.frame_blending==0&&defaults.rewind&&
-            !defaults.gb_in_color&&defaults.gb_colors==0&&!defaults.gbc_on_gba&&defaults.gba_bios==0,
+            !defaults.gb_in_color&&defaults.gb_colors==0&&!defaults.gbc_on_gba&&defaults.gba_bios==0&&
+            defaults.audio_output.empty()&&defaults.audio_latency==50&&defaults.rumble_strength==100&&
+            defaults.stick_dpad&&defaults.stick_dead_zone==30,
             "Default game preferences");
     require(defaults.keyboard.key(KeyAction::A)==KeyboardBindings{}.key(KeyAction::A)&&
             defaults.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_A,"Default bindings");
@@ -260,7 +339,11 @@ int main() {
     chosen.set_flag("integer_scale",true);chosen.set_flag("lcd_colors",true);chosen.set("frame_blending","2");
     chosen.set_flag("rewind",false);chosen.set_flag("gb_in_color",true);chosen.set("gb_colors","13");
     chosen.set_flag("gbc_on_gba",true);chosen.set("gba_bios","2");
+    chosen.set("audio_output","Casque USB");chosen.set("audio_latency","100");chosen.set("rumble_strength","40");
+    chosen.set_flag("stick_dpad",false);chosen.set("stick_dead_zone","55");
     const auto prefs=game_preferences(chosen);
+    require(prefs.audio_output=="Casque USB"&&prefs.audio_latency==100&&prefs.rumble_strength==40&&!prefs.stick_dpad&&
+            prefs.stick_dead_zone==55,"Chosen sound and controller preferences");
     require(prefs.hardcore&&!prefs.unlock_sound&&prefs.volume==35&&prefs.smooth_image&&!prefs.wireless_link&&
             !prefs.pause_unfocused&&!prefs.rumble&&!prefs.motion_sensors&&prefs.solar_light==80&&prefs.integer_scale&&
             prefs.lcd_colors&&prefs.frame_blending==2&&!prefs.rewind&&prefs.gb_in_color&&prefs.gb_colors==13&&
@@ -271,5 +354,10 @@ int main() {
     chosen.set("solar_light","-3");require(game_preferences(chosen).solar_light==0,"Sunlight below 0 % is darkness");
     require(prefs.pads.input(KeyAction::A)==SDL_CONTROLLER_BUTTON_X,"Chosen controller bindings");
     chosen.set("volume","250");require(game_preferences(chosen).volume==100,"Volume above 100 % is full volume");
+    chosen.set("audio_latency","30");require(game_preferences(chosen).audio_latency==25,"A latency by hand: the nearest choice");
+    chosen.set("audio_latency","900");require(game_preferences(chosen).audio_latency==100,"Far above: the steadiest");
+    chosen.set("rumble_strength","0");chosen.set("stick_dead_zone","100");
+    require(game_preferences(chosen).rumble_strength==10&&game_preferences(chosen).stick_dead_zone==90,
+            "Rumble strength and dead zone stay within their sliders");
     chosen.set_flag("mute",true);require(game_preferences(chosen).volume==0,"Muted means silent, whatever the volume");
 }
