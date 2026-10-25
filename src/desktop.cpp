@@ -28,10 +28,10 @@ int entry(int argc,char** argv) {
     try {
         if(argc>1) {
             if(argc==2 && std::string(argv[1])=="--help") {
-                std::cout<<"RavenEmu - Windows, Linux, macOS\nUsage: RavenEmuDSK [gb|gbc|gba ROM]\n";return 0;
+                std::cout<<"RavenEmu - Windows, Linux, macOS\nUsage: RavenEmu [gb|gbc|gba ROM]\n";return 0;
             }
             if(argc==2 && std::string(argv[1])=="--version"){std::cout<<"RavenEmu " RAVENEMUDSK_VERSION "\n";return 0;}
-            if(argc!=3)throw std::runtime_error("Usage : RavenEmuDSK [gb|gbc|gba ROM]");
+            if(argc!=3)throw std::runtime_error("Usage : RavenEmu [gb|gbc|gba ROM]");
             ravenemudsk_ra::client().set_hardcore(ravenemudsk_ui::game_preferences().hardcore);
             play({argv[1],argv[2],false});return 0;
         }

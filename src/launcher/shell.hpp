@@ -36,6 +36,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <stdexcept>
@@ -129,6 +130,11 @@ std::string ago(std::int64_t stamp);
 std::string duration_of(std::uint64_t seconds);
 std::string lower(std::string text);
 std::optional<fs::path> pick_image();
+// RavenEmu's user data folder: %APPDATA%\RavenEmu, ~/.local/share/RavenEmu or
+// ~/Library/Application Support/RavenEmu, beside its RetroAchievements folder.
+// Its first use in a run brings in what the RavenEmuDSK folders held. Empty
+// when the system has none.
+fs::path data_root();
 fs::path data_file();
 ravenemudsk_ra::Client& retro_client(State& s);
 std::optional<ravenemudsk_ra::Snapshot> game_achievements(State& s, const Game& game);

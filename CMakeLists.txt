@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(RavenEmuDSK VERSION 0.3.0 LANGUAGES C CXX)
+project(RavenEmu VERSION 0.3.0 LANGUAGES C CXX)
 include(CTest)
 include(FetchContent)
 set(CMAKE_CXX_STANDARD 20)
@@ -158,17 +158,17 @@ if(WIN32)
   target_link_libraries(ravenemudsk_launcher PRIVATE comdlg32 shell32 ole32)
 endif()
 
-add_executable(RavenEmuDSK src/desktop.cpp src/player/game_session.cpp)
-target_compile_features(RavenEmuDSK PRIVATE cxx_std_20)
-target_compile_definitions(RavenEmuDSK PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
-target_link_libraries(RavenEmuDSK PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state
+add_executable(RavenEmu src/desktop.cpp src/player/game_session.cpp)
+target_compile_features(RavenEmu PRIVATE cxx_std_20)
+target_compile_definitions(RavenEmu PRIVATE RAVENEMUDSK_VERSION="${PROJECT_VERSION}")
+target_link_libraries(RavenEmu PRIVATE ravenemudsk_launcher ravenemudsk_game_ui ravenemudsk_game_state
   ravenemudsk_wireless)
 if(WIN32)
-  target_compile_definitions(RavenEmuDSK PRIVATE SDL_MAIN_HANDLED)
-  set_target_properties(RavenEmuDSK PROPERTIES WIN32_EXECUTABLE TRUE)
-  add_custom_command(TARGET RavenEmuDSK POST_BUILD
+  target_compile_definitions(RavenEmu PRIVATE SDL_MAIN_HANDLED)
+  set_target_properties(RavenEmu PROPERTIES WIN32_EXECUTABLE TRUE)
+  add_custom_command(TARGET RavenEmu POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_RUNTIME_DLLS:RavenEmuDSK> $<TARGET_FILE_DIR:RavenEmuDSK>
+      $<TARGET_RUNTIME_DLLS:RavenEmu> $<TARGET_FILE_DIR:RavenEmu>
     COMMAND_EXPAND_LISTS VERBATIM)
   # The Visual C++ runtime (vcruntime140.dll, msvcp140.dll...) beside the
   # program, as Microsoft allows: RavenEmu then starts on a Windows without the
@@ -179,9 +179,9 @@ if(WIN32)
     set(CMAKE_INSTALL_UCRT_LIBRARIES FALSE)
     include(InstallRequiredSystemLibraries)
     if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
-      add_custom_command(TARGET RavenEmuDSK POST_BUILD
+      add_custom_command(TARGET RavenEmu POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} $<TARGET_FILE_DIR:RavenEmuDSK>
+          ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} $<TARGET_FILE_DIR:RavenEmu>
         COMMAND_EXPAND_LISTS VERBATIM)
     else()
       message(WARNING "Visual C++ runtime DLLs not found: the package would need the Visual C++ Redistributable")
@@ -195,15 +195,16 @@ set(RAVENEMUDSK_BRAND_LOGO "${CMAKE_CURRENT_SOURCE_DIR}/assets/ravenemu-logo.png
 if(NOT EXISTS "${RAVENEMUDSK_BRAND_LOGO}")
   message(FATAL_ERROR "Missing RavenEmu artwork: assets/ravenemu-logo.png")
 endif()
-add_custom_command(TARGET RavenEmuDSK POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
+add_custom_command(TARGET RavenEmu POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmu>/assets"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${RAVENEMUDSK_BRAND_LOGO}"
-    "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ravenemu-logo.png"
+    "$<TARGET_FILE_DIR:RavenEmu>/assets/ravenemu-logo.png"
   VERBATIM)
 
 # The program file itself shows the provided logo: a build-time tool turns
-# assets/ravenemu-logo.png into ravenemu.ico, embedded as a Windows resource.
+# assets/ravenemu-logo.png into ravenemu.ico, embedded as a Windows resource
+# with the name and version Windows displays (cmake/ravenemu.rc.in).
 # macOS gets its .icns in tools/package_unix.py.
 add_executable(ravenemudsk_make_icon tools/make_icon.cpp)
 target_include_directories(ravenemudsk_make_icon PRIVATE "${stb_SOURCE_DIR}")
@@ -214,8 +215,8 @@ add_custom_command(OUTPUT "${RAVENEMUDSK_ICON}"
   COMMENT "RavenEmu icon from assets/ravenemu-logo.png" VERBATIM)
 if(WIN32)
   set(RAVENEMUDSK_RC "${CMAKE_CURRENT_BINARY_DIR}/ravenemu.rc")
-  file(GENERATE OUTPUT "${RAVENEMUDSK_RC}" CONTENT "IDI_RAVENEMU ICON \"${RAVENEMUDSK_ICON}\"\n")
-  target_sources(RavenEmuDSK PRIVATE "${RAVENEMUDSK_RC}" "${RAVENEMUDSK_ICON}")
+  configure_file(cmake/ravenemu.rc.in "${RAVENEMUDSK_RC}" @ONLY)
+  target_sources(RavenEmu PRIVATE "${RAVENEMUDSK_RC}" "${RAVENEMUDSK_ICON}")
   set_source_files_properties("${RAVENEMUDSK_RC}" PROPERTIES OBJECT_DEPENDS "${RAVENEMUDSK_ICON}")
 else()
   add_custom_target(ravenemudsk_icon ALL DEPENDS "${RAVENEMUDSK_ICON}")
@@ -227,11 +228,11 @@ set(RAVENEMUDSK_RA_LOGO "${CMAKE_CURRENT_SOURCE_DIR}/assets/ra-logo.png")
 if(NOT EXISTS "${RAVENEMUDSK_RA_LOGO}")
   message(FATAL_ERROR "Missing RetroAchievements artwork: assets/ra-logo.png")
 endif()
-add_custom_command(TARGET RavenEmuDSK POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmuDSK>/assets"
+add_custom_command(TARGET RavenEmu POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RavenEmu>/assets"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${RAVENEMUDSK_RA_LOGO}"
-    "$<TARGET_FILE_DIR:RavenEmuDSK>/assets/ra-logo.png"
+    "$<TARGET_FILE_DIR:RavenEmu>/assets/ra-logo.png"
   VERBATIM)
 
 if(BUILD_TESTING)
@@ -354,22 +355,22 @@ if(BUILD_TESTING)
       set_tests_properties(native_session_store PROPERTIES TIMEOUT 30)
     endif()
   endif()
-  add_test(NAME help COMMAND RavenEmuDSK --help)
+  add_test(NAME help COMMAND RavenEmu --help)
   add_test(NAME launcher_smoke COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
-    $<TARGET_FILE:RavenEmuDSK>)
+    $<TARGET_FILE:RavenEmu>)
   set_tests_properties(launcher_smoke PROPERTIES TIMEOUT 30)
   add_test(NAME retro_profile_smoke COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
-    RAVENEMUDSK_UI_SMOKE_PAGE=profile $<TARGET_FILE:RavenEmuDSK>)
+    RAVENEMUDSK_UI_SMOKE_PAGE=profile $<TARGET_FILE:RavenEmu>)
   set_tests_properties(retro_profile_smoke PROPERTIES TIMEOUT 30)
   add_test(NAME launcher_invalid_video COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=unavailable-raven-test-driver SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
-    $<TARGET_FILE:RavenEmuDSK>)
+    $<TARGET_FILE:RavenEmu>)
   add_test(NAME launcher_screenshot_failure COMMAND ${CMAKE_COMMAND} -E env
     SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy RAVENEMUDSK_UI_SMOKE=1
     "RAVENEMUDSK_UI_SCREENSHOT=${CMAKE_CURRENT_BINARY_DIR}"
-    $<TARGET_FILE:RavenEmuDSK>)
+    $<TARGET_FILE:RavenEmu>)
   set_tests_properties(launcher_invalid_video launcher_screenshot_failure
     PROPERTIES WILL_FAIL TRUE TIMEOUT 30)
 endif()

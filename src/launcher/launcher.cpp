@@ -225,10 +225,7 @@ Folders app_folders() {
             roots.push_back(path);
         SDL_free(base);
     }
-    if (char* pref = SDL_GetPrefPath("RavenEmu", "RavenEmuDSK")) {
-        roots.push_back(from_utf8(pref));
-        SDL_free(pref);
-    }
+    if (const auto root = data_root(); !root.empty()) roots.push_back(root);
     return prepare_folders(roots);
 }
 // Needs no SDL subsystem; never quits SDL, which would close a kept TV window.

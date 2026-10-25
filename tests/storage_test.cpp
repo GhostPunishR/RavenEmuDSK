@@ -102,4 +102,36 @@ int main() {
     catch (const fs::filesystem_error&) { failed = true; }
     require(failed, "Migration failures must be reported");
     require(read(broken.saves / "Game.gb.sav") == "untouched", "Failed migration damaged old progress");
+
+    // The RavenEmuDSK folders move into the RavenEmu one, without replacing a file.
+    const auto user_data = tmp.path / "user data";
+    const auto root = user_data / "RavenEmu";
+    const auto legacy = user_data / "RavenEmuDSK" / "RavenEmuDSK";
+    write(legacy / "bibliotheque.txt", "old library");
+    write(legacy / "reglages.txt", "old settings");
+    write(root / "reglages.txt", "new settings");
+    write(root / "RetroAchievements" / "profile", "account");
+    write(root / "RavenEmuDSK" / "Sauvegardes" / "Game.gb.sav", "old save");
+    write(root / "RavenEmuDSK" / "Jaquettes" / "Old.png", "old cover");
+    write(root / "Jaquettes" / "New.png", "new cover");
+    move_legacy_data(root);
+    require(read(root / "bibliotheque.txt") == "old library", "Library was not moved");
+    require(read(root / "reglages.txt") == "new settings", "A newer file was replaced");
+    require(read(legacy / "reglages.txt") == "old settings", "A file that could not move was lost");
+    require(!fs::exists(legacy / "bibliotheque.txt"), "Library was copied, not moved");
+    require(read(root / "Sauvegardes" / "Game.gb.sav") == "old save", "Saves were not moved");
+    require(read(root / "Jaquettes" / "Old.png") == "old cover", "Folders were not merged");
+    require(read(root / "Jaquettes" / "New.png") == "new cover", "Merging lost a file");
+    require(read(root / "RetroAchievements" / "profile") == "account", "RetroAchievements data changed");
+    require(!fs::exists(root / "RavenEmuDSK"), "Empty old folder was kept");
+    fs::remove(legacy / "reglages.txt");
+    move_legacy_data(root);
+    require(!fs::exists(user_data / "RavenEmuDSK"), "Empty old folders were kept");
+    require(read(root / "reglages.txt") == "new settings", "A second run changed the data");
+    const auto fresh = tmp.path / "fresh" / "RavenEmu";
+    move_legacy_data(fresh);
+    require(!fs::exists(tmp.path / "fresh"), "Nothing to move must create nothing");
+    write(tmp.path / "file" / "RavenEmuDSK", "a file, not a folder");
+    move_legacy_data(tmp.path / "file" / "RavenEmu");
+    require(read(tmp.path / "file" / "RavenEmuDSK") == "a file, not a folder", "A file was removed");
 }

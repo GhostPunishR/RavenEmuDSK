@@ -58,7 +58,38 @@ std::string lower_extension(const fs::path& file) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return ext;
 }
+// Removes `folder` when it is an empty folder; never a file or a link.
+void remove_if_empty(const fs::path& folder) {
+    std::error_code ec;
+    if (fs::is_directory(fs::symlink_status(folder, ec))) fs::remove(folder, ec);
+}
+// Moves each entry of `from` that `to` lacks; folders both have are merged.
+void merge_into(const fs::path& from, const fs::path& to) {
+    std::error_code ec;
+    if (!fs::is_directory(from, ec)) return;
+    std::vector<fs::path> entries;
+    for (fs::directory_iterator it(from, ec), end; !ec && it != end; it.increment(ec))
+        entries.push_back(it->path());
+    if (ec) return;
+    if (!entries.empty()) fs::create_directories(to, ec);
+    for (const auto& entry : entries) {
+        const auto target = to / entry.filename();
+        const bool taken = fs::exists(target, ec);
+        if (ec) continue; // Unknown: rename could replace it.
+        if (!taken) fs::rename(entry, target, ec);
+        else if (fs::is_directory(entry, ec) && fs::is_directory(target, ec)) merge_into(entry, target);
+    }
+    remove_if_empty(from); // What could not move stays there.
+}
 } // namespace
+
+void move_legacy_data(const fs::path& root) {
+    if (root.empty()) return;
+    const auto old = root.parent_path() / "RavenEmuDSK";
+    merge_into(old / "RavenEmuDSK", root);
+    remove_if_empty(old);
+    merge_into(root / "RavenEmuDSK", root);
+}
 
 Folders prepare_folders(const std::vector<fs::path>& roots) {
     for (const auto& root : roots) {

@@ -27,7 +27,7 @@
 
 Chaque fichier se range dans le dossier de son rôle, le même sous `src/` et sous `include/ravenemudsk/`. Les espaces de noms C++ (`ravenemudsk_ui`, `ravenemudsk_ra`, `ravenemudsk_link`...) et les bibliothèques CMake ne suivent pas ce découpage et restent inchangés.
 
-L'application porte le nom **RavenEmu**. `RavenEmuDSK` reste le nom du dépôt, de la cible CMake et de l'exécutable. Les moteurs GB/GBC/GBA sont maintenus dans [RavenCore](https://github.com/GhostPunishR/RavenCore).
+L'application, sa cible CMake et son exécutable portent le nom **RavenEmu**. `RavenEmuDSK` reste le nom du dépôt. Les moteurs GB/GBC/GBA sont maintenus dans [RavenCore](https://github.com/GhostPunishR/RavenCore).
 
 ## Dépendances et ressources
 
