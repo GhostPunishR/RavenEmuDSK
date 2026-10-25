@@ -5,7 +5,9 @@
 #include <string>
 namespace ravenemudsk_ui {
 class Settings;
-enum class KeyAction { Up, Down, Left, Right, A, B, Start, Select, L, R,
+// The console buttons first, then the turbo buttons: the controller binds
+// those twelve (PadBindings::count). Settings are stored by name, not number.
+enum class KeyAction { Up, Down, Left, Right, A, B, Start, Select, L, R, TurboA, TurboB,
                        Menu, Pause, SaveState, LoadState, Reset, Fullscreen, FastForward, Screenshot,
                        PreviousSlot, NextSlot, Rewind, Count };
 struct KeyCommand {

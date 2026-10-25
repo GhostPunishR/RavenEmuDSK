@@ -8,13 +8,16 @@ class Settings;
 // one of the analog triggers, which SDL reports as axes.
 inline constexpr int pad_unbound = -1, pad_left_trigger = 100, pad_right_trigger = 101;
 // The controller inputs of the ten console buttons, KeyAction::Up to
-// KeyAction::R. The in-game menu stays the chord of the inputs bound to
-// Select and Start, pressed together.
+// KeyAction::R, and of the two turbo buttons (unbound at first). The in-game
+// menu stays the chord of the inputs bound to Select and Start, pressed
+// together.
 class PadBindings {
 public:
-    static constexpr int count = 10;
+    static constexpr int count = 12;
     PadBindings();
     int input(KeyAction action) const;
+    // The action bound to the input, or KeyAction::Count when it is free.
+    KeyAction action(int input) const;
     // The console button (RAVENEMU_*) the input presses, or -1.
     int button(int input) const;
     // Exchanges with the action that had the input. The Guide button stays

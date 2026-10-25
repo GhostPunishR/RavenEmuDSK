@@ -57,6 +57,9 @@ std::optional<ravenemudsk_ui::PadFamily> family_of(SDL_GameController* pad) {
     if(!pad)return std::nullopt;
     return ravenemudsk_ui::pad_family(SDL_GameControllerGetType(pad));
 }
+SDL_JoystickID instance_of(SDL_GameController* pad) {
+    return SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad));
+}
 void verify(bool ok, const char* message) {
     if (!ok) throw std::runtime_error(std::string(message)+": "+ravenemu_last_error());
 }
@@ -186,6 +189,9 @@ private:
     void handle_key(ravenemudsk_ui::KeyAction action);
     bool emulate(Clock::time_point now,bool waiting);
     void queue_sound(std::size_t samples,double speed);
+    void add_controller(int device);
+    void use_controller(SDL_GameController* chosen);
+    SDL_JoystickID controller_of(const SDL_Event& e);
     void start_motion();
     void feed_motion();
     void update_rumble(Clock::time_point now);
@@ -240,7 +246,10 @@ private:
     Ptr<SDL_Texture,SDL_DestroyTexture> texture{nullptr,SDL_DestroyTexture};
     ravenemudsk_ui::GamePreferences prefs;
     SDL_AudioDeviceID audio_device=0;
-    Ptr<SDL_GameController,SDL_GameControllerClose> pad{nullptr,SDL_GameControllerClose};
+    // Every controller plugged in plays. The one used last names the buttons
+    // on screen, rumbles, tilts the cartridge and moves its stick.
+    std::vector<Ptr<SDL_GameController,SDL_GameControllerClose>> controllers;
+    SDL_GameController* pad=nullptr;
     // The core's frame, and the one shown (LCD colors, blending), which the
     // screenshots and the state pictures keep too.
     std::vector<std::uint32_t> pixels,shown;
@@ -251,10 +260,11 @@ private:
     std::vector<std::int16_t> chime;
     ravenemudsk_ui::SoundMixer effects;
     // The screen paces the game when its refresh is close to the console's;
-    // the sound is resampled so that the device's queue stays near its target.
-    static constexpr double audio_target=.05;
+    // the sound is resampled so that the device's queue stays near its target,
+    // Réglages > Son's latency.
+    double audio_target=.05;
     // The queue's level over about half a second: the device takes the sound
-    // by blocks of 31 ms, which the correction must not follow.
+    // by blocks (31 ms for 50 ms ahead), which the correction must not follow.
     double audio_level=audio_target;
     std::optional<ravenemudsk_ui::FramePacer> pacer;
     ravenemudsk_ui::Resampler resampler;
@@ -312,12 +322,19 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     // Sharp pixels whatever scaling hint the launcher left behind.
     SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
     SDL_AudioSpec spec{};
-    spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;spec.samples=1024;
-    audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
+    spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;
+    // Blocks of at most five eighths of the target, a power of two: 1024
+    // samples at 32768 Hz for 50 ms. The queue never runs dry between two.
+    audio_target=audio_level=prefs.audio_latency/1000.0;
+    spec.samples=256;
+    while(spec.samples<4096&&spec.samples*2<=hz*audio_target/1.6)spec.samples*=2;
+    const char* output=prefs.audio_output.empty()?nullptr:prefs.audio_output.c_str();
+    audio_device=SDL_OpenAudioDevice(output,0,&spec,nullptr,0);
+    // The chosen output unplugged: the system's, said once the game shows.
+    const bool output_missing=output&&!audio_device;
+    if(output_missing)audio_device=SDL_OpenAudioDevice(nullptr,0,&spec,nullptr,0);
     if(audio_device)SDL_PauseAudioDevice(audio_device,0);
-    for(int i=0;i<SDL_NumJoysticks();++i)if(SDL_IsGameController(i)) {
-        pad.reset(SDL_GameControllerOpen(i));if(pad)break;
-    }
+    for(int i=0;i<SDL_NumJoysticks();++i)add_controller(i);
     sensors=ravenemu_sensors(core.get());
     if(sensors&RAVENEMU_SENSOR_SOLAR)ravenemu_set_solar_light(core.get(),prefs.solar_light*255/100);
     start_motion();
@@ -329,6 +346,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     pcm.resize(8192);
     overlay.emplace(window,renderer,&ravenemudsk_ra::client(),req.fullscreen);
     if(!bios_notice.empty())toast(ravenemudsk_ui::Toast::Kind::Info,"BIOS de RavenCore",bios_notice);
+    if(output_missing)
+        toast(ravenemudsk_ui::Toast::Kind::Info,"Sortie audio débranchée","Le son passe par celle du système.");
     cheats_path=ravenemudsk_ui::save_path(folders,rom_path,".cheats");
     cheats=ravenemudsk_ui::load_cheats(cheats_path);
     info.cheats=&cheats;info.cheat_system=system_of(req.system);
@@ -337,9 +356,12 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
     },prefs.keyboard,prefs.pads);
+    // The stick tilts and turns the cartridges that have sensors.
+    input->set_stick_dpad(prefs.stick_dpad&&!(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION))?
+                          prefs.stick_dead_zone:0);
     info.game_title=title;info.system=req.system;
     refresh_slot();
-    info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad.get());
+    info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad);
     next=last_save=next_progress=last_frame=last_present=Clock::now();
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
     pacer.emplace(fps);
@@ -534,11 +556,18 @@ void GameSession::handle(const SDL_Event& e) {
         else if(e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED&&paused_unfocused)
             paused=paused_unfocused=false;
     }
-    if(e.type==SDL_CONTROLLERDEVICEADDED && !pad && SDL_IsGameController(e.cdevice.which))
-        { pad.reset(SDL_GameControllerOpen(e.cdevice.which)); info.pad=family_of(pad.get()); start_motion(); }
-    if(e.type==SDL_CONTROLLERDEVICEREMOVED && pad &&
-       SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get()))==e.cdevice.which)
-        { input->release_all(); pad.reset(); info.pad.reset(); motion=ravenemudsk_ui::MotionInput{}; rumbling=false; }
+    if(e.type==SDL_CONTROLLERDEVICEADDED)add_controller(e.cdevice.which);
+    if(e.type==SDL_CONTROLLERDEVICEREMOVED) {
+        const auto gone=std::find_if(controllers.begin(),controllers.end(),
+                                     [&](const auto& c){return instance_of(c.get())==e.cdevice.which;});
+        if(gone!=controllers.end()) {
+            input->release_all();
+            if(gone->get()==pad){pad=nullptr;rumbling=false;}
+            controllers.erase(gone);
+            if(!pad&&!controllers.empty())use_controller(controllers.front().get());
+            if(!pad){info.pad.reset();motion=ravenemudsk_ui::MotionInput{};}
+        }
+    }
     // "Relier le câble à…" takes the keys while it is up.
     const bool choosing=!info.link_choices.empty()&&!overlay->menu_open();
     if(e.type==SDL_KEYDOWN && !e.key.repeat) {
@@ -551,7 +580,7 @@ void GameSession::handle(const SDL_Event& e) {
     // system: Windows opens the Xbox Game Bar on it (Steam its overlay),
     // which would show too.
     input->set_menu_open(overlay->menu_open()||paused||choosing);
-    if(input->process_event(e,pad ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad.get())) : -1)) {
+    if(input->process_event(e,controller_of(e))) {
         if(overlay->menu_open())overlay->close_menu();
         else if(pause_allowed())overlay->open_menu(true);
         input->release_all();
@@ -600,6 +629,7 @@ bool GameSession::emulate(Clock::time_point now,bool waiting) {
         for(int frame=0;frame<frames;++frame) {
             feed_motion();
             verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+            input->next_frame();
             update_rumble(now);
             if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
             ravenemudsk_ra::client().pump(true);
@@ -642,28 +672,74 @@ void GameSession::queue_sound(std::size_t samples,double speed) {
                       pacer->audio_ratio()*ravenemudsk_ui::rate_correction(audio_level,audio_target)/speed,resampled);
     SDL_QueueAudio(audio_device,resampled.data(),static_cast<Uint32>(resampled.size()*sizeof(std::int16_t)));
 }
+// A controller plugged in, at the start or later, once: SDL announces again
+// those already there when the game opens it.
+void GameSession::add_controller(int device) {
+    if(!SDL_IsGameController(device))return;
+    const auto id=SDL_JoystickGetDeviceInstanceID(device);
+    for(const auto& c:controllers)if(instance_of(c.get())==id)return;
+    Ptr<SDL_GameController,SDL_GameControllerClose> opened{SDL_GameControllerOpen(device),SDL_GameControllerClose};
+    if(!opened)return;
+    controllers.push_back(std::move(opened));
+    if(!pad) {
+        pad=controllers.back().get();info.pad=family_of(pad);
+        if(input)start_motion();
+    }
+}
+// Another controller takes over: what the previous one held is let go, its
+// motor and sensors stop.
+void GameSession::use_controller(SDL_GameController* chosen) {
+    if(chosen==pad)return;
+    if(pad) {
+        stop_rumble();
+        for(const auto type:{SDL_SENSOR_ACCEL,SDL_SENSOR_GYRO})
+            if(SDL_GameControllerIsSensorEnabled(pad,type))SDL_GameControllerSetSensorEnabled(pad,type,SDL_FALSE);
+        input->release_all();
+    }
+    pad=chosen;info.pad=family_of(pad);
+    start_motion();
+}
+// The game's controller behind an event, or -1: any of them for a button,
+// which hands it over; for a stick or a trigger, the one in use only. An axis
+// never hands over: a badly calibrated device could otherwise take it all
+// the time.
+SDL_JoystickID GameSession::controller_of(const SDL_Event& e) {
+    SDL_JoystickID which=-1;
+    if(e.type==SDL_CONTROLLERBUTTONDOWN||e.type==SDL_CONTROLLERBUTTONUP)which=e.cbutton.which;
+    else if(e.type==SDL_CONTROLLERAXISMOTION)which=e.caxis.which;
+    else return -1;
+    const auto owned=std::find_if(controllers.begin(),controllers.end(),
+                                  [&](const auto& c){return instance_of(c.get())==which;});
+    if(owned==controllers.end())return -1;
+    if(owned->get()!=pad) {
+        // Its releases: of what the handover already let go.
+        if(e.type!=SDL_CONTROLLERBUTTONDOWN)return -1;
+        use_controller(owned->get());
+    }
+    return which;
+}
 // The controller's accelerometer and gyroscope, for a game that tilts or
 // turns: switched on (they cost battery), the controller's position as level.
 void GameSession::start_motion() {
     motion.recenter();
     if(!pad||!prefs.motion_sensors)return;
-    if((sensors&RAVENEMU_SENSOR_TILT)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_ACCEL))
-        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_ACCEL,SDL_TRUE);
-    if((sensors&RAVENEMU_SENSOR_ROTATION)&&SDL_GameControllerHasSensor(pad.get(),SDL_SENSOR_GYRO))
-        SDL_GameControllerSetSensorEnabled(pad.get(),SDL_SENSOR_GYRO,SDL_TRUE);
+    if((sensors&RAVENEMU_SENSOR_TILT)&&SDL_GameControllerHasSensor(pad,SDL_SENSOR_ACCEL))
+        SDL_GameControllerSetSensorEnabled(pad,SDL_SENSOR_ACCEL,SDL_TRUE);
+    if((sensors&RAVENEMU_SENSOR_ROTATION)&&SDL_GameControllerHasSensor(pad,SDL_SENSOR_GYRO))
+        SDL_GameControllerSetSensorEnabled(pad,SDL_SENSOR_GYRO,SDL_TRUE);
 }
 // Before each frame: the left stick and the controller's sensors tilt and
 // turn the cartridge.
 void GameSession::feed_motion() {
     if(!(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION)))return;
     if(pad) {
-        motion.stick(SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTX),
-                     SDL_GameControllerGetAxis(pad.get(),SDL_CONTROLLER_AXIS_LEFTY));
+        motion.stick(SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTX),
+                     SDL_GameControllerGetAxis(pad,SDL_CONTROLLER_AXIS_LEFTY));
         // A sensor that is off reads level and still.
         float acceleration[3]={0.f,SDL_STANDARD_GRAVITY,0.f},rotation[3]={0.f,0.f,0.f};
         bool sensed=false;
         for(const auto [type,values]:{std::pair{SDL_SENSOR_ACCEL,acceleration},std::pair{SDL_SENSOR_GYRO,rotation}})
-            if(SDL_GameControllerIsSensorEnabled(pad.get(),type)&&SDL_GameControllerGetSensorData(pad.get(),type,values,3)==0)
+            if(SDL_GameControllerIsSensorEnabled(pad,type)&&SDL_GameControllerGetSensorData(pad,type,values,3)==0)
                 sensed=true;
         if(sensed)motion.sense(acceleration,rotation);
     } else motion.stick(0,0);
@@ -671,19 +747,21 @@ void GameSession::feed_motion() {
     if(sensors&RAVENEMU_SENSOR_TILT)ravenemu_set_tilt(core.get(),reading.tilt_x,reading.tilt_y);
     if(sensors&RAVENEMU_SENSOR_ROTATION)ravenemu_set_rotation(core.get(),reading.rotation);
 }
-// The cartridge's motor on the controller: started when it starts, renewed
-// every half second while it runs (each order lasts one), stopped with it.
+// The cartridge's motor on the controller, at Réglages > Commandes' strength:
+// started when it starts, renewed every half second while it runs (each order
+// lasts one), stopped with it.
 void GameSession::update_rumble(Clock::time_point now) {
     const bool on=pad&&prefs.rumble&&ravenemu_rumble_active(core.get());
     if(on&&(!rumbling||now>=rumble_refresh)) {
-        SDL_GameControllerRumble(pad.get(),0xffff,0xffff,1000);
+        const auto strength=static_cast<Uint16>(0xffff*prefs.rumble_strength/100);
+        SDL_GameControllerRumble(pad,strength,strength,1000);
         rumble_refresh=now+std::chrono::milliseconds(500);
     }
     if(!on)stop_rumble();
     rumbling=on;
 }
 void GameSession::stop_rumble() {
-    if(rumbling&&pad)SDL_GameControllerRumble(pad.get(),0,0,0);
+    if(rumbling&&pad)SDL_GameControllerRumble(pad,0,0,0);
     rumbling=false;
 }
 // The cheats that are on, from the next frame; none in Hardcore, where

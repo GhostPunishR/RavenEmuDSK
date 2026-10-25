@@ -64,6 +64,9 @@ enum class PathTarget { Rom, Cover, Avatar };
 struct State {
     Page page = Page::Home;
     SettingsCategory settings_category = SettingsCategory::Library;
+    // Réglages > Son's outputs, listed again each time the list opens: SDL
+    // may look for the devices anew on every call.
+    std::optional<std::vector<std::string>> audio_output_names;
     int chosen = -1;
     int system_filter = 0;
     int sort = 0;

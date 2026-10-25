@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Settings: library folders, display, sound, controls, about.
 #include "shell.hpp"
+#include <ravenemudsk/settings/game_preferences.hpp>
+#include <cstdlib>
 
 namespace ravenemudsk_ui::shell {
 namespace {
@@ -62,9 +64,11 @@ std::string controller_label(KeyAction action, const char* fallback, const PadBi
         return pad_input_name(pads.input(KeyAction::Select), family) + " + " + pad_input_name(pads.input(KeyAction::Start), family);
     // The triggers, unless a console button took them.
     if (action == KeyAction::FastForward)
-        return pads.button(pad_right_trigger) < 0 ? pad_input_name(pad_right_trigger, family) : "Gâchette droite occupée";
+        return pads.action(pad_right_trigger) == KeyAction::Count ? pad_input_name(pad_right_trigger, family)
+                                                                  : "Gâchette droite occupée";
     if (action == KeyAction::Rewind)
-        return pads.button(pad_left_trigger) < 0 ? pad_input_name(pad_left_trigger, family) : "Gâchette gauche occupée";
+        return pads.action(pad_left_trigger) == KeyAction::Count ? pad_input_name(pad_left_trigger, family)
+                                                                 : "Gâchette gauche occupée";
     return fallback;
 }
 // A switch with its label and an explanation below, saved at once.
@@ -83,9 +87,10 @@ void setting_switch(State& s, const char* key, bool fallback, const char* label,
     muted(help);
     ImGui::PopFont();
 }
-// A 0-100 % slider on the card, saved once let go, not at every step.
-void percent_slider(State& s, const char* key, int fallback, bool disabled = false) {
-    int value = std::clamp(s.settings.number(key, fallback), 0, 100);
+// A percent slider on the card (0-100 % unless narrower), saved once let go,
+// not at every step.
+void percent_slider(State& s, const char* key, int fallback, bool disabled = false, int min = 0, int max = 100) {
+    int value = std::clamp(s.settings.number(key, fallback), min, max);
     ImGui::PushID(key);
     ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
     if (disabled) ImGui::BeginDisabled();
@@ -93,7 +98,7 @@ void percent_slider(State& s, const char* key, int fallback, bool disabled = fal
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(color::elevated));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(color::border_strong));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(color::border_strong));
-    if (ImGui::SliderInt("##percent", &value, 0, 100, "%d %%", ImGuiSliderFlags_AlwaysClamp))
+    if (ImGui::SliderInt("##percent", &value, min, max, "%d %%", ImGuiSliderFlags_AlwaysClamp))
         s.settings.set(key, std::to_string(value));
     if (ImGui::IsItemDeactivatedAfterEdit()) save_settings(s);
     ImGui::PopStyleColor(3);
@@ -204,6 +209,50 @@ void settings_sound(State& s) {
     ImGui::Dummy({0.f, space::sm});
     setting_switch(s, "mute", false, "Couper le son",
                    "Plus aucun son du jeu, ni le carillon des succès. Pris en compte au lancement du jeu.");
+    end_card();
+    begin_card("##output");
+    card_title(s, Icon::Volume, "Sortie et latence");
+    ImGui::TextUnformatted("Sortie audio");
+    static constexpr const char* system_output = "Sortie par défaut du système";
+    if (!s.audio_output_names) s.audio_output_names = audio_outputs();
+    const auto& outputs = *s.audio_output_names;
+    const auto chosen = s.settings.get("audio_output");
+    const bool plugged = chosen.empty() || std::find(outputs.begin(), outputs.end(), chosen) != outputs.end();
+    const std::string current = chosen.empty() ? system_output : plugged ? chosen : chosen + " (débranchée)";
+    ImGui::SetNextItemWidth(std::min(420.f, ImGui::GetContentRegionAvail().x));
+    if (ImGui::BeginCombo("##output", current.c_str())) {
+        if (ImGui::IsWindowAppearing()) s.audio_output_names = audio_outputs();
+        if (ImGui::Selectable(system_output, chosen.empty())) {
+            s.settings.set("audio_output", "");
+            save_settings(s);
+        }
+        for (const auto& name : *s.audio_output_names)
+            if (ImGui::Selectable(name.c_str(), name == chosen)) {
+                s.settings.set("audio_output", name);
+                save_settings(s);
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Le casque, les haut-parleurs ou la télévision. Par défaut, le son suit la sortie du système. Si la sortie "
+          "choisie est débranchée, le son passe par celle du système. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Latence du son");
+    static const char* const latencies[] = {"Faible (25 ms)", "Normale (50 ms)", "Élevée (100 ms)"};
+    const int stored = s.settings.number("audio_latency", 50);
+    int latency = 1;
+    for (int i = 0; i < 3; ++i)
+        if (std::abs(audio_latencies[i] - stored) < std::abs(audio_latencies[latency] - stored)) latency = i;
+    if (chips("##latency", latencies, 3, &latency)) {
+        s.settings.set("audio_latency", std::to_string(audio_latencies[latency]));
+        save_settings(s);
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Le son que RavenEmu prépare d’avance. Faible : le son suit l’image de plus près, mais un ordinateur très "
+          "occupé peut le faire grésiller. Élevée : pour un son qui craque, ou un casque Bluetooth. Pris en compte au "
+          "lancement du jeu.");
+    ImGui::PopFont();
     end_card();
 }
 // Réglages > Console: the hardware that runs the games, as the Libretro cores
@@ -350,6 +399,9 @@ void settings_controls(State& s) {
                    "La manette vibre avec le moteur des cartouches qui en ont un : Pokémon Pinball, Drill Dozer, "
                    "WarioWare: Twisted!... Pris en compte au lancement du jeu.");
     ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Force des vibrations");
+    percent_slider(s, "rumble_strength", 100, !s.settings.flag("rumble", true), 10, 100);
+    ImGui::Dummy({0.f, space::sm});
     setting_switch(s, "motion_sensors", true, "Capteurs de mouvement de la manette",
                    "Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le "
                    "gyroscope de la manette, s'il en a (DualShock 4, DualSense, Switch Pro, Joy-Con). Au lancement du "
@@ -360,6 +412,25 @@ void settings_controls(State& s) {
     percent_slider(s, "solar_light", 50);
     ImGui::PushFont(s.fonts.caption);
     muted("Part du plein soleil que reçoit le capteur de la cartouche. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
+    end_card();
+    begin_card("##stick");
+    card_title(s, Icon::Gamepad, "Stick et turbo");
+    setting_switch(s, "stick_dpad", true, "Stick gauche comme croix directionnelle",
+                   "Le stick gauche dirige aussi, dans les huit directions. Dans les jeux à capteurs de mouvement, il "
+                   "incline et tourne la cartouche, comme avant. Pris en compte au lancement du jeu.");
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::TextUnformatted("Zone morte du stick");
+    percent_slider(s, "stick_dead_zone", 30, !s.settings.flag("stick_dpad", true), 10, 90);
+    ImGui::PushFont(s.fonts.caption);
+    muted("La part de la course du stick qui ne compte pas : plus elle est grande, plus il faut le pousser pour se "
+          "déplacer. Augmentez-la si le personnage bouge tout seul. Pris en compte au lancement du jeu.");
+    ImGui::PopFont();
+    ImGui::Dummy({0.f, space::sm});
+    ImGui::PushFont(s.fonts.caption);
+    muted("Turbo A et Turbo B s’attribuent dans le tableau des commandes : maintenus, ils appuient sur A ou B dix fois "
+          "par seconde. Toutes les manettes branchées jouent : celle dont un bouton a servi en dernier vibre et nomme les "
+          "boutons à l’écran.");
     ImGui::PopFont();
     end_card();
 }
@@ -499,11 +570,11 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie et rendue, et sa pause en arrière-plan."},
+         "Choisissez comment l’image du jeu est agrandie et rendue, l’écran, la latence et la pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
-         "Réglez le volume du jeu."},
+         "Réglez le volume du jeu, sa sortie audio et sa latence."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
-         "Choisissez les touches du clavier et les boutons de la manette, ses vibrations et ses capteurs."},
+         "Choisissez les touches du clavier et les boutons de la manette, le turbo, le stick, les vibrations et les capteurs."},
         {SettingsCategory::Console, Icon::Settings, "Console",
          "Choisissez la console qui fait tourner les jeux : couleurs, Game Boy Advance, BIOS."},
         {SettingsCategory::Link, Icon::Link, "Câble link",

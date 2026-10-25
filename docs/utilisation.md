@@ -34,8 +34,11 @@ Les indications montrent les boutons de la manette branchée (Xbox, PlayStation,
 | Avance rapide (maintenir) | Espace |
 | Retour arrière (maintenir) | R |
 | Capture d'écran | F8 |
+| Turbo A / Turbo B (maintenir) | Non attribuées |
 
 Ces touches sont les valeurs par défaut. Dans **Réglages > Commandes**, cliquez sur une touche puis appuyez sur celle souhaitée : boutons de la console et raccourcis d'émulation sont personnalisables et mémorisés pour les prochains lancements. Les touches déjà utilisées sont échangées. **Non attribuée** libère une commande et **Rétablir les touches par défaut** restaure l'ensemble. Échap annule une modification et reste toujours disponible pour ouvrir ou fermer le menu en jeu. Les indications du menu de pause suivent votre configuration.
+
+**Turbo A** et **Turbo B**, maintenus, appuient sur A ou B dix fois par seconde : trois images appuyé, trois relâché. Ils ne sont attribués ni au clavier ni à la manette au départ, pour ne prendre aucune touche déjà choisie : attribuez-les dans **Réglages > Commandes**, par exemple aux boutons X et Y de la manette, qui ne servent pas. Une gâchette attribuée au turbo ne fait plus l'avance rapide ni le retour arrière.
 
 Les boutons de la manette se configurent de la même façon, dans la colonne **Manette** : cliquez sur un bouton, puis appuyez sur celui souhaité, gâchettes LT / RT (L2 / R2, ZL / ZR) comprises. Les noms suivent la manette branchée. Un bouton déjà utilisé est échangé et **Non attribué** libère un bouton de la console. Select et Start restent toujours attribués, puisqu'ils ouvrent le menu ensemble. Le bouton Xbox, PS ou Home reste au système et ne peut pas être choisi. Échap annule. **Rétablir les commandes par défaut** restaure le clavier et la manette.
 
@@ -50,12 +53,17 @@ Dans **Réglages > Affichage** :
 - **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
 - **Mélange d’images** atténue le scintillement des jeux qui affichent un objet une image sur deux : **Mélange** montre la moyenne des deux dernières images, **Rémanence** laisse l'image précédente s'effacer lentement, comme sur un écran LCD.
 
-Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris. Ces réglages sont pris en compte au lancement du jeu suivant.
+Les captures d'écran et les vignettes des états montrent l'image avec ces réglages. **Réglages > Son** règle le volume du jeu ou le coupe entièrement, carillon des succès compris, et :
+
+- **Sortie audio** : le casque, les haut-parleurs ou la télévision. Par défaut, le son suit la sortie choisie dans le système. Si la sortie choisie est débranchée au lancement du jeu, un message le dit et le son passe par celle du système.
+- **Latence du son** : le son que RavenEmu prépare d'avance, 25, 50 (par défaut) ou 100 ms. 25 ms rapproche le son de l'image ; si le son grésille sur un ordinateur occupé, revenez à 50 ms. 100 ms convient à un son qui craque ou à un casque Bluetooth.
+
+Ces réglages sont pris en compte au lancement du jeu suivant.
 
 L'image et le son restent synchronisés :
 
 - quand l'écran rafraîchit à un multiple de la fréquence de la console (59,73 images par seconde), à 5 % près, RavenEmu cale le jeu sur l'écran : une image du jeu à chaque rafraîchissement à 60 Hz, une tous les deux à 120 Hz, une tous les quatre à 240 Hz, sans image affichée plus longtemps qu'une autre. Le jeu tourne alors 0,46 % plus vite, ce qui ne s'entend pas ;
-- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder environ 50 ms d'avance : ni craquements ni décalage qui grandit ;
+- le son est rééchantillonné, et ajusté d'au plus 0,5 % pour garder son avance (50 ms par défaut, **Latence du son**) : ni craquements ni décalage qui grandit ;
 - sur un écran qui ne s'y prête pas (75, 90, 144 ou 165 Hz) en fenêtre, ou sans synchronisation verticale, le jeu garde sa propre cadence, avec le même ajustement du son.
 
 ### Écran et latence
@@ -90,9 +98,16 @@ Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se re
 
 Certaines cartouches avaient un moteur ou des capteurs. RavenEmu les fait passer par la manette, réglables dans **Réglages > Commandes**, carte **Vibrations et capteurs** :
 
-- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...).
+- **Vibrations** : la manette vibre avec le moteur de la cartouche (Pokémon Pinball, Drill Dozer, WarioWare: Twisted!...). **Force des vibrations** la règle de 10 à 100 %.
 - **Capteurs de mouvement de la manette** : Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy et WarioWare: Twisted! lisent l'accéléromètre et le gyroscope de la manette, si elle en a (DualShock 4, DualSense, Switch Pro, Joy-Con). La position de la manette au lancement du jeu, et à chaque sortie du menu ou de la pause, compte comme à plat : pour recentrer, ouvrez puis fermez le menu en tenant la manette comme vous jouez. Le stick gauche incline et tourne aussi, avec ou sans capteurs : poussé à fond, il vaut une inclinaison de 1 g, ou un demi-tour par seconde.
 - **Soleil sur le capteur solaire (Boktai)** : la part du plein soleil que reçoit la cartouche, 50 % par défaut.
+
+La carte **Stick et turbo** règle le stick gauche :
+
+- **Stick gauche comme croix directionnelle**, activé par défaut : le stick dirige aussi, dans les huit directions, chacune sur un huitième de tour (les diagonales appuient sur deux directions). Dans les jeux à capteurs de mouvement, il garde son rôle : il incline et tourne la cartouche.
+- **Zone morte du stick** : la part de sa course qui ne compte pas, 30 % par défaut. Plus elle est grande, plus il faut pousser le stick ; augmentez-la si le personnage bouge tout seul. Le stick relâche sa direction un peu en deçà, pour ne pas hésiter sur la limite.
+
+Toutes les manettes branchées jouent, même ajoutées en cours de partie. Celle dont un bouton a servi en dernier vibre, sert aux capteurs de mouvement, au stick et aux gâchettes, et nomme les boutons à l'écran ; ce que tenait la précédente est relâché.
 
 Ces réglages sont pris en compte au lancement du jeu suivant.
 

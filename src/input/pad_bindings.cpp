@@ -15,16 +15,20 @@ PadBindings::PadBindings()
     : inputs_{SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
               SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
               SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
-              SDL_CONTROLLER_BUTTON_RIGHTSHOULDER} {}
+              SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, pad_unbound, pad_unbound} {}
 int PadBindings::input(KeyAction action) const {
     const auto i = static_cast<std::size_t>(action);
     return i < inputs_.size() ? inputs_[i] : pad_unbound;
 }
+KeyAction PadBindings::action(int input) const {
+    if (input != pad_unbound)
+        for (std::size_t i = 0; i < inputs_.size(); ++i)
+            if (inputs_[i] == input) return static_cast<KeyAction>(i);
+    return KeyAction::Count;
+}
 int PadBindings::button(int input) const {
-    if (input == pad_unbound) return -1;
-    for (std::size_t i = 0; i < inputs_.size(); ++i)
-        if (inputs_[i] == input) return key_commands()[i].button;
-    return -1;
+    const auto bound = action(input);
+    return bound == KeyAction::Count ? -1 : key_commands()[static_cast<int>(bound)].button;
 }
 bool PadBindings::assign(KeyAction action, int input) {
     const auto i = static_cast<std::size_t>(action);

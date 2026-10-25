@@ -2,6 +2,7 @@
 #pragma once
 #include <ravenemudsk/input/keyboard_bindings.hpp>
 #include <ravenemudsk/input/pad_bindings.hpp>
+#include <string>
 namespace ravenemudsk_ui {
 class Settings;
 // What a game reads from the settings when it starts, in one read.
@@ -9,6 +10,10 @@ struct GamePreferences {
     bool hardcore = false;      // RetroAchievements Hardcore, as last chosen
     bool unlock_sound = true;   // "Son des succès": on unless turned off
     int volume = 100;           // Réglages > Son: 0-100, 0 when the sound is cut
+    // Réglages > Son: the output device by its name (empty: the system's),
+    // and the sound kept ahead of it, in milliseconds (audio_latencies).
+    std::string audio_output;
+    int audio_latency = 50;
     bool smooth_image = false;  // Réglages > Affichage: smooth scaling instead of sharp pixels
     bool integer_scale = false; // Réglages > Affichage: a whole number of times the console's size
     bool lcd_colors = false;    // Réglages > Affichage: the GBC and GBA LCD's colors
@@ -34,11 +39,18 @@ struct GamePreferences {
     bool gbc_on_gba = false;
     int gba_bios = 0;
     bool rumble = true;
+    int rumble_strength = 100;  // 10-100 % of the controller's motors
+    // The left stick as the D-pad, past this share of its travel (10-90 %),
+    // in the games it does not tilt.
+    bool stick_dpad = true;
+    int stick_dead_zone = 30;
     bool rewind = true;         // Réglages > Commandes: keep the last moments to play them backwards
     bool motion_sensors = true;
     int solar_light = 50;
     KeyboardBindings keyboard;
     PadBindings pads;
 };
+// Réglages > Son's choices, from the quickest to answer to the steadiest.
+inline constexpr int audio_latencies[] = {25, 50, 100};
 GamePreferences game_preferences(const Settings& settings);
 } // namespace ravenemudsk_ui
