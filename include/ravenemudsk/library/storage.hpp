@@ -17,6 +17,13 @@ struct Folders {
 // Uses the first root where both folders can be created and written.
 // Throws std::runtime_error when no root is usable.
 Folders prepare_folders(const std::vector<std::filesystem::path>& roots);
+// The program was named RavenEmuDSK before RavenEmu, and so were two of its
+// user data folders: <user data>/RavenEmuDSK/RavenEmuDSK (library, settings,
+// avatar) and <user data>/RavenEmu/RavenEmuDSK (per-game folders, when the
+// program's own folder is read-only). Moves what they hold into `root`,
+// <user data>/RavenEmu. A file `root` already has stays where it was, never
+// overwritten; old folders are removed once empty.
+void move_legacy_data(const std::filesystem::path& root);
 // Files are isolated by the normalized absolute ROM path, under
 // <saves>/roms/<SHA-256 of path>/<ROM file name><suffix>.
 // Older files are copied, never moved. A shared legacy file is assigned to

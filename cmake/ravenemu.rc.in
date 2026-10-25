@@ -1,0 +1,32 @@
+// The program's icon, and the name Windows gives it: Explorer, the taskbar,
+// Task Manager and the volume mixer show FileDescription and ProductName.
+IDI_RAVENEMU ICON "@RAVENEMUDSK_ICON@"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK 0x3F
+FILEFLAGS 0x0
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040C04B0"
+    BEGIN
+      VALUE "CompanyName", "GhostPunishR"
+      VALUE "FileDescription", "RavenEmu"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "InternalName", "RavenEmu"
+      VALUE "LegalCopyright", "(C) 2026 GhostPunishR, AGPL-3.0-only"
+      VALUE "OriginalFilename", "RavenEmu.exe"
+      VALUE "ProductName", "RavenEmu"
+      VALUE "ProductVersion", "@PROJECT_VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x040C, 1200
+  END
+END

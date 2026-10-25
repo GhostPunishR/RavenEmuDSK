@@ -101,12 +101,18 @@ std::optional<fs::path> pick_folder() {
     return std::nullopt;
 }
 } // namespace
-fs::path data_file() {
-    char* ptr = SDL_GetPrefPath("RavenEmuDSK", "RavenEmuDSK");
-    if (!ptr) return "ravenemudsk-library.txt";
-    const auto result = from_utf8(ptr) / "bibliotheque.txt";
+fs::path data_root() {
+    char* ptr = SDL_GetPrefPath("", "RavenEmu");
+    if (!ptr) return {};
+    const auto root = from_utf8(ptr).parent_path();
     SDL_free(ptr);
-    return result;
+    static std::once_flag moved;
+    std::call_once(moved, [&] { move_legacy_data(root); });
+    return root;
+}
+fs::path data_file() {
+    const auto root = data_root();
+    return root.empty() ? fs::path("ravenemudsk-library.txt") : root / "bibliotheque.txt";
 }
 ravenemudsk_ra::Client& retro_client(State& s) {
     return s.retro ? *s.retro : ravenemudsk_ra::client();

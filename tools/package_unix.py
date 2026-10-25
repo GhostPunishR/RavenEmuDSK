@@ -113,12 +113,12 @@ def verify(binary: Path, directory: Path, macos: bool) -> None:
 def linux(build: Path, stage: Path) -> tuple[Path, Path]:
     app = stage / "RavenEmu"
     app.mkdir()
-    binary = app / "RavenEmuDSK"
-    copy(build / "RavenEmuDSK", binary)
+    binary = app / "RavenEmu"
+    copy(build / "RavenEmu", binary)
     shutil.copytree(build / "assets", app / "assets")
     project_files(app, build)
     records: dict = {}
-    dependencies = linux_dependencies(build / "RavenEmuDSK")
+    dependencies = linux_dependencies(build / "RavenEmu")
     print(f"Bundling {len(dependencies)} Linux shared libraries", flush=True)
     if not any(name.startswith("libSDL2") for name in dependencies):
         raise RuntimeError("SDL2 is missing from the runtime dependency list")
@@ -132,7 +132,7 @@ def linux(build: Path, stage: Path) -> tuple[Path, Path]:
     (app / "dependencies.json").write_text(json.dumps(records, indent=2) + "\n")
     (app / "LISEZ-MOI.txt").write_text(
         "RavenEmu pour Linux\n\n"
-        "Extrayez toute l’archive, puis lancez RavenEmuDSK. Conservez les dossiers lib et assets.\n"
+        "Extrayez toute l’archive, puis lancez RavenEmu. Conservez les dossiers lib et assets.\n"
         "Les bibliothèques sont incluses, sans modification du système ni installation par apt.\n"
         "La version CI x86_64 nécessite glibc 2.39 ou plus récente (Ubuntu 24.04+, Debian 13).\n"
         "Votre environnement de bureau fournit les pilotes graphiques, le son, le magasin de\n"
@@ -176,11 +176,11 @@ def brew_licenses(paths: list[str], resources: Path) -> None:
 def macos(build: Path, stage: Path) -> tuple[Path, Path]:
     app = stage / "RavenEmu.app"
     resources = app / "Contents/Resources"
-    binary = app / "Contents/MacOS/RavenEmuDSK"
-    copy(build / "RavenEmuDSK", binary)
+    binary = app / "Contents/MacOS/RavenEmu"
+    copy(build / "RavenEmu", binary)
     shutil.copytree(build / "assets", resources / "assets")
     project_files(resources, build)
-    version = re.search(r"project\(RavenEmuDSK VERSION ([0-9.]+)",
+    version = re.search(r"project\(RavenEmu VERSION ([0-9.]+)",
                         (ROOT / "CMakeLists.txt").read_text())[1]
     # Finder and the Dock show the provided logo: an .icns built from it with
     # the system's own sips and iconutil.
@@ -194,7 +194,7 @@ def macos(build: Path, stage: Path) -> tuple[Path, Path]:
     run("iconutil", "-c", "icns", iconset, "-o", resources / "RavenEmu.icns")
     shutil.rmtree(iconset)
     with (app / "Contents/Info.plist").open("wb") as stream:
-        plistlib.dump({"CFBundleExecutable": "RavenEmuDSK", "CFBundleName": "RavenEmu",
+        plistlib.dump({"CFBundleExecutable": "RavenEmu", "CFBundleName": "RavenEmu",
                       "CFBundleIconFile": "RavenEmu",
                       "CFBundleDisplayName": "RavenEmu", "CFBundleIdentifier": "org.ravenemu.desktop",
                       "CFBundlePackageType": "APPL", "CFBundleVersion": version,
@@ -258,12 +258,12 @@ def main() -> None:
             if system == "Darwin":
                 run("ditto", "-x", "-k", archive, extracted)
                 installed = Path(extracted) / "RavenEmu.app"
-                verify(installed / "Contents/MacOS/RavenEmuDSK", installed, macos=True)
+                verify(installed / "Contents/MacOS/RavenEmu", installed, macos=True)
             else:
                 with tarfile.open(archive) as bundle:
                     bundle.extractall(extracted, filter="data")
                 installed = Path(extracted) / "RavenEmu"
-                verify(installed / "RavenEmuDSK", installed, macos=False)
+                verify(installed / "RavenEmu", installed, macos=False)
         print(f"Packaged and verified: {archive}")
 
 

@@ -120,6 +120,23 @@ def vcpkg_licenses(folder: Path, installed: Path, destination: Path) -> dict:
     return records
 
 
+def product_name(binary: Path) -> str | None:
+    """The ProductName of a program's version resource: the name Windows shows
+    in Explorer, the taskbar and Task Manager instead of the file name."""
+    data = binary.read_bytes()
+    # A String of the resource: three 16-bit fields, its UTF-16 key, then its
+    # value, aligned on 32 bits from the start of the String.
+    key = "ProductName\0".encode("utf-16-le")
+    at = data.find(key)
+    if at < 6:
+        return None
+    start = at - 6 + ((6 + len(key) + 3) & ~3)
+    end = start
+    while data[end:end + 2] not in (b"\0\0", b""):
+        end += 2
+    return data[start:end].decode("utf-16-le", errors="replace")
+
+
 def run(program: Path, *args: str, env: dict[str, str]) -> None:
     result = subprocess.run([program, *args], env=env, timeout=30, capture_output=True, text=True)
     if result.returncode:
@@ -135,7 +152,9 @@ def verify(app: Path) -> None:
     if absent:
         lines = "\n".join(f"  {dll} (loaded by {', '.join(users)})" for dll, users in sorted(absent.items()))
         raise RuntimeError(f"DLLs missing from the archive:\n{lines}")
-    program = app / "RavenEmuDSK.exe"
+    program = app / "RavenEmu.exe"
+    if (name := product_name(program)) != "RavenEmu":
+        raise RuntimeError(f"{program.name} is named {name!r} in Windows, not RavenEmu")
     env = {**os.environ, "SDL_VIDEODRIVER": "dummy", "SDL_AUDIODRIVER": "dummy", "RAVENEMUDSK_UI_SMOKE": "1"}
     print(f"Verifying {program}", flush=True)
     run(program, "--help", env=env)
@@ -156,7 +175,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="RavenEmu package ") as directory:
         app = Path(directory) / "RavenEmu"
         app.mkdir()
-        copy(build / "RavenEmuDSK.exe", app / "RavenEmuDSK.exe")
+        copy(build / "RavenEmu.exe", app / "RavenEmu.exe")
         # vcpkg's DLLs and the Visual C++ runtime, copied beside the program by the build.
         for dll in build.glob("*.dll"):
             copy(dll, app / dll.name)
@@ -166,7 +185,9 @@ def main() -> None:
         (app / "dependencies.json").write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
         (app / "LISEZ-MOI.txt").write_text(
             "RavenEmu pour Windows\n\n"
-            "Extrayez toute l’archive, puis lancez RavenEmuDSK.exe. Conservez les DLL et le dossier assets à côté.\n"
+            "Extrayez toute l’archive, puis lancez RavenEmu.exe. Conservez les DLL et le dossier assets à côté.\n"
+            "Ce programme s’appelait RavenEmuDSK.exe : si vous extrayez sur une ancienne version, vous pouvez\n"
+            "supprimer ce fichier. Vos sauvegardes, votre bibliothèque et vos réglages sont conservés.\n"
             "Rien à installer : SDL2, libcurl, zlib et le runtime Visual C++ sont inclus ; Windows 10 ou 11\n"
             "(64 bits) fournit le reste.\n\n"
             "Les licences sont dans licenses ; dependencies.json indique les versions des bibliothèques (vcpkg).\n"

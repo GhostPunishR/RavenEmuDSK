@@ -1,4 +1,4 @@
-RavenEmuDSK - © 2026 GhostPunishR
+RavenEmu - © 2026 GhostPunishR
 Application interface and integration: GhostPunishR (AGPL-3.0-only).
 RavenCore maintained separately at https://github.com/GhostPunishR/RavenCore (AGPL-3.0-only).
 RavenCore's Game Boy Color compatibility palettes (cores/gb/src/ppu/compatibility_palettes.hpp)

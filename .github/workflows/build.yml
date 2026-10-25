@@ -1,4 +1,4 @@
-name: Build RavenEmuDSK
+name: Build RavenEmu
 on:
   push:
     branches: [main]
@@ -110,9 +110,9 @@ jobs:
             --env HOME=/tmp --env XDG_DATA_HOME=/tmp/data
             --env SDL_VIDEODRIVER=dummy --env SDL_AUDIODRIVER=dummy
             --env RAVENEMUDSK_UI_SMOKE=1 ubuntu:24.04)
-          "${runtime[@]}" /opt/RavenEmu/RavenEmuDSK --help
-          "${runtime[@]}" /opt/RavenEmu/RavenEmuDSK
+          "${runtime[@]}" /opt/RavenEmu/RavenEmu --help
+          "${runtime[@]}" /opt/RavenEmu/RavenEmu
       - uses: actions/upload-artifact@v4
         with:
-          name: RavenEmuDSK-${{ runner.os }}
+          name: RavenEmu-${{ runner.os }}
           path: dist/
