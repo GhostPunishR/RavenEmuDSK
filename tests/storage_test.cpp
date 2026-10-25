@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/library/library.hpp>
 #include <ravenemudsk/library/storage.hpp>
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 namespace {
@@ -134,4 +136,25 @@ int main() {
     write(tmp.path / "file" / "RavenEmuDSK", "a file, not a folder");
     move_legacy_data(tmp.path / "file" / "RavenEmu");
     require(read(tmp.path / "file" / "RavenEmuDSK") == "a file, not a folder", "A file was removed");
+
+    // The capitalized folders of older versions become lowercase, files included.
+    const auto portable = tmp.path / "portable";
+    write(portable / "Sauvegardes" / "Game.gb.sav", "old save");
+    write(portable / "Jaquettes" / "Game.png", "cover");
+    write(portable / "BIOS" / "gba_bios.bin", "bios");
+    write(portable / "Captures" / "a.png", "first");
+    write(portable / "captures" / "b.png", "second"); // The same folder where case is ignored.
+    const auto lowered = prepare_folders({portable});
+    require(lowered.saves == portable / "sauvegardes" && lowered.bios == portable / "bios", "Folders are not lowercase");
+    require(read(lowered.saves / "Game.gb.sav") == "old save", "Saves were lost in the rename");
+    require(read(lowered.covers / "Game.png") == "cover", "Covers were lost in the rename");
+    require(read(lowered.bios / "gba_bios.bin") == "bios", "BIOS was lost in the rename");
+    require(read(lowered.captures / "a.png") == "first" && read(lowered.captures / "b.png") == "second",
+            "Captures were not merged");
+    std::vector<std::string> names; // As written on disk.
+    for (const auto& entry : fs::directory_iterator(portable)) names.push_back(entry.path().filename().string());
+    std::sort(names.begin(), names.end());
+    require(names == std::vector<std::string>{"bios", "captures", "jaquettes", "sauvegardes"},
+            "A folder kept its capital letter");
+    require(prepare_folders({portable}).saves == lowered.saves, "A second run moved the folders");
 }

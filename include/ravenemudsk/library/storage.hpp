@@ -9,13 +9,15 @@ namespace ravenemudsk_ui {
 // (portable) or, when that folder is read-only, in the user data folder;
 // screenshots go beside them.
 struct Folders {
-    std::filesystem::path saves;    // <root>/Sauvegardes: .sav, states, unlock journal, last capture
-    std::filesystem::path covers;   // <root>/Jaquettes: cover images named after the ROM
-    std::filesystem::path captures; // <root>/Captures: screenshots taken in game
-    std::filesystem::path bios;     // <root>/BIOS: gba_bios.bin, the player's own
+    std::filesystem::path saves;    // <root>/sauvegardes: .sav, states, unlock journal, last capture
+    std::filesystem::path covers;   // <root>/jaquettes: cover images named after the ROM
+    std::filesystem::path captures; // <root>/captures: screenshots taken in game
+    std::filesystem::path bios;     // <root>/bios: gba_bios.bin, the player's own
 };
 // Uses the first root where both folders can be created and written.
-// Throws std::runtime_error when no root is usable.
+// Throws std::runtime_error when no root is usable. The capitalized folders
+// of older versions (Sauvegardes, Jaquettes, Captures, BIOS) are renamed,
+// or merged without replacing a file.
 Folders prepare_folders(const std::vector<std::filesystem::path>& roots);
 // The program was named RavenEmuDSK before RavenEmu, and so were two of its
 // user data folders: <user data>/RavenEmuDSK/RavenEmuDSK (library, settings,

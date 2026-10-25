@@ -962,7 +962,7 @@ void GameSession::use_gba_bios(ravenemu_bridge* target) {
     const auto file=folders.bios/"gba_bios.bin";
     std::vector<std::uint8_t> bios;
     try { bios=read_optional(file,1u<<20); } catch(const std::exception&) { bios.clear(); }
-    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier BIOS : le jeu démarre avec le BIOS de RavenCore.";
+    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier bios : le jeu démarre avec le BIOS de RavenCore.";
     else if(!ravenemu_set_gba_bios(target,bios.data(),bios.size(),prefs.gba_bios==2))
         bios_notice="gba_bios.bin ne fait pas 16 Kio : le jeu démarre avec le BIOS de RavenCore.";
 }

@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <iterator>
+#include <utility>
 namespace ravenemudsk_ui {
 namespace fs = std::filesystem;
 namespace {
@@ -81,6 +82,24 @@ void merge_into(const fs::path& from, const fs::path& to) {
     }
     remove_if_empty(from); // What could not move stays there.
 }
+// Older versions capitalized the per-game folders. Renames each to its
+// lowercase name, a change of case only where the file system ignores case;
+// where it tells them apart and `root` has both, merges it instead.
+void lowercase_folders(const fs::path& root) {
+    static constexpr std::array<std::pair<const char*, const char*>, 4> renamed{{
+        {"Sauvegardes", "sauvegardes"}, {"Jaquettes", "jaquettes"}, {"Captures", "captures"}, {"BIOS", "bios"}}};
+    std::error_code ec;
+    std::vector<std::string> names; // As written on disk, whatever the file system.
+    for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec))
+        names.push_back(utf8(it->path().filename()));
+    if (ec) return;
+    const auto has = [&](const char* name) { return std::find(names.begin(), names.end(), name) != names.end(); };
+    for (const auto& [old_name, name] : renamed) {
+        if (!has(old_name) || !fs::is_directory(root / old_name, ec)) continue;
+        if (has(name)) merge_into(root / old_name, root / name);
+        else fs::rename(root / old_name, root / name, ec);
+    }
+}
 } // namespace
 
 void move_legacy_data(const fs::path& root) {
@@ -94,7 +113,8 @@ void move_legacy_data(const fs::path& root) {
 Folders prepare_folders(const std::vector<fs::path>& roots) {
     for (const auto& root : roots) {
         if (root.empty()) continue;
-        Folders folders{root / "Sauvegardes", root / "Jaquettes", root / "Captures", root / "BIOS"};
+        lowercase_folders(root);
+        Folders folders{root / "sauvegardes", root / "jaquettes", root / "captures", root / "bios"};
         if (writable(folders.saves) && writable(folders.covers)) {
             // Made now, so that Réglages can open them; a failure waits for their first use.
             std::error_code ignored;
@@ -103,7 +123,7 @@ Folders prepare_folders(const std::vector<fs::path>& roots) {
             return folders;
         }
     }
-    throw std::runtime_error("Impossible de créer les dossiers Sauvegardes et Jaquettes");
+    throw std::runtime_error("Impossible de créer les dossiers sauvegardes et jaquettes");
 }
 
 fs::path screenshot_path(const Folders& folders, const std::string& title, std::time_t when) {

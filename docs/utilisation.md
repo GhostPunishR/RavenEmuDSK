@@ -90,7 +90,7 @@ Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la 
 
 - **Jeux Game Boy en couleurs** : les jeux Game Boy tournent sur une Game Boy Color. Ils prennent les couleurs que sa boot ROM leur choisit (Pokémon Rouge en rouge, Bleu en bleu...), ou celles d'une combinaison de touches tenue pendant son logo : brun, rouge, sépia, bleu, gris, pastel, négatif...
 - **Game Boy Color d'une Game Boy Advance** : des jeux comme Zelda Oracle ou Shantae débloquent alors leurs bonus.
-- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `BIOS`, à côté de `Sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
+- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `bios`, à côté de `sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
 
 Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se recharge que dans le mode qui l'a créé : même console, même BIOS. Les succès RetroAchievements restent ceux du jeu, quelle que soit la console.
 
@@ -163,11 +163,11 @@ RavenCore vérifie le code avant de l'accepter ; un code refusé affiche la rais
 
 ## Captures d'écran
 
-**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `Captures`, à côté de `Sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
+**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `captures`, à côté de `sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
 
 ## Sauvegardes et jaquettes
 
-Sous Windows et Linux, l'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**.
+Sous Windows et Linux, l'application utilise les dossiers `sauvegardes` et `jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**. Les anciennes versions nommaient ces dossiers avec une majuscule (`Sauvegardes`, `Jaquettes`, `Captures`, `BIOS`) : RavenEmu les renomme en minuscules au lancement, avec leur contenu. Si un dossier des deux noms existe déjà, comme sous Linux où la casse compte, les fichiers sont réunis dans le dossier en minuscules, sans remplacer un fichier existant.
 
 La bibliothèque et les réglages sont enregistrés séparément dans le dossier de données utilisateur `RavenEmu` : `%APPDATA%\RavenEmu` sous Windows, `~/.local/share/RavenEmu` sous Linux et `~/Library/Application Support/RavenEmu` sous macOS. Copier une ROM ne transfère donc pas automatiquement sa progression : conservez également vos sauvegardes.
 
