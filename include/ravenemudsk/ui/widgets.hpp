@@ -44,6 +44,9 @@ void progress_bar(ImDrawList* draw, ImVec2 min, ImVec2 max, float fraction, ImU3
 void focus_ring(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding);
 // Text clipped to max_width with an ellipsis, using whole UTF-8 characters.
 std::string ellipsize(ImFont* font, const std::string& text, float max_width);
+// Text broken between words into at most max_lines lines of max_width; a
+// word wider than a line is cut, and the last line ellipsized if needed.
+std::vector<std::string> wrap_lines(ImFont* font, const std::string& text, float max_width, int max_lines);
 
 // Game artwork: the user's local image, or generated platform art.
 void draw_cover(ImDrawList* draw, ImVec2 min, ImVec2 max, const std::string& title,

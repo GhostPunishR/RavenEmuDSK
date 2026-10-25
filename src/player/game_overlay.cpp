@@ -184,7 +184,8 @@ UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv) {
         style.size = 64.f;
         style.pad = 14.f;
         style.radius = 10.f;
-        style.max_width = std::max(style.size * 3.f, std::min(560.f, screen.x - 2.f * style.margin));
+        // As wide as the window allows: the band only spans its text.
+        style.max_width = std::max(style.size * 3.f, screen.x - 2.f * style.margin);
         return style;
     }
     style.margin = std::max(16.f, std::min(screen.x, screen.y) * .05f);
@@ -193,6 +194,12 @@ UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv) {
     style.radius = style.size * .12f;
     style.max_width = std::max(style.size * 3.f, std::min(screen.x * .7f, screen.x - 2.f * style.margin));
     return style;
+}
+BannerTitle banner_title(ImFont* font, ImFont* small, const std::string& title, float space, float room) {
+    if (title.empty()) return {font, {}};
+    if (text_width(font, title.c_str()) <= space) return {font, {title}};
+    ImFont* chosen = 2.f * font->FontSize <= room ? font : small;
+    return {chosen, wrap_lines(chosen, title, space, 2)};
 }
 UnlockBannerFrame unlock_banner_frame(double t) {
     // Seconds: drop, unfold, hold, fold, rise. Within the 5.2 s a notice lasts.
@@ -271,9 +278,13 @@ float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2
     ImFont* heading_font = tv ? fonts.tv_body : fonts.caption;
     ImFont* title_font = tv ? fonts.tv_title : fonts.strong;
     const float space = std::max(80.f, style.max_width - style.size - 2.f * style.pad);
+    const float gap = style.size * .06f;
     const auto heading = ellipsize(heading_font, popup.heading, space);
-    const auto title = ellipsize(title_font, popup.title, space);
-    const float text = std::max(text_width(heading_font, heading.c_str()), text_width(title_font, title.c_str()));
+    // A long title takes two lines rather than being cut, in the band's height.
+    const float room = style.size * .9f - (heading.empty() ? 0.f : heading_font->FontSize + gap);
+    const auto title = banner_title(title_font, heading_font, popup.title, space, room);
+    float text = text_width(heading_font, heading.c_str());
+    for (const auto& line : title.lines) text = std::max(text, text_width(title.font, line.c_str()));
     const float full = style.size + (text > 0.f ? 2.f * style.pad + text : 0.f);
     const float width = style.size + (full - style.size) * frame.unfold;
     const float x = (screen.x - width) * .5f;
@@ -296,15 +307,18 @@ float unlock_banner(ImDrawList* d, const Fonts& fonts, BadgeCache& cache, ImVec2
         // The text is uncovered as the band unfolds, never drawn past it.
         d->PushClipRect({x + style.size, y}, {x + width, y + style.size}, true);
         const float tx = x + style.size + style.pad * .6f;
-        const float gap = style.size * .06f;
-        const bool two = !title.empty() && !heading.empty();
-        const float block = two ? heading_font->FontSize + gap + title_font->FontSize : (title.empty() ? heading_font : title_font)->FontSize;
+        const float lines = title.font->FontSize * static_cast<float>(title.lines.size());
+        const float block = (heading.empty() ? 0.f : heading_font->FontSize) +
+                            (heading.empty() || title.lines.empty() ? 0.f : gap) + lines;
         float ty = y + (style.size - block) * .5f;
         if (!heading.empty()) {
             d->AddText(heading_font, heading_font->FontSize, {tx, ty}, popup.trophy ? color::gold : color::text_muted, heading.c_str());
             ty += heading_font->FontSize + gap;
         }
-        if (!title.empty()) d->AddText(title_font, title_font->FontSize, {tx, ty}, color::text, title.c_str());
+        for (const auto& line : title.lines) {
+            d->AddText(title.font, title.font->FontSize, {tx, ty}, color::text, line.c_str());
+            ty += title.font->FontSize;
+        }
         d->PopClipRect();
     }
     return y + style.size;

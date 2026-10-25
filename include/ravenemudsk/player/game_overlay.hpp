@@ -87,6 +87,11 @@ struct UnlockBannerStyle {
     float max_width = 1100.f;
 };
 UnlockBannerStyle unlock_banner_style(ImVec2 screen, bool tv = true);
+// The banner's title (a game's at its start, an achievement's) within `space`:
+// one line in `font`, else two broken between words, in `small` when two
+// lines of `font` would exceed `room`; "…" only past two lines.
+struct BannerTitle { ImFont* font = nullptr; std::vector<std::string> lines; };
+BannerTitle banner_title(ImFont* font, ImFont* small, const std::string& title, float space, float room);
 // `drop`: 0 above the screen, 1 in place. `unfold`: 0 badge alone, 1 whole band.
 struct UnlockBannerFrame { float drop = 0.f, unfold = 0.f; };
 UnlockBannerFrame unlock_banner_frame(double elapsed_seconds);
