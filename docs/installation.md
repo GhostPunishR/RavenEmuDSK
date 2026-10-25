@@ -6,13 +6,13 @@
 
 Les [artefacts GitHub Actions](https://github.com/GhostPunishR/RavenEmuDSK/actions) contiennent les paquets de chaque compilation réussie. Aucune ROM n'est fournie.
 
-- **Windows x64** : extrayez l'archive et lancez `RavenEmuDSK.exe`, en conservant les DLL et le dossier `assets` à côté.
+- **Windows 10 ou 11 (64 bits)** : extrayez `RavenEmu-Windows-x64.zip`, puis lancez `RavenEmu/RavenEmuDSK.exe`. SDL2, libcurl, zlib et le runtime Visual C++ sont inclus : rien à installer, pas même le « Visual C++ Redistributable ». Conservez les DLL et le dossier `assets` à côté du programme.
 - **Linux x86_64** : extrayez `RavenEmu-Linux-x86_64.tar.gz`, puis lancez `RavenEmu/RavenEmuDSK`. Les bibliothèques SDL2, libcurl, libsecret et leurs dépendances sont incluses dans `lib`, sans installation par apt. Conservez l'ensemble du dossier. La compilation CI nécessite glibc 2.39 ou plus récente, par exemple Ubuntu 24.04+ ou Debian 13.
 - **macOS 15+** : extrayez l'archive `RavenEmu-macOS-<architecture>.zip` et déplacez `RavenEmu.app` dans Applications. SDL2 et ses dépendances, dont SDL3 lorsque Homebrew utilise `sdl2-compat`, sont intégrées à l'application ; libcurl et les frameworks Apple sont fournis par macOS. Homebrew n'est pas nécessaire pour utiliser ce paquet. L'architecture du Mac de compilation est indiquée dans le nom de l'archive. L'application possède une signature locale de validation, sans notarisation Apple ; macOS peut demander de l'autoriser dans Confidentialité et sécurité.
 
 Sous Linux, le bureau fournit les pilotes graphiques, les services audio et le magasin de certificats HTTPS. La mémorisation de la session RetroAchievements nécessite un trousseau Secret Service disponible et déverrouillé, par exemple GNOME Keyring ou KWallet compatible. Les bibliothèques fournies ne créent pas ce service à la place de votre session de bureau.
 
-Les paquets Unix contiennent les licences de leurs bibliothèques et un fichier `dependencies.json` avec leurs versions et la provenance de leurs sources.
+Les paquets contiennent les licences de leurs bibliothèques et un fichier `dependencies.json` avec leurs versions et la provenance de leurs sources.
 
 ## Compiler depuis les sources
 
@@ -20,7 +20,7 @@ Les paquets Unix contiennent les licences de leurs bibliothèques et un fichier 
 
 - CMake 3.22 ou plus récent, Git et un compilateur compatible C++20.
 - Les bibliothèques de développement SDL2 et libcurl.
-- Python 3 pour les contrôles du dépôt et la création des paquets Unix.
+- Python 3 pour les contrôles du dépôt et la création des paquets.
 - Une connexion Internet pour récupérer les dépendances à la première configuration.
 
 RavenCore, Dear ImGui, stb et rcheevos sont récupérés par CMake à des révisions fixées dans le dépôt. Le logo RavenEmu sans marge grise est inclus dans `assets/ravenemu-logo.png`, à partir de l’[icône originale du projet RavenEmu](https://github.com/GhostPunishR/RavenEmu/blob/5f002726a68c1978f4cad273bf8b7b3786b9fb3b/docs/assets/ravenemu-icon.png). Il est utilisé dans l’interface et pour les icônes des fenêtres.

@@ -92,9 +92,8 @@ jobs:
         run: |
           mkdir -p dist
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp build/Release/RavenEmuDSK.exe dist/
-            cp build/Release/*.dll dist/ || true
-            cp -r build/Release/assets dist/ || true
+            # Fails when a DLL that RavenEmu loads is neither in the archive nor part of Windows.
+            python tools/package_windows.py --build build/Release --output dist
           else
             python tools/package_unix.py --build build --output dist
           fi
