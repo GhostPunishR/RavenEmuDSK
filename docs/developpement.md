@@ -22,7 +22,7 @@
 | `tests/` | Tests CTest et données synthétiques. |
 | `assets/` | Logo, icônes et ressources de l'interface. |
 | `cmake/` | Intégration des dépendances et assemblage macOS. |
-| `tools/` | Vérifications Python et création des paquets Unix. |
+| `tools/` | Vérifications Python et création des paquets. |
 | `.github/workflows/build.yml` | Compilation, tests et paquets Windows, Linux et macOS. |
 
 Chaque fichier se range dans le dossier de son rôle, le même sous `src/` et sous `include/ravenemudsk/`. Les espaces de noms C++ (`ravenemudsk_ui`, `ravenemudsk_ra`, `ravenemudsk_link`...) et les bibliothèques CMake ne suivent pas ce découpage et restent inchangés.
@@ -69,6 +69,14 @@ python3 tools/package_unix.py --build build --output dist
 ```
 
 L'outil nécessite `patchelf` et les métadonnées des paquets Debian/Ubuntu sous Linux ; sous macOS, il utilise CMake, les outils Xcode et les licences des formules Homebrew de compilation. Il rassemble les bibliothèques, corrige leurs chemins et vérifie les pages principales depuis un emplacement contenant des espaces. La CI Linux relance aussi le paquet dans une image Ubuntu minimale, sans installation des bibliothèques de l'application. Les services graphiques et audio réels restent à vérifier sur un poste de bureau.
+
+Sous Windows, après la compilation Release avec vcpkg (PowerShell) :
+
+```powershell
+python tools/package_windows.py --build build/Release --output dist
+```
+
+L'outil crée `RavenEmu-Windows-x64.zip` avec le programme, les DLL de vcpkg, le runtime Visual C++ (copié par CMake depuis Visual Studio), les ressources, les licences et `dependencies.json`. Il lit ensuite les DLL importées par le programme et par chaque DLL du paquet, chargement différé compris, et échoue si l'une d'elles n'est ni dans le paquet ni fournie par Windows. Le runtime Visual C++ et celui de MinGW comptent toujours comme absents de Windows, même quand une copie se trouve dans `System32` : c'est le cas sur les machines de compilation, pas sur un Windows neuf. Il lance enfin les pages principales depuis l'archive extraite.
 
 ## Validation manuelle
 

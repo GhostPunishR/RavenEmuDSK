@@ -170,6 +170,23 @@ if(WIN32)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       $<TARGET_RUNTIME_DLLS:RavenEmuDSK> $<TARGET_FILE_DIR:RavenEmuDSK>
     COMMAND_EXPAND_LISTS VERBATIM)
+  # The Visual C++ runtime (vcruntime140.dll, msvcp140.dll...) beside the
+  # program, as Microsoft allows: RavenEmu then starts on a Windows without the
+  # "Visual C++ Redistributable". The C runtime (UCRT) is part of Windows 10
+  # and 11. tools/package_windows.py checks that nothing else is missing.
+  if(MSVC)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+    set(CMAKE_INSTALL_UCRT_LIBRARIES FALSE)
+    include(InstallRequiredSystemLibraries)
+    if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+      add_custom_command(TARGET RavenEmuDSK POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} $<TARGET_FILE_DIR:RavenEmuDSK>
+        COMMAND_EXPAND_LISTS VERBATIM)
+    else()
+      message(WARNING "Visual C++ runtime DLLs not found: the package would need the Visual C++ Redistributable")
+    endif()
+  endif()
 endif()
 
 # Use the unpadded RavenEmu icon for both the UI and SDL window icons.
