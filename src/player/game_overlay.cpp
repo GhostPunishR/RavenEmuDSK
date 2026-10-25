@@ -137,6 +137,8 @@ GameOverlay::GameOverlay(SDL_Window* window, SDL_Renderer* renderer,ravenemudsk_
     if (tv) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
     apply_theme();
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
+    // Every controller plugged in plays, the menu included.
+    ImGui_ImplSDL2_SetGamepadMode(ImGui_ImplSDL2_GamepadMode_AutoAll);
     ImGui_ImplSDLRenderer2_Init(renderer);
 }
 GameOverlay::~GameOverlay() {
@@ -563,7 +565,9 @@ void GameOverlay::draw_start_hint(const OverlayInfo& info, ImVec2 screen, ImDraw
                     with_alpha(color::text_muted, alpha), label);
     } else {
         // A controller whose Select or Start was moved: its chord, in words.
-        const std::string hint_text=info.hardcore?"Hardcore actif - chargement des états désactivé":
+        const std::string hint_text=info.two_players&&!info.pad?
+            "Échap : menu   \xC2\xB7   joueur 1 à gauche, joueur 2 à droite":
+            info.hardcore?"Hardcore actif - chargement des états désactivé":
             info.pad?pad_input_name(info.pads.input(KeyAction::Select),*info.pad)+" + "+
                 pad_input_name(info.pads.input(KeyAction::Start),*info.pad)+" : menu":
             "Échap : menu   \xC2\xB7   "+info.keyboard.label(KeyAction::Fullscreen)+" : plein écran   \xC2\xB7   "+
@@ -674,6 +678,25 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     // Opened with the controller: the keyboard shortcuts would not apply.
     const auto shortcut = [&](KeyAction a) { return pad_menu_ ? std::string() : info.keyboard.label(a); };
     if (menu_item(fonts_, m, "Reprendre la partie", Icon::Play, pad_menu_ ? nullptr : "Échap")) action = OverlayAction::Resume;
+    if (info.two_players) {
+        // Two games side by side: no states, achievements or cheats, which
+        // belong to single games.
+        if (menu_item(fonts_, m, "Échanger les joueurs", Icon::Gamepad, nullptr)) action = OverlayAction::SwapPlayers;
+        if (menu_item(fonts_, m, info.heard_player == 0 ? "Entendre le jeu du joueur 2" : "Entendre le jeu du joueur 1",
+                      Icon::Volume, nullptr))
+            action = OverlayAction::SwitchSound;
+        if (menu_item(fonts_, m, "Réinitialiser les deux consoles", Icon::Reset, shortcut(KeyAction::Reset).c_str()))
+            action = OverlayAction::Reset;
+        if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
+                              shortcut(KeyAction::Fullscreen).c_str()))
+            action = OverlayAction::ToggleFullscreen;
+        ImGui::Dummy({inner, space::sm});
+        p = ImGui::GetCursorScreenPos();
+        ImFont* note = tv_ ? fonts_.strong : fonts_.caption;
+        d->AddText(note, note->FontSize, {p.x + space::sm, p.y}, color::text_muted,
+                   ellipsize(note, info.players_note, inner - space::lg).c_str());
+        ImGui::Dummy({inner, note->FontSize + 4.f});
+    } else {
     // The state rows name their slot; left and right (or the wheel) change it,
     // and its picture shows beside the menu.
     const std::string slot = "emplacement " + std::to_string(info.state_slot);
@@ -716,6 +739,7 @@ OverlayAction GameOverlay::draw_pause_menu(const OverlayInfo& info, ImVec2 scree
     if (!tv_ && menu_item(fonts_, m, info.fullscreen ? "Quitter le plein écran" : "Plein écran", Icon::Fullscreen,
                           shortcut(KeyAction::Fullscreen).c_str()))
         action = OverlayAction::ToggleFullscreen;
+    }
     if (!info.link_partner.empty()) {
         ImGui::Dummy({inner, space::sm});
         p = ImGui::GetCursorScreenPos();

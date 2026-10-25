@@ -4,6 +4,48 @@
 
 namespace ravenemudsk_ui::shell {
 namespace {
+// "Jouer à deux": player 2's game, among those the link cable joins to this
+// one; both play side by side in one window.
+void pair_dialog(State& s, const Library& lib, const Game& game) {
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {.5f, .5f});
+    ImGui::SetNextWindowSize({std::min(560.f, ImGui::GetIO().DisplaySize.x - 48.f), 0.f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {space::xl, space::xl});
+    if (ImGui::BeginPopupModal("##pair", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushFont(s.fonts.title);
+        ImGui::TextUnformatted("Jouer à deux");
+        ImGui::PopFont();
+        const std::string intro = "Choisissez le jeu du joueur 2. Il se joue à droite de " + display_title(game) +
+                                  ", relié par le câble link, dans la même fenêtre.";
+        ImGui::TextWrapped("%s", intro.c_str());
+        ImGui::Dummy({0.f, space::xs});
+        std::vector<const Game*> partners;
+        for (const auto& other : lib.games())
+            if (other.path != game.path && linkable(game.system, other.system)) partners.push_back(&other);
+        if (partners.empty()) {
+            ImGui::PushFont(s.fonts.caption);
+            muted(game.system == "gba" ? "Aucun autre jeu Game Boy Advance dans la bibliothèque : ajoutez-en un."
+                                       : "Aucun autre jeu Game Boy ou Game Boy Color dans la bibliothèque : ajoutez-en un.");
+            ImGui::PopFont();
+        } else {
+            const float row = ImGui::GetFrameHeightWithSpacing();
+            ImGui::BeginChild("##partners", {0.f, std::min(320.f, row * static_cast<float>(partners.size()) + space::sm)});
+            for (const Game* other : partners) {
+                ImGui::PushID(utf8(other->path).c_str());
+                const std::string label = display_title(*other) + "  \xC2\xB7  " + system_name(other->system);
+                if (ImGui::Selectable(label.c_str())) {
+                    launch_pair(s, game, *other);
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+        }
+        ImGui::Dummy({0.f, space::xs});
+        if (button("Annuler", Icon::Close, ButtonStyle::Ghost)) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+}
 void detail_achievements(State& s, const Game& game) {
     const auto info = game_achievements(s, game);
     const float w = ImGui::GetContentRegionAvail().x;
@@ -108,6 +150,10 @@ void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
     ImGui::Dummy({0.f, space::xs});
     ImGui::PushID("detail");
     if (button("Jouer", Icon::Play, ButtonStyle::Primary, {w, 48.f})) launch(s, game);
+    if (button("Jouer à deux", Icon::Link, ButtonStyle::Secondary, {w, 38.f})) ImGui::OpenPopup("##pair");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Deux jeux reliés par le câble link, côte à côte : un échange de Pokémon, un duel...");
+    pair_dialog(s, lib, game);
     ImGui::PopID();
     ImGui::Dummy({0.f, space::xs});
     // Statistics as label / value rows.

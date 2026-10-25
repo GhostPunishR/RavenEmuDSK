@@ -208,6 +208,10 @@ void launch(State& s, const Game& game) {
     s.launch = LaunchRequest{game.system, utf8(game.path), s.tv};
     s.done = true;
 }
+void launch_pair(State& s, const Game& game, const Game& partner) {
+    s.launch = LaunchRequest{game.system, utf8(game.path), s.tv, partner.system, utf8(partner.path)};
+    s.done = true;
+}
 void notify(State& s, Toast::Kind kind, std::string title, std::string body) {
     s.toasts.push_back({kind, std::move(title), std::move(body)});
 }

@@ -144,6 +144,8 @@ std::vector<int> library_order(const Library& lib, int sort, const State* filter
 std::vector<int> recent_order(const Library& lib);
 const Game* chosen_game(const State& s, const Library& lib);
 void launch(State& s, const Game& game);
+// "Jouer à deux": `game` for player 1, `partner` beside it for player 2.
+void launch_pair(State& s, const Game& game, const Game& partner);
 void notify(State& s, Toast::Kind kind, std::string title, std::string body = {});
 void add_game(State& s, Library& lib);
 void import_folder(State& s, Library& lib, const fs::path& folder);

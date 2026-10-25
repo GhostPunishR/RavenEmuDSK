@@ -232,11 +232,16 @@ Folders app_folders() {
     return prepare_folders(roots);
 }
 // Needs no SDL subsystem; never quits SDL, which would close a kept TV window.
+bool linkable(const std::string& system, const std::string& other) {
+    const auto handheld = [](const std::string& s) { return s == "gb" || s == "gbc"; };
+    return (system == "gba" && other == "gba") || (handheld(system) && handheld(other));
+}
 void record_session(const LaunchRequest& request, unsigned long long seconds) {
     try {
         Library lib(data_file());
         lib.load();
         lib.mark_played(from_utf8(request.rom), seconds);
+        if (!request.partner_rom.empty()) lib.mark_played(from_utf8(request.partner_rom), seconds);
         lib.save();
     } catch (...) {}
 }

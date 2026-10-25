@@ -132,6 +132,18 @@ Chaque échange de données attend un aller-retour réseau : pendant que le câb
 
 Le réglage **Câble link sans fil**, dans **Réglages > Câble link**, est activé par défaut ; désactivé, RavenEmu ne s'annonce jamais sur le réseau. Au premier usage, le pare-feu de Windows, ou macOS (accès au réseau local), peut demander une autorisation : acceptez-la pour les réseaux privés. Sous Linux, un pare-feu actif doit laisser passer le port UDP 5353 (mDNS) et les connexions TCP entrantes de RavenEmu sur le réseau local. Les réseaux invités ou publics qui isolent les appareils empêchent la découverte.
 
+## Jouer à deux sur un même PC
+
+**Jouer à deux**, sous **Jouer** dans le panneau d'un jeu de la bibliothèque, relie ce jeu à un second par un câble link virtuel, côte à côte dans une même fenêtre : un échange ou un combat Pokémon, un duel de Tetris... Choisissez le jeu du joueur 2 parmi ceux qui se relient au premier : Game Boy et Game Boy Color entre eux, ou deux Game Boy Advance. Les deux jeux doivent être deux fichiers différents, puisque chacun garde sa propre sauvegarde, la même que lorsqu'il est joué seul.
+
+- Le joueur 1 joue à gauche, le joueur 2 à droite.
+- Le clavier joue le joueur 1. Avec une seule manette, elle joue le joueur 2 ; avec deux, la première branchée joue le joueur 1 et la seconde le joueur 2.
+- **Échanger les joueurs**, dans le menu de pause, inverse tout : pratique pour jouer seul aux deux jeux, par exemple pour s'échanger des Pokémon entre deux versions. Le menu rappelle qui joue quoi.
+- Un seul jeu s'entend, celui du joueur 1 au départ ; **Entendre le jeu du joueur 2** passe à l'autre.
+- Échap, ou Select + Start à l'une des manettes, ouvre le menu de pause, qui arrête les deux jeux. **Réinitialiser les deux consoles** les redémarre ensemble.
+
+Les états instantanés, le retour arrière, l'avance rapide, les codes de triche, les captures d'écran et RetroAchievements restent réservés aux jeux joués seuls. Au Game Boy Advance, le joueur 1 tient le rôle du parent.
+
 ## États instantanés
 
 Chaque jeu a neuf emplacements d'états. **F5** sauvegarde dans l'emplacement choisi et **F9** le recharge ; **F6** et **F7** passent à l'emplacement précédent ou suivant, et une notification indique s'il est vide ou quand il a été sauvegardé. Dans le menu de pause, les lignes **Sauvegarder l'état** et **Charger l'état** indiquent l'emplacement : les flèches gauche et droite (ou la croix de la manette, ou la molette sur la ligne) en changent. Une vignette montre alors, à côté du menu, l'image du jeu au moment de la sauvegarde et sa date.

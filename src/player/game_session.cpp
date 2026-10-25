@@ -166,6 +166,18 @@ struct GameScreen {
         if (window) SDL_DestroyWindow(window);
     }
 };
+// "Jouer à deux": player 2's game, beside the first and joined to it by
+// RavenCore's link cable on this computer. The cable closes before the cores.
+struct SecondPlayer {
+    fs::path rom_path,battery_path;
+    std::string title;
+    Core core{nullptr,&ravenemu_destroy};
+    std::unique_ptr<ravenemu_link,decltype(&ravenemu_link_destroy)> cable{nullptr,&ravenemu_link_destroy};
+    std::vector<std::uint32_t> pixels,shown;
+    ravenemudsk_ui::PictureFilter picture;
+    Ptr<SDL_Texture,SDL_DestroyTexture> texture{nullptr,SDL_DestroyTexture};
+    std::optional<ravenemudsk_ui::GameInput> input;
+};
 // One game, from its ROM to its last battery save. The members follow the
 // order in which the game opens them, so they close in the reverse order.
 class GameSession {
@@ -189,15 +201,21 @@ private:
     void handle_key(ravenemudsk_ui::KeyAction action);
     bool emulate(Clock::time_point now,bool waiting);
     void queue_sound(std::size_t samples,double speed);
+    void load_second();
     void add_controller(int device);
     void use_controller(SDL_GameController* chosen);
+    SDL_JoystickID owned_controller(const SDL_Event& e) const;
     SDL_JoystickID controller_of(const SDL_Event& e);
+    void route_pair(const SDL_Event& e);
+    int player_of(SDL_JoystickID controller) const;
+    void describe_players();
+    void reset_consoles();
     void start_motion();
     void feed_motion();
     void update_rumble(Clock::time_point now);
     void stop_rumble();
     void take_screenshot();
-    void use_gba_bios();
+    void use_gba_bios(ravenemu_bridge* target);
     void apply_cheats();
     void cheats_changed();
     bool rewind_allowed() const;
@@ -270,6 +288,14 @@ private:
     ravenemudsk_ui::Resampler resampler;
     std::vector<std::int16_t> resampled;
     std::optional<ravenemudsk_ui::GameInput> input;
+    // "Jouer à deux", and who plays what: the keyboard plays player 1, and so
+    // does the first controller when there are two; a lone controller plays
+    // player 2. Swapping exchanges them all. One game is heard, the other's
+    // sound dropped.
+    std::optional<SecondPlayer> second;
+    bool swapped=false;
+    int heard=0;
+    std::vector<std::int16_t> unheard;
     // The cartridge's sensors (RAVENEMU_SENSOR_*) and motor, on the controller.
     int sensors=0;
     ravenemudsk_ui::MotionInput motion;
@@ -303,7 +329,7 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     battery_path=ravenemudsk_ui::save_path(folders,rom_path,".sav");
     preview_path=ravenemudsk_ui::preview_path(folders,rom_path);
     if(req.system=="gb"&&prefs.gb_in_color)ravenemu_set_gbc_colors(core.get(),prefs.gb_colors);
-    if(req.system=="gba"&&prefs.gba_bios>0)use_gba_bios();
+    if(req.system=="gba"&&prefs.gba_bios>0)use_gba_bios(core.get());
     const auto battery=read_optional(battery_path,4u<<20);
     verify(ravenemu_load(core.get(),rom.data(),rom.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
            "Chargement ROM");
@@ -312,8 +338,10 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     fps=ravenemu_video_fps(core.get());
     if(w<1||w>1024||h<1||h>1024||!std::isfinite(fps)||fps<30||fps>120||hz<8000||hz>192000)
         throw std::runtime_error("Format audio ou vidéo RavenCore invalide");
+    if(!req.partner_rom.empty())load_second();
     sdl.emplace();
     title=ravenemudsk_ui::display_title({rom_path,req.system});
+    if(second)title+=" + "+second->title;
     open_screen();
     // Black at once, before the first emulated frame.
     SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
@@ -321,6 +349,13 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     if(!texture)throw std::runtime_error(SDL_GetError());
     // Sharp pixels whatever scaling hint the launcher left behind.
     SDL_SetTextureScaleMode(texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
+    if(second) {
+        second->texture.reset(SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,w,h));
+        if(!second->texture)throw std::runtime_error(SDL_GetError());
+        SDL_SetTextureScaleMode(second->texture.get(),prefs.smooth_image?SDL_ScaleModeLinear:SDL_ScaleModeNearest);
+        second->picture.configure(prefs.lcd_colors&&model_of(req.partner_system,prefs)!=RAVENEMU_GB,
+                                  static_cast<ravenemudsk_ui::FrameBlending>(prefs.frame_blending));
+    }
     SDL_AudioSpec spec{};
     spec.freq=hz;spec.format=AUDIO_S16SYS;spec.channels=2;
     // Blocks of at most five eighths of the target, a power of two: 1024
@@ -338,7 +373,8 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     sensors=ravenemu_sensors(core.get());
     if(sensors&RAVENEMU_SENSOR_SOLAR)ravenemu_set_solar_light(core.get(),prefs.solar_light*255/100);
     start_motion();
-    ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
+    // RetroAchievements follow single games only.
+    if(!second)ravenemudsk_ra::client().start_game(system_of(req.system),rom,core.get(),req.rom);
     pixels.resize(static_cast<std::size_t>(w)*h);
     shown.resize(pixels.size());
     picture.configure(prefs.lcd_colors&&model_of(req.system,prefs)!=RAVENEMU_GB,
@@ -348,17 +384,27 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     if(!bios_notice.empty())toast(ravenemudsk_ui::Toast::Kind::Info,"BIOS de RavenCore",bios_notice);
     if(output_missing)
         toast(ravenemudsk_ui::Toast::Kind::Info,"Sortie audio débranchée","Le son passe par celle du système.");
-    cheats_path=ravenemudsk_ui::save_path(folders,rom_path,".cheats");
-    cheats=ravenemudsk_ui::load_cheats(cheats_path);
-    info.cheats=&cheats;info.cheat_system=system_of(req.system);
-    apply_cheats();
+    if(!second) {
+        cheats_path=ravenemudsk_ui::save_path(folders,rom_path,".cheats");
+        cheats=ravenemudsk_ui::load_cheats(cheats_path);
+        info.cheats=&cheats;info.cheat_system=system_of(req.system);
+        apply_cheats();
+    }
     chime=prefs.unlock_sound?ravenemudsk_ui::unlock_chime(hz):std::vector<std::int16_t>{};
     input.emplace([this](int button, bool pressed) {
         ravenemu_set_button(core.get(),button,pressed);
     },prefs.keyboard,prefs.pads);
     // The stick tilts and turns the cartridges that have sensors.
-    input->set_stick_dpad(prefs.stick_dpad&&!(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION))?
-                          prefs.stick_dead_zone:0);
+    const bool tilting=!second&&(sensors&(RAVENEMU_SENSOR_TILT|RAVENEMU_SENSOR_ROTATION));
+    input->set_stick_dpad(prefs.stick_dpad&&!tilting?prefs.stick_dead_zone:0);
+    if(second) {
+        second->input.emplace([this](int button, bool pressed) {
+            ravenemu_set_button(second->core.get(),button,pressed);
+        },prefs.keyboard,prefs.pads);
+        second->input->set_stick_dpad(prefs.stick_dpad?prefs.stick_dead_zone:0);
+        info.two_players=true;
+        describe_players();
+    }
     info.game_title=title;info.system=req.system;
     refresh_slot();
     info.keyboard=prefs.keyboard;info.pads=prefs.pads;info.pad=family_of(pad);
@@ -366,9 +412,9 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     duration=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0/fps));
     pacer.emplace(fps);
     // 64 MB: from half a minute of action to several minutes of quieter play.
-    if(prefs.rewind)rewind.emplace(64u<<20);
+    if(prefs.rewind&&!second)rewind.emplace(64u<<20);
     // Idle until the game uses its link port: then it looks for a partner.
-    if(prefs.wireless_link) {
+    if(prefs.wireless_link&&!second) {
         link=std::make_unique<ravenemudsk_link::WirelessLink>(ravenemudsk_link::WirelessLink::Game{core.get(),
             &core_mutex,req.system=="gba"?ravenemudsk_link::family_gba:ravenemudsk_link::family_gb,title});
         info.link_own_label=link->view().own_label;
@@ -392,8 +438,15 @@ void GameSession::open_screen() {
     else {
         // The screen chosen in Réglages > Affichage, while it is connected.
         const int display=prefs.display>=0&&prefs.display<SDL_GetNumVideoDisplays()?prefs.display:0;
+        // Four times the console, three for two games side by side, within
+        // nine tenths of the screen.
+        int width=std::max(640,second?(2*w+w/16)*3:w*4),height=std::max(520,h*(second?3:4));
+        SDL_Rect usable{};
+        if(SDL_GetDisplayUsableBounds(display,&usable)==0&&usable.w>0&&usable.h>0) {
+            width=std::min(width,usable.w*9/10);height=std::min(height,usable.h*9/10);
+        }
         screen.window=SDL_CreateWindow(("RavenEmu - "+title).c_str(),
-        SDL_WINDOWPOS_CENTERED_DISPLAY(display),SDL_WINDOWPOS_CENTERED_DISPLAY(display),std::max(640,w*4),std::max(520,h*4),
+        SDL_WINDOWPOS_CENTERED_DISPLAY(display),SDL_WINDOWPOS_CENTERED_DISPLAY(display),width,height,
         SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE|(req.fullscreen?SDL_WINDOW_FULLSCREEN_DESKTOP:0));
     }
     if(!screen.window)throw std::runtime_error(SDL_GetError());
@@ -479,11 +532,13 @@ void GameSession::run() {
         while(SDL_PollEvent(&e))handle(e);
         input->update(SDL_GetTicks());
         if(link)update_link();
-        info.fast_forward=input->fast_forward()&&info.link_partner.empty()&&!paused;
+        // Neither faster nor backwards with two games: both would have to agree.
+        info.fast_forward=input->fast_forward()&&info.link_partner.empty()&&!paused&&!second;
         info.rewinding=input->rewind()&&rewind_allowed()&&!paused;
         if(!info.rewinding)info.rewind_end=false;
         const auto now=Clock::now();
-        const bool waiting=ravenemudsk_ra::client().frames_on_hold();
+        // Hardcore waits for RetroAchievements, which two games do without.
+        const bool waiting=!second&&ravenemudsk_ra::client().frames_on_hold();
         const bool produced=emulate(now,waiting);
         const bool idle=waiting||paused||overlay->menu_open()||link_holds();
         if(screen.vsync_off&&!produced&&!idle) {
@@ -504,6 +559,7 @@ void GameSession::run() {
         }
         if(now-last_save>std::chrono::seconds(30)) {
             save_battery(core.get(),battery_path);last_save=now;
+            if(second)save_battery(second->core.get(),second->battery_path);
         }
         draw(waiting);
         core_lock.unlock();
@@ -564,8 +620,15 @@ void GameSession::handle(const SDL_Event& e) {
             input->release_all();
             if(gone->get()==pad){pad=nullptr;rumbling=false;}
             controllers.erase(gone);
-            if(!pad&&!controllers.empty())use_controller(controllers.front().get());
-            if(!pad){info.pad.reset();motion=ravenemudsk_ui::MotionInput{};}
+            if(second) {
+                second->input->release_all();
+                if(!pad&&!controllers.empty())pad=controllers.front().get();
+                info.pad=family_of(pad);
+                describe_players();
+            } else {
+                if(!pad&&!controllers.empty())use_controller(controllers.front().get());
+                if(!pad){info.pad.reset();motion=ravenemudsk_ui::MotionInput{};}
+            }
         }
     }
     // "Relier le câble à…" takes the keys while it is up.
@@ -574,6 +637,10 @@ void GameSession::handle(const SDL_Event& e) {
         using Key=ravenemudsk_ui::KeyAction;
         handle_key(choosing||(overlay->menu_open()&&e.key.keysym.sym!=SDLK_ESCAPE)?
             Key::Count:prefs.keyboard.action(e.key.keysym.sym));
+    }
+    if(second) {
+        route_pair(e);
+        return;
     }
     // Back and Start together, in either order, open or close the menu,
     // and neither reaches the game. The Guide button stays with the
@@ -598,13 +665,13 @@ void GameSession::handle_key(ravenemudsk_ui::KeyAction action) {
                 paused=!paused;paused_unfocused=false;input->release_all();
             }
             break;
-        case Key::Reset:
-            input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();break;
-        case Key::SaveState:save_slot();break;
-        case Key::LoadState:load_slot();break;
-        case Key::PreviousSlot:select_slot(-1);break;
-        case Key::NextSlot:select_slot(1);break;
-        case Key::Screenshot:take_screenshot();break;
+        case Key::Reset:reset_consoles();break;
+        // States and screenshots belong to single games.
+        case Key::SaveState:if(!second)save_slot();break;
+        case Key::LoadState:if(!second)load_slot();break;
+        case Key::PreviousSlot:if(!second)select_slot(-1);break;
+        case Key::NextSlot:if(!second)select_slot(1);break;
+        case Key::Screenshot:if(!second)take_screenshot();break;
         case Key::Fullscreen:toggle_fullscreen();break;
         default:break;
     }
@@ -628,12 +695,21 @@ bool GameSession::emulate(Clock::time_point now,bool waiting) {
         const int frames=info.fast_forward?ravenemudsk_ui::fast_forward_speed:1;
         for(int frame=0;frame<frames;++frame) {
             feed_motion();
-            verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+            if(second) {
+                // Both games at once, over the cable; one of them is heard.
+                std::uint32_t* const out[]={pixels.data(),second->pixels.data()};
+                verify(ravenemu_link_run_frame(second->cable.get(),out,pixels.size())!=0,"Frame");
+                second->input->next_frame();
+                unheard.resize(pcm.size());
+                ravenemu_read_audio(heard==0?second->core.get():core.get(),unheard.data(),unheard.size());
+            } else {
+                verify(ravenemu_run_frame(core.get(),pixels.data(),pixels.size())!=0,"Frame");
+                update_rumble(now);
+            }
             input->next_frame();
-            update_rumble(now);
             if(link)link->set_wanted(ravenemu_link_wanted(core.get())!=0);
             ravenemudsk_ra::client().pump(true);
-            const auto n=ravenemu_read_audio(core.get(),pcm.data(),pcm.size());
+            const auto n=ravenemu_read_audio(heard==1&&second?second->core.get():core.get(),pcm.data(),pcm.size());
             effects.mix(pcm.data(),n);
             ravenemudsk_ui::scale_volume(pcm.data(),n,prefs.volume);
             queue_sound(n,frames);
@@ -641,6 +717,10 @@ bool GameSession::emulate(Clock::time_point now,bool waiting) {
         }
         picture.apply(pixels.data(),shown.data(),pixels.size());
         SDL_UpdateTexture(texture.get(),nullptr,shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+        if(second) {
+            second->picture.apply(second->pixels.data(),second->shown.data(),second->pixels.size());
+            SDL_UpdateTexture(second->texture.get(),nullptr,second->shown.data(),w*static_cast<int>(sizeof(std::uint32_t)));
+        }
         last_frame=now;refreshes=0;
         next=pacer->locked()?now+duration:next+duration;
         if(now>next+std::chrono::milliseconds(150))next=now+duration;
@@ -672,8 +752,40 @@ void GameSession::queue_sound(std::size_t samples,double speed) {
                       pacer->audio_ratio()*ravenemudsk_ui::rate_correction(audio_level,audio_target)/speed,resampled);
     SDL_QueueAudio(audio_device,resampled.data(),static_cast<Uint32>(resampled.size()*sizeof(std::int16_t)));
 }
+// "Jouer à deux": player 2's game with its battery save, linked to the
+// first one: two different cartridges of the same family, the same size and
+// sound.
+void GameSession::load_second() {
+    if(!ravenemudsk_ui::linkable(req.system,req.partner_system))
+        throw std::runtime_error("Ces deux jeux ne se relient pas : Game Boy et Game Boy Color ensemble, "
+                                 "ou deux Game Boy Advance.");
+    auto& p=second.emplace();
+    p.rom_path=ravenemudsk_ui::from_utf8(req.partner_rom);
+    std::error_code same;
+    if(fs::equivalent(rom_path,p.rom_path,same))
+        throw std::runtime_error("Choisissez deux jeux différents : une cartouche n’a qu’une sauvegarde.");
+    p.title=ravenemudsk_ui::display_title({p.rom_path,req.partner_system});
+    const auto bytes=read_file(p.rom_path,64u<<20);
+    p.core=Core(ravenemu_create(model_of(req.partner_system,prefs)),&ravenemu_destroy);
+    verify(bool(p.core),"Création RavenCore");
+    if(req.partner_system=="gb"&&prefs.gb_in_color)ravenemu_set_gbc_colors(p.core.get(),prefs.gb_colors);
+    if(req.partner_system=="gba"&&prefs.gba_bios>0)use_gba_bios(p.core.get());
+    p.battery_path=ravenemudsk_ui::save_path(folders,p.rom_path,".sav");
+    const auto battery=read_optional(p.battery_path,4u<<20);
+    verify(ravenemu_load(p.core.get(),bytes.data(),bytes.size(),battery.empty()?nullptr:battery.data(),battery.size())!=0,
+           "Chargement ROM");
+    if(ravenemu_video_width(p.core.get())!=w||ravenemu_video_height(p.core.get())!=h||
+       ravenemu_audio_rate(p.core.get())!=hz)
+        throw std::runtime_error("Les deux jeux n’ont pas le même format audio ou vidéo");
+    ravenemu_bridge* const handles[]={core.get(),p.core.get()};
+    p.cable.reset(ravenemu_link_create(handles,2));
+    verify(bool(p.cable),"Câble link");
+    p.pixels.resize(static_cast<std::size_t>(w)*h);
+    p.shown.resize(p.pixels.size());
+}
 // A controller plugged in, at the start or later, once: SDL announces again
-// those already there when the game opens it.
+// those already there when the game opens it. With two games, who plays what
+// may change: both let go of everything.
 void GameSession::add_controller(int device) {
     if(!SDL_IsGameController(device))return;
     const auto id=SDL_JoystickGetDeviceInstanceID(device);
@@ -685,6 +797,29 @@ void GameSession::add_controller(int device) {
         pad=controllers.back().get();info.pad=family_of(pad);
         if(input)start_motion();
     }
+    if(second&&second->input) {
+        input->release_all();second->input->release_all();
+        describe_players();
+    }
+}
+// The player (0 or 1) a controller plays in "Jouer à deux".
+int GameSession::player_of(SDL_JoystickID controller) const {
+    const auto at=std::find_if(controllers.begin(),controllers.end(),
+                               [&](const auto& c){return instance_of(c.get())==controller;});
+    const int player=controllers.size()==1||at!=controllers.begin()?1:0;
+    return swapped?1-player:player;
+}
+// "Joueur 1 : clavier  ·  Joueur 2 : manette 1", for the menu.
+void GameSession::describe_players() {
+    std::string players[2];
+    const auto add=[&](int player,const std::string& device) {
+        players[player]+=(players[player].empty()?"":", ")+device;
+    };
+    add(swapped?1:0,"clavier");
+    for(std::size_t i=0;i<controllers.size();++i)
+        add(player_of(instance_of(controllers[i].get())),"manette "+std::to_string(i+1));
+    info.players_note="Joueur 1 : "+(players[0].empty()?std::string("aucune commande"):players[0])+"  \xC2\xB7  Joueur 2 : "+
+                      (players[1].empty()?std::string("aucune commande"):players[1]);
 }
 // Another controller takes over: what the previous one held is let go, its
 // motor and sensors stop.
@@ -704,19 +839,57 @@ void GameSession::use_controller(SDL_GameController* chosen) {
 // never hands over: a badly calibrated device could otherwise take it all
 // the time.
 SDL_JoystickID GameSession::controller_of(const SDL_Event& e) {
+    const SDL_JoystickID which=owned_controller(e);
+    if(which<0)return -1;
+    SDL_GameController* owned=SDL_GameControllerFromInstanceID(which);
+    if(owned!=pad) {
+        // Its releases: of what the handover already let go.
+        if(e.type!=SDL_CONTROLLERBUTTONDOWN)return -1;
+        use_controller(owned);
+    }
+    return which;
+}
+// The game's controller behind a button or an axis, or -1.
+SDL_JoystickID GameSession::owned_controller(const SDL_Event& e) const {
     SDL_JoystickID which=-1;
     if(e.type==SDL_CONTROLLERBUTTONDOWN||e.type==SDL_CONTROLLERBUTTONUP)which=e.cbutton.which;
     else if(e.type==SDL_CONTROLLERAXISMOTION)which=e.caxis.which;
     else return -1;
-    const auto owned=std::find_if(controllers.begin(),controllers.end(),
-                                  [&](const auto& c){return instance_of(c.get())==which;});
-    if(owned==controllers.end())return -1;
-    if(owned->get()!=pad) {
-        // Its releases: of what the handover already let go.
-        if(e.type!=SDL_CONTROLLERBUTTONDOWN)return -1;
-        use_controller(owned->get());
+    for(const auto& c:controllers)if(instance_of(c.get())==which)return which;
+    return -1;
+}
+// "Jouer à deux": the keyboard's keys to its player, a controller's input to
+// its own; the rest (focus lost) to both. The menu chord of either opens the
+// menu, which stops both games.
+void GameSession::route_pair(const SDL_Event& e) {
+    auto& one=*input;
+    auto& two=*second->input;
+    const bool held=overlay->menu_open()||paused;
+    one.set_menu_open(held);two.set_menu_open(held);
+    bool chord=false;
+    if(e.type==SDL_KEYDOWN||e.type==SDL_KEYUP)chord=(swapped?two:one).process_event(e);
+    else if(const auto which=owned_controller(e);which>=0) {
+        // The last one pressed names the buttons in the menu.
+        if(e.type==SDL_CONTROLLERBUTTONDOWN){pad=SDL_GameControllerFromInstanceID(which);info.pad=family_of(pad);}
+        chord=(player_of(which)==0?one:two).process_event(e,which);
+    } else {
+        one.process_event(e);two.process_event(e);
     }
-    return which;
+    if(chord) {
+        if(overlay->menu_open())overlay->close_menu();
+        else overlay->open_menu(true);
+        one.release_all();two.release_all();
+    }
+}
+// Réinitialiser: both consoles in "Jouer à deux".
+void GameSession::reset_consoles() {
+    input->release_all();
+    verify(ravenemu_reset(core.get())!=0,"Reset");
+    if(second) {
+        second->input->release_all();
+        verify(ravenemu_reset(second->core.get())!=0,"Reset");
+    }
+    ravenemudsk_ra::client().reset();overlay->clear_retro();
 }
 // The controller's accelerometer and gyroscope, for a game that tilts or
 // turns: switched on (they cost battery), the controller's position as level.
@@ -785,12 +958,12 @@ void GameSession::cheats_changed() {
 }
 // The player's own GBA BIOS, BIOS/gba_bios.bin, before the game loads; RavenCore's
 // own answers the BIOS calls when it is missing or not a BIOS.
-void GameSession::use_gba_bios() {
+void GameSession::use_gba_bios(ravenemu_bridge* target) {
     const auto file=folders.bios/"gba_bios.bin";
     std::vector<std::uint8_t> bios;
     try { bios=read_optional(file,1u<<20); } catch(const std::exception&) { bios.clear(); }
     if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier BIOS : le jeu démarre avec le BIOS de RavenCore.";
-    else if(!ravenemu_set_gba_bios(core.get(),bios.data(),bios.size(),prefs.gba_bios==2))
+    else if(!ravenemu_set_gba_bios(target,bios.data(),bios.size(),prefs.gba_bios==2))
         bios_notice="gba_bios.bin ne fait pas 16 Kio : le jeu démarre avec le BIOS de RavenCore.";
 }
 // Not in Hardcore (RetroAchievements forbids it), nor over the link cable,
@@ -925,10 +1098,20 @@ void GameSession::draw(bool waiting) {
     SDL_RenderClear(renderer);
     int out_w=0,out_h=0;
     SDL_GetRendererOutputSize(renderer,&out_w,&out_h);
-    const SDL_Rect rect=ravenemudsk_ui::picture_rect(out_w,out_h,w,h,prefs.integer_scale);
-    SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
-    info.hardcore=retro.hardcore();
-    info.hardcore_preferred=retro.snapshot().hardcore_preferred;
+    if(second) {
+        // Player 1 on the left, player 2 on the right, a sixteenth apart.
+        const int gap=w/16;
+        const SDL_Rect both=ravenemudsk_ui::picture_rect(out_w,out_h,2*w+gap,h,prefs.integer_scale);
+        const int one=both.w*w/(2*w+gap);
+        const SDL_Rect left{both.x,both.y,one,both.h},right{both.x+both.w-one,both.y,one,both.h};
+        SDL_RenderCopy(renderer,texture.get(),nullptr,&left);
+        SDL_RenderCopy(renderer,second->texture.get(),nullptr,&right);
+    } else {
+        const SDL_Rect rect=ravenemudsk_ui::picture_rect(out_w,out_h,w,h,prefs.integer_scale);
+        SDL_RenderCopy(renderer,texture.get(),nullptr,&rect);
+    }
+    info.hardcore=!second&&retro.hardcore();
+    info.hardcore_preferred=!second&&retro.snapshot().hardcore_preferred;
     info.hardcore_waiting=waiting;
     info.retro_status=waiting?retro.snapshot().status:retro.snapshot().rich_presence;
     info.paused=paused;
@@ -955,8 +1138,12 @@ void GameSession::apply(Action action) {
                 toast(ravenemudsk_ui::Toast::Kind::Info,"Mode non mémorisé","Le choix reste valable pour cette session.");
             apply_cheats();
             overlay->close_menu();paused=paused_unfocused=false;break;
-        case Action::Reset:
-            input->release_all();verify(ravenemu_reset(core.get())!=0,"Reset");ravenemudsk_ra::client().reset();overlay->clear_retro();overlay->close_menu();break;
+        case Action::Reset:reset_consoles();overlay->close_menu();break;
+        case Action::SwapPlayers:
+            swapped=!swapped;input->release_all();second->input->release_all();describe_players();
+            toast(ravenemudsk_ui::Toast::Kind::Info,"Joueurs échangés",info.players_note);
+            break;
+        case Action::SwitchSound:heard=1-heard;info.heard_player=heard;resampler.reset();break;
         case Action::ToggleFullscreen:
             SDL_SetWindowFullscreen(window,info.fullscreen?0:SDL_WINDOW_FULLSCREEN_DESKTOP);break;
         case Action::Quit:running=false;break;
@@ -975,6 +1162,7 @@ void GameSession::finish() {
         SDL_SetRenderDrawColor(renderer,0,0,0,255);SDL_RenderClear(renderer);SDL_RenderPresent(renderer);
     }
     save_battery(core.get(),battery_path);
+    if(second)save_battery(second->core.get(),second->battery_path);
     if(!pixels.empty()) {
         SDL_Surface* bitmap=SDL_CreateRGBSurfaceWithFormatFrom(shown.data(),w,h,32,
             w*static_cast<int>(sizeof(std::uint32_t)),SDL_PIXELFORMAT_ARGB8888);
