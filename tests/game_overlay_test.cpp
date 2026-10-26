@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include <ravenemudsk/player/game_overlay.hpp>
+#include <ravenemudsk/ui/widgets.hpp>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -296,6 +298,43 @@ void pad_buttons(SDL_Window* window,SDL_Renderer* renderer){
         overlay.close_menu();
     }
 }
+// Long titles on the banner, a game's when it starts: broken between words on
+// two lines rather than cut, "…" only past two lines; the desktop banner as
+// wide as the window allows.
+void long_titles(SDL_Window* window,SDL_Renderer* renderer){
+    ravenemudsk_ra::Client client(nullptr,[](const auto&,const auto&,const auto&){return ravenemudsk_ra::ServerReply{"",-2};});
+    GameOverlay overlay(window,renderer,&client,false);OverlayInfo info;info.game_title="Long titles";info.system="gba";
+    SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);
+    ImFont* font=ImGui::GetIO().Fonts->Fonts[0];
+    const auto width=[&](const std::string& s){return font->CalcTextSizeA(font->FontSize,FLT_MAX,0.f,s.c_str()).x;};
+    const std::string title="Pok\xC3\xA9mon Donjon Myst\xC3\xA8re : \xC3\x89quipe de Secours Rouge";
+    const float space=width(title)*.62f;
+    const auto lines=wrap_lines(font,title,space,2);
+    require(lines.size()==2&&lines[0]+" "+lines[1]==title&&width(lines[0])<=space&&width(lines[1])<=space,
+        "A long title is broken between words, whole");
+    const auto cut=wrap_lines(font,title,space*.4f,2);
+    require(cut.size()==2&&cut[1].ends_with("\xE2\x80\xA6")&&width(cut[1])<=space*.4f,"Past two lines, the second ends with an ellipsis");
+    require(wrap_lines(font,"Tetris",space,2)==std::vector<std::string>{"Tetris"},"A short title keeps one line");
+    ImFont* small=font;
+    for(ImFont* f:ImGui::GetIO().Fonts->Fonts)if(f->FontSize<small->FontSize)small=f;
+    const auto fits=banner_title(font,small,title,space,2.f*font->FontSize);
+    require(fits.font==font&&fits.lines.size()==2,"Two lines of the title's font when the band holds them");
+    const auto smaller=banner_title(font,small,title,space,font->FontSize);
+    require(smaller.font==small,"A smaller font when two lines would not fit in the band");
+    require(banner_title(font,small,"Tetris",space,font->FontSize).lines.size()==1,"A title that fits stays on one line");
+    require(unlock_banner_style({1920.f,1080.f},false).max_width==1900.f,"The desktop banner may span the window");
+    // The banner of a game that starts, in a small window: drawn, inside the window.
+    SDL_SetWindowSize(window,480,432);
+    overlay.retro_event({"info","Succ\xC3\xA8s disponibles",title,"",""});
+    const Uint64 start=SDL_GetTicks64();
+    while(SDL_GetTicks64()-start<900){SDL_PumpEvents();SDL_RenderClear(renderer);overlay.draw(info);SDL_RenderPresent(renderer);SDL_Delay(10);}
+    ImVec4 box{1e9f,1e9f,-1e9f,-1e9f};
+    for(const auto& v:ImGui::GetForegroundDrawList()->VtxBuffer){
+        box.x=std::min(box.x,v.pos.x);box.y=std::min(box.y,v.pos.y);box.z=std::max(box.z,v.pos.x);box.w=std::max(box.w,v.pos.y);
+    }
+    require(box.z>box.x&&box.x>=8.f&&box.z<=480.f-6.f,"The banner stays inside a small window");
+    SDL_SetWindowSize(window,1024,768);
+}
 // A virtual controller: ImGui reads its buttons as it reads a plugged one.
 struct VirtualPad{
     int index=-1;SDL_Joystick* joystick=nullptr;
@@ -367,6 +406,6 @@ int main(){
     SDL_Window* window=SDL_CreateWindow("Overlay regression",0,0,1024,768,0);
     require(window!=nullptr,"SDL window failed");SDL_Renderer* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     require(renderer!=nullptr,"SDL renderer failed");
-    navigation(window,renderer);state_slots(window,renderer);cheats_window(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
-    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, state slots, cheats, link cable, TV cards, controller buttons, TV menu passed\n";
+    navigation(window,renderer);state_slots(window,renderer);cheats_window(window,renderer);link_cable(window,renderer);tv_cards(window,renderer);long_titles(window,renderer);pad_buttons(window,renderer);tv_menu(window,renderer);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();
+    std::cout<<"Keyboard overlay navigation, Hardcore load exclusion, achievement access and small-window layout, state slots, cheats, link cable, TV cards, long titles, controller buttons, TV menu passed\n";
 }

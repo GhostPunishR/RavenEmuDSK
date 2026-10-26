@@ -58,7 +58,7 @@ bool button(const char* label, Icon icon, ButtonStyle style, ImVec2 size, bool w
     switch (style) {
     case ButtonStyle::Primary:
         bg = held ? color::accent : hovered ? color::accent_hover : color::accent;
-        fg = IM_COL32_WHITE;
+        fg = color::on_accent;
         break;
     case ButtonStyle::Secondary:
         bg = hovered ? color::surface_hover : color::surface;
@@ -184,6 +184,25 @@ std::string ellipsize(ImFont* font, const std::string& text, float max_width) {
         if (width(out + "\xE2\x80\xA6") <= max_width) return out + "\xE2\x80\xA6";
     }
     return "\xE2\x80\xA6";
+}
+
+std::vector<std::string> wrap_lines(ImFont* font, const std::string& text, float max_width, int max_lines) {
+    std::vector<std::string> lines;
+    const char* s = text.c_str();
+    const char* const end = s + text.size();
+    while (s < end && static_cast<int>(lines.size()) + 1 < max_lines) {
+        const char* cut = font->CalcWordWrapPositionA(1.f, s, end, max_width);
+        if (cut >= end) break;
+        if (cut <= s) cut = s + 1;
+        while (cut < end && (static_cast<unsigned char>(*cut) & 0xC0) == 0x80) ++cut; // whole characters
+        std::string line(s, cut);
+        while (!line.empty() && line.back() == ' ') line.pop_back();
+        lines.push_back(std::move(line));
+        s = cut;
+        while (s < end && *s == ' ') ++s;
+    }
+    lines.push_back(ellipsize(font, std::string(s, end), max_width));
+    return lines;
 }
 
 void draw_cover(ImDrawList* d, ImVec2 min, ImVec2 max, const std::string& title,

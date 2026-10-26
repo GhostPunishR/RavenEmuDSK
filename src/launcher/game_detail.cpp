@@ -197,7 +197,7 @@ void detail_panel(State& s, Library& lib, int index, ImVec2 pos, ImVec2 size) {
         else { s.path_target = PathTarget::Cover; s.open_manual = true; }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-        ImGui::SetTooltip("PNG, JPEG ou BMP, copiée dans le dossier Jaquettes.\nAstuce : glissez une image sur la fenêtre.");
+        ImGui::SetTooltip("PNG, JPEG ou BMP, copiée dans le dossier jaquettes.\nAstuce : glissez une image sur la fenêtre.");
     if (button("Retirer de la bibliothèque", Icon::Trash, ButtonStyle::Danger, {w, 38.f})) {
         const auto title = display_title(game);
         lib.remove(game.path);

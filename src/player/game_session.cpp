@@ -323,6 +323,7 @@ GameSession::GameSession(const ravenemudsk_ui::LaunchRequest& request) : req(req
     verify(ravenemu_api_version()==RAVENEMU_API_VERSION,"Version ABI RavenCore");
     system_of(req.system); // an unknown console stops here, before anything opens
     prefs=ravenemudsk_ui::game_preferences();
+    ravenemudsk_ui::set_theme(static_cast<ravenemudsk_ui::Theme>(prefs.theme));
     core=Core(ravenemu_create(model_of(req.system,prefs)),&ravenemu_destroy);
     verify(bool(core),"Création RavenCore");
     folders=ravenemudsk_ui::app_folders();
@@ -962,7 +963,7 @@ void GameSession::use_gba_bios(ravenemu_bridge* target) {
     const auto file=folders.bios/"gba_bios.bin";
     std::vector<std::uint8_t> bios;
     try { bios=read_optional(file,1u<<20); } catch(const std::exception&) { bios.clear(); }
-    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier BIOS : le jeu démarre avec le BIOS de RavenCore.";
+    if(bios.empty())bios_notice="Aucun gba_bios.bin dans le dossier bios : le jeu démarre avec le BIOS de RavenCore.";
     else if(!ravenemu_set_gba_bios(target,bios.data(),bios.size(),prefs.gba_bios==2))
         bios_notice="gba_bios.bin ne fait pas 16 Kio : le jeu démarre avec le BIOS de RavenCore.";
 }
@@ -1094,7 +1095,8 @@ bool GameSession::link_holds() const {
 // The picture scaled into the window, the overlay over it, then its action.
 void GameSession::draw(bool waiting) {
     auto& retro=ravenemudsk_ra::client();
-    SDL_SetRenderDrawColor(renderer,11,12,18,255);
+    const auto background=ravenemudsk_ui::rgb(ravenemudsk_ui::color::background);
+    SDL_SetRenderDrawColor(renderer,background.r,background.g,background.b,255);
     SDL_RenderClear(renderer);
     int out_w=0,out_h=0;
     SDL_GetRendererOutputSize(renderer,&out_w,&out_h);

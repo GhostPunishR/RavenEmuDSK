@@ -14,7 +14,7 @@ Aucune ROM commerciale n'est fournie. L'émulation ne nécessite pas de compte R
 
 Le bouton **Mode TV** de la barre latérale active la navigation sans curseur de souris.
 
-Les indications montrent les boutons de la manette branchée (Xbox, PlayStation, Nintendo ou générique). Dans le mode TV, Start (ou Échap) ouvre un menu : **Reprendre**, **Mode bureau** ou **Quitter RavenEmu** ; une simple pression ne ramène plus au mode bureau. En mode TV, le lanceur et le jeu partagent la même fenêtre plein écran et le même rendu : aucune fenêtre ne s'ouvre ni ne se ferme entre les deux, le bureau n'apparaît jamais. Le mode TV vaut pour la session : il revient après une partie, mais RavenEmu démarre toujours en mode bureau. En jeu, un succès débloqué s'annonce par un bandeau en haut au centre, en mode TV comme en mode bureau, où il est plus compact : son badge descend, le bandeau s'ouvre de part et d'autre avec « Succès débloqué », les points et le titre, puis se replie dans le badge, qui remonte. Au lancement d'un jeu reconnu, le bandeau montre l'icône du jeu, son titre et si des succès sont disponibles. Un jeu maîtrisé ou terminé, les classements et les avis du service ont le même bandeau. La progression et les défis sont agrandis pour être lus à distance. Tout reste dans une marge de sécurité de l'écran.
+Les indications montrent les boutons de la manette branchée (Xbox, PlayStation, Nintendo ou générique). Dans le mode TV, Start (ou Échap) ouvre un menu : **Reprendre**, **Mode bureau** ou **Quitter RavenEmu** ; une simple pression ne ramène plus au mode bureau. En mode TV, le lanceur et le jeu partagent la même fenêtre plein écran et le même rendu : aucune fenêtre ne s'ouvre ni ne se ferme entre les deux, le bureau n'apparaît jamais. Le mode TV vaut pour la session : il revient après une partie, mais RavenEmu démarre toujours en mode bureau. En jeu, un succès débloqué s'annonce par un bandeau en haut au centre, en mode TV comme en mode bureau, où il est plus compact : son badge descend, le bandeau s'ouvre de part et d'autre avec « Succès débloqué », les points et le titre, puis se replie dans le badge, qui remonte. Au lancement d'un jeu reconnu, le bandeau montre l'icône du jeu, son titre et si des succès sont disponibles. Un titre long, de jeu ou de succès, passe sur deux lignes plutôt que d'être coupé ; en mode bureau, le bandeau peut s'étendre sur toute la largeur de la fenêtre. Un jeu maîtrisé ou terminé, les classements et les avis du service ont le même bandeau. La progression et les défis sont agrandis pour être lus à distance. Tout reste dans une marge de sécurité de l'écran.
 
 ## Commandes clavier en jeu
 
@@ -48,6 +48,7 @@ Les boutons de la manette se configurent de la même façon, dans la colonne **M
 
 Dans **Réglages > Affichage** :
 
+- **Thème** choisit les couleurs de l'interface et du menu en jeu : **RavenEmu**, le violet de l'application Android, ou **NVIDIA**, le vert NVIDIA sur fond noir et gris. Le changement s'applique tout de suite.
 - **Lisser l’image** adoucit les pixels quand l'image du jeu est agrandie ; désactivé, par défaut, les pixels restent nets comme sur la console.
 - **Mise à l’échelle entière** agrandit l'image un nombre entier de fois : chaque pixel de la console a la même taille, avec des bandes noires plus larges.
 - **Couleurs de l’écran LCD** donne aux jeux Game Boy Color et Game Boy Advance des couleurs moins saturées et un peu plus sombres, comme sur l'écran de la console (la même correction que RavenEmu Android).
@@ -90,7 +91,7 @@ Quand vous passez à une autre fenêtre, le jeu se met en pause (« Pause · la 
 
 - **Jeux Game Boy en couleurs** : les jeux Game Boy tournent sur une Game Boy Color. Ils prennent les couleurs que sa boot ROM leur choisit (Pokémon Rouge en rouge, Bleu en bleu...), ou celles d'une combinaison de touches tenue pendant son logo : brun, rouge, sépia, bleu, gris, pastel, négatif...
 - **Game Boy Color d'une Game Boy Advance** : des jeux comme Zelda Oracle ou Shantae débloquent alors leurs bonus.
-- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `BIOS`, à côté de `Sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
+- **BIOS** de la Game Boy Advance : celui de RavenCore par défaut, ou le vrai, avec ou sans son animation de démarrage. Placez `gba_bios.bin` (16 Kio, le BIOS d'une console) dans le dossier `bios`, à côté de `sauvegardes` ; aucun BIOS n'est fourni. S'il manque, un message le dit et le jeu démarre avec le BIOS de RavenCore.
 
 Ces réglages sont pris en compte au lancement du jeu suivant. Un état ne se recharge que dans le mode qui l'a créé : même console, même BIOS. Les succès RetroAchievements restent ceux du jeu, quelle que soit la console.
 
@@ -163,11 +164,11 @@ RavenCore vérifie le code avant de l'accepter ; un code refusé affiche la rais
 
 ## Captures d'écran
 
-**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `Captures`, à côté de `Sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
+**F8**, ou **Capture d'écran** dans le menu de pause, enregistre la dernière image du jeu, sans le menu ni les notifications, à la taille de la console (160 × 144 ou 240 × 160 pixels). Le fichier PNG va dans le dossier `captures`, à côté de `sauvegardes`, sous le nom du jeu suivi de la date et de l'heure. **Réglages > Bibliothèque** l'ouvre. En mode TV, le menu n'a pas cette entrée, faute de place : F8 reste disponible au clavier.
 
 ## Sauvegardes et jaquettes
 
-Sous Windows et Linux, l'application utilise les dossiers `Sauvegardes` et `Jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**.
+Sous Windows et Linux, l'application utilise les dossiers `sauvegardes` et `jaquettes` à côté de l'exécutable. Si cet emplacement n'est pas accessible en écriture, elle essaie son dossier de données utilisateur. L'application `.app` macOS place ces dossiers dans les données utilisateur pour préserver sa signature ; une compilation macOS en exécutable simple garde le comportement portable. Les chemins utilisés sont affichés dans **Réglages**. Les anciennes versions nommaient ces dossiers avec une majuscule (`Sauvegardes`, `Jaquettes`, `Captures`, `BIOS`) : RavenEmu les renomme en minuscules au lancement, avec leur contenu. Si un dossier des deux noms existe déjà, comme sous Linux où la casse compte, les fichiers sont réunis dans le dossier en minuscules, sans remplacer un fichier existant.
 
 La bibliothèque et les réglages sont enregistrés séparément dans le dossier de données utilisateur `RavenEmu` : `%APPDATA%\RavenEmu` sous Windows, `~/.local/share/RavenEmu` sous Linux et `~/Library/Application Support/RavenEmu` sous macOS. Copier une ROM ne transfère donc pas automatiquement sa progression : conservez également vos sauvegardes.
 

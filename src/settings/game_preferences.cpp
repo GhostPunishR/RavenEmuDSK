@@ -19,6 +19,7 @@ GamePreferences game_preferences(const Settings& settings) {
     prefs.lcd_colors = settings.flag("lcd_colors", false);
     prefs.frame_blending = std::clamp(settings.number("frame_blending", 0), 0, 2);
     prefs.pause_unfocused = settings.flag("pause_unfocused", true);
+    prefs.theme = std::clamp(settings.number("theme", 0), 0, 1);
     prefs.display = settings.number("display", 0);
     prefs.refresh_switch = settings.flag("refresh_switch", true);
     prefs.variable_refresh = settings.flag("variable_refresh", false);

@@ -9,7 +9,7 @@
 | `src/desktop.cpp` | Point d'entrée : le lanceur, puis le jeu choisi, jusqu'à la fermeture. |
 | `src/player/` | La partie en cours : fenêtre, boucle d'images, sauvegardes, menu de pause dessiné par-dessus le jeu. |
 | `src/launcher/` | Lanceur, un fichier par écran (bibliothèque, fiche de jeu, profil, réglages, mode TV, mises à jour). |
-| `src/library/` | Bibliothèque de jeux, dossiers Sauvegardes et Jaquettes. |
+| `src/library/` | Bibliothèque de jeux, dossiers `sauvegardes` et `jaquettes`. |
 | `src/saves/` | États de jeu, couplés aux compteurs RetroAchievements. |
 | `src/input/` | Clavier et manette : attributions, combinaison du menu, noms et dessins des boutons. |
 | `src/audio/` | Son du jeu : volume et carillon des succès. |

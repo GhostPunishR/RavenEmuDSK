@@ -188,6 +188,14 @@ int main() {
     state.fonts = load_fonts(true);
     state.ra_images = std::make_unique<BadgeCache>(nullptr);
     apply_theme();
+    // Réglages > Affichage > Thème: NVIDIA's green on black, then RavenEmu's violet again.
+    set_theme(Theme::Nvidia);
+    require(color::accent == IM_COL32(118, 185, 0, 255) && color::on_accent == IM_COL32(0, 0, 0, 255) &&
+            color::background == IM_COL32(12, 12, 12, 255) && ImGui::GetStyle().Colors[ImGuiCol_CheckMark].y > .7f,
+            "NVIDIA theme");
+    set_theme(Theme::Raven);
+    require(color::accent == IM_COL32(167, 139, 250, 255) && color::on_accent == IM_COL32_WHITE &&
+            ImGui::GetStyle().Colors[ImGuiCol_CheckMark].y < .6f, "RavenEmu theme");
     unsigned char* pixels = nullptr;
     int width = 0, height = 0;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);

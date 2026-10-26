@@ -106,6 +106,20 @@ void percent_slider(State& s, const char* key, int fallback, bool disabled = fal
     ImGui::PopID();
 }
 void settings_display(State& s) {
+    begin_card("##theme");
+    card_title(s, Icon::Settings, "Thème");
+    const char* const themes[] = {theme_name(Theme::Raven), theme_name(Theme::Nvidia)};
+    int theme = std::clamp(s.settings.number("theme", 0), 0, theme_count - 1);
+    if (chips("##theme", themes, theme_count, &theme)) {
+        s.settings.set("theme", std::to_string(theme));
+        save_settings(s);
+        s.theme_change = static_cast<Theme>(theme);
+    }
+    ImGui::PushFont(s.fonts.caption);
+    muted("Les couleurs de l’interface et du menu en jeu : le violet de RavenEmu, ou le vert NVIDIA sur fond "
+          "noir. Appliqué tout de suite.");
+    ImGui::PopFont();
+    end_card();
     begin_card("##image");
     card_title(s, Icon::Fullscreen, "Image du jeu");
     setting_switch(s, "smooth_image", false, "Lisser l’image",
@@ -570,7 +584,7 @@ void settings_view(State& s, Library& lib) {
         {SettingsCategory::Library, Icon::Library, "Bibliothèque",
          "Importez vos jeux et retrouvez vos sauvegardes et jaquettes."},
         {SettingsCategory::Display, Icon::Fullscreen, "Affichage",
-         "Choisissez comment l’image du jeu est agrandie et rendue, l’écran, la latence et la pause en arrière-plan."},
+         "Choisissez le thème, comment l’image du jeu est agrandie et rendue, l’écran, la latence et la pause en arrière-plan."},
         {SettingsCategory::Sound, Icon::Volume, "Son",
          "Réglez le volume du jeu, sa sortie audio et sa latence."},
         {SettingsCategory::Controls, Icon::Gamepad, "Commandes",
